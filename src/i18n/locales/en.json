@@ -2330,6 +2330,33 @@
       "macOnlyTitle": "Private Skill Library is available on macOS only",
       "macOnlyDescription": "The private Skill Library is currently supported only on macOS."
     },
+    "projects": {
+      "title": "Project Workspaces",
+      "description": "Register project roots and deploy Library Skills per Consumer.",
+      "library": "Library",
+      "register": "Register project",
+      "registerSuccess": "Project Workspace registered",
+      "empty": "No Project Workspaces",
+      "emptyDescription": "Register a Git repository, worktree, or local directory to assign Skills.",
+      "deployments": "Project deployments",
+      "noLibrarySkills": "Acquire a Skill in the Library before deploying it.",
+      "deploy": "Deploy",
+      "undeploy": "Undeploy",
+      "deploySuccess": "Skill deployed to Project Workspace",
+      "undeploySuccess": "Skill undeployed from Project Workspace",
+      "deploymentFailed": "Project deployment failed",
+      "deploymentConflict": "Project target is occupied or drifted",
+      "rootKind": {
+        "git_repository": "Git repository",
+        "git_worktree": "Git worktree",
+        "non_git": "Local directory"
+      },
+      "lifecycle": {
+        "active": "Active",
+        "archived": "Archived",
+        "unavailable": "Unavailable"
+      }
+    },
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "repoManager": "Repository Management",

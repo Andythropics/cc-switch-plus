@@ -2330,6 +2330,33 @@
       "macOnlyTitle": "プライベートスキルライブラリは macOS 専用です",
       "macOnlyDescription": "プライベートスキルライブラリは現在 macOS でのみ利用できます。"
     },
+    "projects": {
+      "title": "プロジェクトワークスペース",
+      "description": "プロジェクトルートを登録し、コンシューマーごとにライブラリスキルをデプロイします。",
+      "library": "ライブラリ",
+      "register": "プロジェクトを登録",
+      "registerSuccess": "プロジェクトワークスペースを登録しました",
+      "empty": "プロジェクトワークスペースがありません",
+      "emptyDescription": "Git リポジトリ、ワークツリー、またはローカルディレクトリを登録してください。",
+      "deployments": "プロジェクトデプロイ",
+      "noLibrarySkills": "デプロイする前にライブラリへスキルを取得してください。",
+      "deploy": "デプロイ",
+      "undeploy": "解除",
+      "deploySuccess": "プロジェクトワークスペースへデプロイしました",
+      "undeploySuccess": "プロジェクトワークスペースから解除しました",
+      "deploymentFailed": "プロジェクトデプロイに失敗しました",
+      "deploymentConflict": "プロジェクトの対象が占有またはドリフトしています",
+      "rootKind": {
+        "git_repository": "Git リポジトリ",
+        "git_worktree": "Git ワークツリー",
+        "non_git": "ローカルディレクトリ"
+      },
+      "lifecycle": {
+        "active": "アクティブ",
+        "archived": "アーカイブ済み",
+        "unavailable": "利用不可"
+      }
+    },
     "refresh": "更新",
     "refreshing": "更新中...",
     "repoManager": "リポジトリ管理",

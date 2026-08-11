@@ -6,6 +6,7 @@ export { mcpApi } from "./mcp";
 export { profilesApi } from "./profiles";
 export { promptsApi } from "./prompts";
 export { skillsApi } from "./skills";
+export { projectWorkspacesApi } from "./projectWorkspaces";
 export { usageApi } from "./usage";
 export { subscriptionApi } from "./subscription";
 export { vscodeApi } from "./vscode";

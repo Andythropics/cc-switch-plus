@@ -15,6 +15,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::config::get_home_dir;
 use crate::database::Database;
+#[cfg(target_os = "macos")]
+use crate::services::project_workspace::{
+    add_git_exclude, project_target_root, remove_git_exclude,
+};
 use crate::services::skill::{ConsumerCompatibility, LibrarySkill};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -441,6 +445,23 @@ impl SkillDeploymentService {
         #[cfg(not(unix))]
         return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
 
+        #[cfg(target_os = "macos")]
+        let git_exclude_path = if target.workspace == WorkspaceKind::Project {
+            let project_root = target_path
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
+            match add_git_exclude(project_root, target.consumer, &skill.directory) {
+                Ok(path) => path,
+                Err(error) => {
+                    let _ = fs::remove_file(&target_path);
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
         if desired.is_none() {
             let now = Utc::now().timestamp();
             let row = crate::services::skill_deployment::DesiredDeployment {
@@ -452,10 +473,20 @@ impl SkillDeploymentService {
                 updated_at: now,
             };
             if let Err(error) = self.db.save_skill_deployment(&row) {
+                #[cfg(target_os = "macos")]
+                let exclude_rollback = git_exclude_path
+                    .as_ref()
+                    .map(|path| remove_git_exclude(path, target.consumer, &skill.directory));
                 let rollback = fs::remove_file(&target_path);
                 if let Err(rollback_error) = rollback {
                     return Err(anyhow!(
                         "database save failed ({error}); filesystem compensation failed ({rollback_error})"
+                    ));
+                }
+                #[cfg(target_os = "macos")]
+                if let Some(Err(rollback_error)) = exclude_rollback {
+                    return Err(anyhow!(
+                        "database save failed ({error}); Git exclude compensation failed ({rollback_error})"
                     ));
                 }
                 return Err(error.into());
@@ -530,6 +561,29 @@ impl SkillDeploymentService {
         fs::remove_file(&target_path).with_context(|| {
             format!("failed to remove Deployment link {}", target_path.display())
         })?;
+
+        #[cfg(target_os = "macos")]
+        let git_exclude_path = if target.workspace == WorkspaceKind::Project {
+            let project_root = target_path
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
+            match crate::services::project_workspace::project_git_exclude_path(project_root) {
+                Some(path) => {
+                    if let Err(error) =
+                        remove_git_exclude(&path, target.consumer, &desired.library_directory)
+                    {
+                        #[cfg(unix)]
+                        let _ = std::os::unix::fs::symlink(&expected, &target_path);
+                        return Err(error);
+                    }
+                    Some(path)
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
         if let Err(error) = self.db.delete_skill_deployment(&desired.id) {
             #[cfg(unix)]
             let compensation = std::os::unix::fs::symlink(&expected, &target_path);
@@ -540,6 +594,21 @@ impl SkillDeploymentService {
                 return Err(anyhow!(
                     "database deletion failed ({error}); filesystem compensation failed ({compensation_error})"
                 ));
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(path) = git_exclude_path {
+                if let Err(compensation_error) = add_git_exclude(
+                    target_path.parent().and_then(Path::parent).ok_or_else(|| {
+                        anyhow!("project Deployment target has no Workspace root")
+                    })?,
+                    target.consumer,
+                    &desired.library_directory,
+                ) {
+                    return Err(anyhow!(
+                        "database deletion failed ({error}); Git exclude compensation failed ({compensation_error})"
+                    ));
+                }
+                let _ = path;
             }
             return Err(error.into());
         }
@@ -762,9 +831,16 @@ impl SkillDeploymentService {
                 get_home_dir().join(".agents").join("skills")
             }
             (_, WorkspaceKind::Project) => {
-                return Err(anyhow!(
-                    "project Deployment targets are not available in this slice"
-                ));
+                #[cfg(target_os = "macos")]
+                {
+                    project_target_root(&self.db, &target.workspace_id, target.consumer)?
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    return Err(anyhow!(
+                        "project Deployment targets are supported on macOS only"
+                    ));
+                }
             }
         };
         Ok(root.join(directory))

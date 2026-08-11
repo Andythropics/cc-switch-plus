@@ -19,6 +19,8 @@ mod omo;
 mod openclaw;
 mod plugin;
 mod profile;
+#[cfg(target_os = "macos")]
+mod project_workspace;
 mod prompt;
 mod provider;
 mod proxy;
@@ -55,6 +57,8 @@ pub use omo::*;
 pub use openclaw::*;
 pub use plugin::*;
 pub use profile::*;
+#[cfg(target_os = "macos")]
+pub use project_workspace::*;
 pub use prompt::*;
 pub use provider::*;
 pub use proxy::*;

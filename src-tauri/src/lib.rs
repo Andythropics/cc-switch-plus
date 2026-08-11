@@ -71,6 +71,11 @@ pub use services::{
     ProviderService, ProxyService, SkillDeploymentService, SkillService, SpeedtestService,
     WorkspaceKind,
 };
+#[cfg(target_os = "macos")]
+pub use services::{
+    ProjectWorkspace, ProjectWorkspaceService, WorkspaceLifecycle, WorkspaceRegistration,
+    WorkspaceRegistrationScan, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+};
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -1475,6 +1480,12 @@ pub fn run() {
             commands::acquire_library_skill,
             commands::acquire_library_skills_from_zip,
             commands::update_library_skill_metadata,
+            #[cfg(target_os = "macos")]
+            commands::inspect_project_workspace,
+            #[cfg(target_os = "macos")]
+            commands::register_project_workspace,
+            #[cfg(target_os = "macos")]
+            commands::list_project_workspaces,
             commands::get_skill_backups,
             commands::delete_skill_backup,
             commands::install_skill_unified,

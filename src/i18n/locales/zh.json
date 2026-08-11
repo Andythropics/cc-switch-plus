@@ -2330,6 +2330,33 @@
       "macOnlyTitle": "私有技能库仅支持 macOS",
       "macOnlyDescription": "私有技能库目前仅支持在 macOS 上使用。"
     },
+    "projects": {
+      "title": "项目工作区",
+      "description": "注册项目根目录，并按 Consumer 部署技能库中的技能。",
+      "library": "技能库",
+      "register": "注册项目",
+      "registerSuccess": "项目工作区已注册",
+      "empty": "暂无项目工作区",
+      "emptyDescription": "注册 Git 仓库、工作树或本地目录来分配技能。",
+      "deployments": "项目部署",
+      "noLibrarySkills": "请先在技能库中获取技能。",
+      "deploy": "部署",
+      "undeploy": "取消部署",
+      "deploySuccess": "技能已部署到项目工作区",
+      "undeploySuccess": "技能已从项目工作区取消部署",
+      "deploymentFailed": "项目部署失败",
+      "deploymentConflict": "项目目标已被占用或发生漂移",
+      "rootKind": {
+        "git_repository": "Git 仓库",
+        "git_worktree": "Git 工作树",
+        "non_git": "本地目录"
+      },
+      "lifecycle": {
+        "active": "活跃",
+        "archived": "已归档",
+        "unavailable": "不可用"
+      }
+    },
     "refresh": "刷新",
     "refreshing": "刷新中...",
     "repoManager": "仓库管理",

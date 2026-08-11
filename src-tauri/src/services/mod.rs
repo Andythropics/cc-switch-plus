@@ -9,6 +9,8 @@ pub mod model_fetch;
 pub mod model_pricing;
 pub mod omo;
 pub mod profile;
+#[cfg(target_os = "macos")]
+pub mod project_workspace;
 pub mod prompt;
 pub mod provider;
 pub mod proxy;
@@ -37,6 +39,11 @@ pub mod webdav_sync;
 pub use config::ConfigService;
 pub use mcp::McpService;
 pub use omo::OmoService;
+#[cfg(target_os = "macos")]
+pub use project_workspace::{
+    ProjectWorkspace, ProjectWorkspaceService, WorkspaceLifecycle, WorkspaceRegistration,
+    WorkspaceRegistrationScan, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+};
 pub use prompt::PromptService;
 pub use provider::{ProviderService, ProviderSortUpdate, SwitchResult};
 pub use proxy::ProxyService;

@@ -121,6 +121,8 @@ impl Database {
         Self::create_library_skills_table(conn)?;
         #[cfg(target_os = "macos")]
         Self::create_skill_deployments_table(conn)?;
+        #[cfg(target_os = "macos")]
+        Self::create_project_workspaces_table(conn)?;
 
         // 7. Settings 表
         conn.execute(
@@ -531,6 +533,12 @@ impl Database {
                         );
                         Self::migrate_v17_to_v18(conn)?;
                         Self::set_user_version(conn, 18)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    18 => {
+                        log::info!("迁移数据库从 v18 到 v19（添加 Project Workspace 身份）");
+                        Self::migrate_v18_to_v19(conn)?;
+                        Self::set_user_version(conn, 19)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1278,6 +1286,37 @@ impl Database {
     fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
         Self::create_skill_deployments_table(conn)?;
         log::info!("v17 -> v18 迁移完成：已添加 Skill Deployment desired state");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn create_project_workspaces_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS project_workspaces (
+                id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                root_path TEXT NOT NULL UNIQUE,
+                root_kind TEXT NOT NULL CHECK (root_kind IN ('git_repository', 'git_worktree', 'non_git')),
+                lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'archived', 'unavailable')),
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 project_workspaces 表失败: {error}")))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_workspaces_lifecycle
+             ON project_workspaces(lifecycle, display_name)",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 Workspace 索引失败: {error}")))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v18_to_v19(conn: &Connection) -> Result<(), AppError> {
+        Self::create_project_workspaces_table(conn)?;
+        log::info!("v18 -> v19 迁移完成：已添加 Project Workspace 身份");
         Ok(())
     }
 
@@ -3384,6 +3423,52 @@ mod tests {
         assert_eq!(
             library,
             ("review-skill".to_string(), "Review Skill".to_string(), 20)
+        );
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v18_to_v19_adds_workspaces_without_touching_existing_deployments(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute("DROP TABLE project_workspaces", [])?;
+        conn.execute(
+            "INSERT INTO library_skills (
+                id, directory, display_name, source_json, compatibility_json,
+                content_hash, acquired_at, updated_at
+             ) VALUES (
+                'library-1', 'review-skill', 'Review Skill', '{}', '{}',
+                'content-hash', 10, 20
+             )",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO skill_deployments (
+                id, library_skill_id, consumer, workspace_kind,
+                library_directory, workspace_id, created_at, updated_at
+             ) VALUES (
+                'deployment-1', 'library-1', 'claude', 'global',
+                'review-skill', '', 30, 40
+             )",
+            [],
+        )?;
+        Database::set_user_version(&conn, 18)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::table_exists(&conn, "project_workspaces")?);
+        let deployment: (String, String, i64) = conn.query_row(
+            "SELECT library_skill_id, consumer, updated_at
+             FROM skill_deployments WHERE id = 'deployment-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(
+            deployment,
+            ("library-1".to_string(), "claude".to_string(), 40)
         );
         Ok(())
     }

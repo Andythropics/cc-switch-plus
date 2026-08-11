@@ -6,6 +6,8 @@ pub mod failover;
 pub mod library_skills;
 pub mod mcp;
 pub mod profiles;
+#[cfg(target_os = "macos")]
+pub mod project_workspaces;
 pub mod prompts;
 pub mod providers;
 pub mod providers_seed;

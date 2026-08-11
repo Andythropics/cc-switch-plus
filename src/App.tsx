@@ -81,6 +81,7 @@ import {
   LibrarySkillsPanel,
   type LibrarySkillsPanelHandle,
 } from "@/components/skills/LibrarySkillsPanel";
+import { ProjectWorkspacesPanel } from "@/components/skills/ProjectWorkspacesPanel";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
@@ -105,6 +106,7 @@ type View =
   | "prompts"
   | "skills"
   | "skillsDiscovery"
+  | "skillsProjects"
   | "mcp"
   | "agents"
   | "universal"
@@ -168,6 +170,7 @@ const VALID_VIEWS: View[] = [
   "prompts",
   "skills",
   "skillsDiscovery",
+  "skillsProjects",
   "mcp",
   "agents",
   "universal",
@@ -919,6 +922,8 @@ function App() {
     setCurrentView("skillsDiscovery");
   };
 
+  const handleOpenSkillsProjects = () => setCurrentView("skillsProjects");
+
   const renderContent = () => {
     const content = (() => {
       switch (currentView) {
@@ -949,8 +954,17 @@ function App() {
             <LibrarySkillsPanel
               ref={librarySkillsPanelRef}
               onOpenDiscovery={handleOpenSkillsDiscovery}
+              onOpenProjects={handleOpenSkillsProjects}
               onInteractionBlockedChange={setSkillsManagementBusy}
               onNavigationBlockedChange={setSkillsNavigationBusy}
+            />
+          ) : (
+            <UnsupportedSkillsLibrary />
+          );
+        case "skillsProjects":
+          return isMac() ? (
+            <ProjectWorkspacesPanel
+              onOpenLibrary={() => setCurrentView("skills")}
             />
           ) : (
             <UnsupportedSkillsLibrary />
@@ -1191,7 +1205,8 @@ function App() {
                   disabled={managementBusy}
                   onClick={() =>
                     setCurrentView(
-                      currentView === "skillsDiscovery"
+                      currentView === "skillsDiscovery" ||
+                        currentView === "skillsProjects"
                         ? "skills"
                         : "providers",
                     )
@@ -1212,6 +1227,8 @@ function App() {
                   {currentView === "skills" && t("skills.library.title")}
                   {currentView === "skillsDiscovery" &&
                     t("skills.library.discoveryTitle")}
+                  {currentView === "skillsProjects" &&
+                    t("skills.projects.title")}
                   {currentView === "mcp" && t("mcp.unifiedPanel.title")}
                   {currentView === "agents" && t("agents.title")}
                   {currentView === "universal" &&
@@ -1379,6 +1396,16 @@ function App() {
                     >
                       <FolderArchive className="w-4 h-4 mr-2" />
                       {t("skills.library.acquireZip")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={skillsManagementBusy}
+                      onClick={handleOpenSkillsProjects}
+                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                    >
+                      <FolderOpen className="w-4 h-4 mr-2" />
+                      {t("skills.projects.title")}
                     </Button>
                     <Button
                       variant="ghost"

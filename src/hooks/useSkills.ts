@@ -22,6 +22,12 @@ import {
 import type { AppId } from "@/lib/api/types";
 import { mergeImportedSkills } from "@/hooks/useSkills.helpers";
 import { runSequentialBulkAction } from "@/lib/utils/sequentialBulkAction";
+import {
+  projectWorkspacesApi,
+  type ProjectWorkspace,
+  type WorkspaceRegistration,
+  type WorkspaceRegistrationScan,
+} from "@/lib/api/projectWorkspaces";
 
 /**
  * 查询所有已安装的 Skills
@@ -63,6 +69,37 @@ export function useApplySkillDeployments() {
     mutationFn: (batch) => skillsApi.applyDeployments(batch),
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
+  });
+}
+
+export function useProjectWorkspaces() {
+  return useQuery<ProjectWorkspace[]>({
+    queryKey: ["skills", "projectWorkspaces"],
+    queryFn: () => projectWorkspacesApi.list(),
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useInspectProjectWorkspace() {
+  return useMutation<WorkspaceRegistrationScan, Error, string>({
+    mutationFn: (path) => projectWorkspacesApi.inspect(path),
+  });
+}
+
+export function useRegisterProjectWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    WorkspaceRegistration,
+    Error,
+    { path: string; displayName?: string }
+  >({
+    mutationFn: ({ path, displayName }) =>
+      projectWorkspacesApi.register(path, displayName),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["skills", "projectWorkspaces"],
+      }),
   });
 }
 

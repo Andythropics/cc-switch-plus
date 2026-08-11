@@ -50,6 +50,7 @@ import type {
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
+  onOpenProjects?: () => void;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
 }
@@ -91,7 +92,12 @@ export const LibrarySkillsPanel = forwardRef<
   LibrarySkillsPanelProps
 >(
   (
-    { onOpenDiscovery, onInteractionBlockedChange, onNavigationBlockedChange },
+    {
+      onOpenDiscovery,
+      onOpenProjects,
+      onInteractionBlockedChange,
+      onNavigationBlockedChange,
+    },
     ref,
   ) => {
     const { t } = useTranslation();
@@ -353,6 +359,11 @@ export const LibrarySkillsPanel = forwardRef<
           <Button variant="outline" size="sm" onClick={onOpenDiscovery}>
             {t("skills.discover")}
           </Button>
+          {onOpenProjects && (
+            <Button variant="outline" size="sm" onClick={onOpenProjects}>
+              {t("skills.projects.title")}
+            </Button>
+          )}
         </div>
 
         <div className="px-5 py-3">
