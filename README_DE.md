@@ -18,6 +18,9 @@
 
 </div>
 
+> [!IMPORTANT]
+> Dieses Repository ist ein persönliches Anpassungs- und Weiterentwicklungsprojekt auf Basis des ursprünglichen Projekts [CC Switch](https://github.com/farion1231/cc-switch).
+
 ## ❤️Sponsoren
 
 > [Möchten Sie hier erscheinen?](mailto:farion1231@gmail.com)

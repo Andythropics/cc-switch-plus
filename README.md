@@ -18,6 +18,9 @@ English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Deutsch](README_
 
 </div>
 
+> [!IMPORTANT]
+> This repository is a personal customization and secondary-development project based on the upstream [CC Switch](https://github.com/farion1231/cc-switch) project.
+
 ## ❤️Sponsor
 
 > [Want to appear here?](mailto:farion1231@gmail.com)
