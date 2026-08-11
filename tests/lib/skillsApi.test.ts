@@ -90,4 +90,36 @@ describe("Skills Library API", () => {
       },
     });
   });
+
+  it("inspects and applies Global Codex deployments without accepting a path", async () => {
+    await skillsApi.inspectDeployments({
+      consumer: "codex",
+      workspace: "global",
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("inspect_skill_deployments", {
+      query: { consumer: "codex", workspace: "global" },
+    });
+
+    await skillsApi.applyDeployments({
+      intents: [
+        {
+          action: "deploy",
+          librarySkillId: "library-id",
+          target: { consumer: "codex", workspace: "global" },
+        },
+      ],
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("apply_skill_deployments", {
+      batch: {
+        intents: [
+          {
+            action: "deploy",
+            librarySkillId: "library-id",
+            target: { consumer: "codex", workspace: "global" },
+          },
+        ],
+      },
+    });
+    expect(invokeMock.mock.calls[1][1]).not.toHaveProperty("path");
+  });
 });

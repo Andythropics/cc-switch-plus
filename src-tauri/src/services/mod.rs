@@ -42,8 +42,9 @@ pub use provider::{ProviderService, ProviderSortUpdate, SwitchResult};
 pub use proxy::ProxyService;
 #[allow(unused_imports)]
 pub use skill::{
-    DiscoverableSkill, LibrarySkill, LibrarySkillAcquisitionService, LibrarySkillSource,
-    LibrarySourceKind, Skill, SkillRepo, SkillService,
+    ConsumerCompatibility, DiscoverableSkill, LibrarySkill, LibrarySkillAcquisitionService,
+    LibrarySkillCompatibility, LibrarySkillSource, LibrarySourceKind, Skill, SkillRepo,
+    SkillService,
 };
 pub use skill_deployment::{
     DeploymentBatch, DeploymentBatchResult, DeploymentConsumer, DeploymentInspection,

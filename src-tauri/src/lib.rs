@@ -62,13 +62,14 @@ pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::reapply_current_codex_official_live,
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, DeploymentBatch, DeploymentBatchResult, DeploymentConsumer,
-    DeploymentInspection, DeploymentInspectionResult, DeploymentIntent, DeploymentItemResult,
-    DeploymentMutationOutcome, DeploymentQuery, DeploymentStatus, DeploymentTarget,
-    DesiredDeployment, DiscoverableSkill, EndpointLatency, LibrarySkill,
-    LibrarySkillAcquisitionService, LibrarySkillSource, LibrarySourceKind, McpService,
-    ObservedDeployment, ObservedDeploymentState, PromptService, ProviderService, ProxyService,
-    SkillDeploymentService, SkillService, SpeedtestService, WorkspaceKind,
+    ConfigService, ConsumerCompatibility, DeploymentBatch, DeploymentBatchResult,
+    DeploymentConsumer, DeploymentInspection, DeploymentInspectionResult, DeploymentIntent,
+    DeploymentItemResult, DeploymentMutationOutcome, DeploymentQuery, DeploymentStatus,
+    DeploymentTarget, DesiredDeployment, DiscoverableSkill, EndpointLatency, LibrarySkill,
+    LibrarySkillAcquisitionService, LibrarySkillCompatibility, LibrarySkillSource,
+    LibrarySourceKind, McpService, ObservedDeployment, ObservedDeploymentState, PromptService,
+    ProviderService, ProxyService, SkillDeploymentService, SkillService, SpeedtestService,
+    WorkspaceKind,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;

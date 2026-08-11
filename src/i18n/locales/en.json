@@ -2309,8 +2309,13 @@
       "undeployClaude": "Undeploy from Claude Global",
       "deploySuccess": "Skill deployed to Claude Global",
       "undeploySuccess": "Skill undeployed from Claude Global",
+      "deployCodex": "Deploy to Codex Global",
+      "undeployCodex": "Undeploy from Codex Global",
+      "deployCodexSuccess": "Skill deployed to Codex Global",
+      "undeployCodexSuccess": "Skill undeployed from Codex Global",
       "deploymentFailed": "Deployment failed",
       "deploymentConflict": "The Claude Global target is occupied or drifted",
+      "incompatibleConsumer": "This skill is incompatible with {{consumer}}",
       "deploymentStatus": {
         "not_deployed": "Not deployed",
         "in_sync": "In sync",

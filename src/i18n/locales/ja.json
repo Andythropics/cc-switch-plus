@@ -2309,8 +2309,13 @@
       "undeployClaude": "Claude グローバルから解除",
       "deploySuccess": "Claude グローバルへデプロイしました",
       "undeploySuccess": "Claude グローバルから解除しました",
+      "deployCodex": "Codex グローバルへデプロイ",
+      "undeployCodex": "Codex グローバルから解除",
+      "deployCodexSuccess": "Codex グローバルへデプロイしました",
+      "undeployCodexSuccess": "Codex グローバルから解除しました",
       "deploymentFailed": "デプロイに失敗しました",
       "deploymentConflict": "Claude グローバルの対象が占有またはドリフトしています",
+      "incompatibleConsumer": "このスキルは{{consumer}}と互換性がありません",
       "deploymentStatus": {
         "not_deployed": "未デプロイ",
         "in_sync": "同期済み",

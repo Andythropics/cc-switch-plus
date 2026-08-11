@@ -43,8 +43,8 @@ import {
 import { skillsApi } from "@/lib/api";
 import type {
   ConsumerCompatibility,
+  DeploymentConsumer,
   DeploymentIntent,
-  DeploymentTarget,
   LibrarySkill,
 } from "@/lib/api/skills";
 
@@ -98,6 +98,10 @@ export const LibrarySkillsPanel = forwardRef<
     const { data: skills = [], isLoading } = useLibrarySkills();
     const { data: deploymentState } = useSkillDeployments({
       consumer: "claude",
+      workspace: "global",
+    });
+    const { data: codexDeploymentState } = useSkillDeployments({
+      consumer: "codex",
       workspace: "global",
     });
     const updateMetadata = useUpdateLibrarySkillMetadata();
@@ -184,13 +188,9 @@ export const LibrarySkillsPanel = forwardRef<
       if (filePath) await acquireZipFile(filePath);
     };
 
-    const globalClaudeTarget: DeploymentTarget = {
-      consumer: "claude",
-      workspace: "global",
-    };
-
     const applyGlobalDeployment = async (
       skill: LibrarySkill,
+      consumer: DeploymentConsumer,
       action: Extract<
         DeploymentIntent,
         { action: "deploy" | "undeploy" }
@@ -202,7 +202,7 @@ export const LibrarySkillsPanel = forwardRef<
             {
               action,
               librarySkillId: skill.id,
-              target: globalClaudeTarget,
+              target: { consumer, workspace: "global" },
             },
           ],
         });
@@ -216,12 +216,106 @@ export const LibrarySkillsPanel = forwardRef<
         }
         toast.success(
           action === "deploy"
-            ? t("skills.library.deploySuccess")
-            : t("skills.library.undeploySuccess"),
+            ? t(
+                consumer === "claude"
+                  ? "skills.library.deploySuccess"
+                  : "skills.library.deployCodexSuccess",
+              )
+            : t(
+                consumer === "claude"
+                  ? "skills.library.undeploySuccess"
+                  : "skills.library.undeployCodexSuccess",
+              ),
         );
       } catch (error) {
         toast.error(String(error));
       }
+    };
+
+    const renderDeploymentControl = (
+      skill: LibrarySkill,
+      consumer: DeploymentConsumer,
+      state: typeof deploymentState,
+    ) => {
+      const deployment = state?.items.find(
+        (item) => item.librarySkillId === skill.id,
+      );
+      const compatibility = skill.compatibility[consumer];
+      const status = deployment?.status ?? "not_deployed";
+      const isDeployed = status === "in_sync";
+      const isBlocked =
+        !compatibility.compatible ||
+        status === "conflict" ||
+        status === "orphaned" ||
+        status === "unsupported" ||
+        status === "blocked";
+      const consumerLabel =
+        consumer === "claude"
+          ? t("skills.library.consumerClaude")
+          : t("skills.library.consumerCodex");
+      const deployLabel =
+        consumer === "claude"
+          ? t("skills.library.deployClaude")
+          : t("skills.library.deployCodex");
+      const undeployLabel =
+        consumer === "claude"
+          ? t("skills.library.undeployClaude")
+          : t("skills.library.undeployCodex");
+      const incompatibilityMessage =
+        compatibility.issues.join("; ") ||
+        t("skills.library.incompatibleConsumer", { consumer: consumerLabel });
+
+      return (
+        <div
+          key={consumer}
+          className="flex min-w-[16rem] flex-1 flex-wrap items-center gap-2"
+          data-testid={`deployment-control-${consumer}`}
+        >
+          <Badge
+            variant={status === "in_sync" ? "secondary" : "outline"}
+            title={
+              !compatibility.compatible ? incompatibilityMessage : undefined
+            }
+          >
+            {t(`skills.library.deploymentStatus.${status}`)}
+          </Badge>
+          {isDeployed ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={blocked || applyDeployments.isPending}
+              onClick={() =>
+                void applyGlobalDeployment(skill, consumer, "undeploy")
+              }
+            >
+              <Unlink className="mr-1.5 h-3.5 w-3.5" />
+              {undeployLabel}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              title={
+                isBlocked && !compatibility.compatible
+                  ? incompatibilityMessage
+                  : undefined
+              }
+              disabled={blocked || isBlocked || applyDeployments.isPending}
+              onClick={() =>
+                void applyGlobalDeployment(skill, consumer, "deploy")
+              }
+            >
+              <Link2 className="mr-1.5 h-3.5 w-3.5" />
+              {deployLabel}
+            </Button>
+          )}
+          {!compatibility.compatible && (
+            <span className="basis-full text-xs text-destructive">
+              {incompatibilityMessage}
+            </span>
+          )}
+        </div>
+      );
     };
 
     useImperativeHandle(ref, () => ({
@@ -351,57 +445,14 @@ export const LibrarySkillsPanel = forwardRef<
                       <Pencil className="h-4 w-4" />
                     </Button>
                   </div>
-                  {(() => {
-                    const deployment = deploymentState?.items.find(
-                      (item) => item.librarySkillId === skill.id,
-                    );
-                    const compatible = skill.compatibility.claude.compatible;
-                    const status = deployment?.status ?? "not_deployed";
-                    const isDeployed = status === "in_sync";
-                    const isBlocked =
-                      !compatible ||
-                      status === "conflict" ||
-                      status === "orphaned" ||
-                      status === "unsupported";
-                    return (
-                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
-                        <Badge
-                          variant={
-                            status === "in_sync" ? "secondary" : "outline"
-                          }
-                        >
-                          {t(`skills.library.deploymentStatus.${status}`)}
-                        </Badge>
-                        {isDeployed ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={blocked || applyDeployments.isPending}
-                            onClick={() =>
-                              void applyGlobalDeployment(skill, "undeploy")
-                            }
-                          >
-                            <Unlink className="mr-1.5 h-3.5 w-3.5" />
-                            {t("skills.library.undeployClaude")}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                              blocked || isBlocked || applyDeployments.isPending
-                            }
-                            onClick={() =>
-                              void applyGlobalDeployment(skill, "deploy")
-                            }
-                          >
-                            <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                            {t("skills.library.deployClaude")}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
+                    {renderDeploymentControl(skill, "claude", deploymentState)}
+                    {renderDeploymentControl(
+                      skill,
+                      "codex",
+                      codexDeploymentState,
+                    )}
+                  </div>
                 </article>
               ))}
             </div>

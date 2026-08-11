@@ -364,7 +364,14 @@ impl SkillDeploymentService {
             .db
             .get_library_skill_by_id(library_skill_id)?
             .ok_or_else(|| anyhow!("Library Skill not found: {library_skill_id}"))?;
-        Self::validate_compatibility(&skill, target.consumer)?;
+        if let Err(error) = Self::validate_compatibility(&skill, target.consumer) {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some(error.to_string()),
+            ));
+        }
         let desired = self.db.get_skill_deployment(library_skill_id, target)?;
         if repair && desired.is_none() {
             return Ok(self.result(

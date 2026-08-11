@@ -79,6 +79,8 @@ describe("LibrarySkillsPanel", () => {
       items: [{ outcome: "applied" }],
     });
     deploymentStateMock.items = [];
+    librarySkill.compatibility.claude = { compatible: true, issues: [] };
+    librarySkill.compatibility.codex = { compatible: true, issues: [] };
   });
 
   it("shows immutable identity, source, compatibility, and edits display metadata", async () => {
@@ -149,6 +151,45 @@ describe("LibrarySkillsPanel", () => {
         ],
       }),
     );
+  });
+
+  it("deploys an acquired Library Skill to Codex Global through the apply seam", async () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.deployCodex" }),
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "deploy",
+            librarySkillId: "library-1",
+            target: { consumer: "codex", workspace: "global" },
+          },
+        ],
+      }),
+    );
+  });
+
+  it("disables an incompatible consumer while leaving Claude usable", () => {
+    librarySkill.compatibility.codex = {
+      compatible: false,
+      issues: ["Codex does not support this skill"],
+    };
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "skills.library.deployCodex" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("Codex does not support this skill"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.library.deployClaude" }),
+    ).toBeEnabled();
   });
 
   it("requires an explicit unique directory when ZIP acquisition collides", async () => {

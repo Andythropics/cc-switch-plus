@@ -2309,8 +2309,13 @@
       "undeployClaude": "从 Claude 全局取消部署",
       "deploySuccess": "技能已部署到 Claude 全局",
       "undeploySuccess": "技能已从 Claude 全局取消部署",
+      "deployCodex": "部署到 Codex 全局",
+      "undeployCodex": "从 Codex 全局取消部署",
+      "deployCodexSuccess": "技能已部署到 Codex 全局",
+      "undeployCodexSuccess": "技能已从 Codex 全局取消部署",
       "deploymentFailed": "部署失败",
       "deploymentConflict": "Claude 全局目标已被占用或发生漂移",
+      "incompatibleConsumer": "此技能与 {{consumer}} 不兼容",
       "deploymentStatus": {
         "not_deployed": "未部署",
         "in_sync": "已同步",
