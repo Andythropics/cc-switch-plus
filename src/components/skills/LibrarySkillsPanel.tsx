@@ -14,6 +14,8 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Trash2,
+  Upload,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +37,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   useAcquireLibrarySkillsFromZip,
   useApplySkillDeployments,
+  useApplyLibrarySkillUpdate,
+  useCheckLibrarySkillUpdate,
+  useDeleteLibrarySkill,
+  useInspectLibrarySkillDeletion,
   useLibrarySkills,
   useRefreshSkillDeployments,
   useSkillDeployments,
@@ -45,7 +51,10 @@ import type {
   ConsumerCompatibility,
   DeploymentConsumer,
   DeploymentIntent,
+  DeploymentItemResult,
   LibrarySkill,
+  LibrarySkillDeletionInspection,
+  LibrarySkillUpdateCheckResult,
 } from "@/lib/api/skills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
@@ -69,6 +78,34 @@ const sourceSummary = (skill: LibrarySkill) => {
   }
   return skill.source.url;
 };
+
+const updateOutcomeKey = (outcome: LibrarySkillUpdateCheckResult["outcome"]) =>
+  `skills.library.update.outcome.${outcome}`;
+
+const updateApplyOutcomeKey = (
+  outcome:
+    | "updated"
+    | "up_to_date"
+    | "blocked"
+    | "stale"
+    | "rolled_back"
+    | "recovery_required",
+) => `skills.library.update.applyOutcome.${outcome}`;
+
+const updateReasonKey = (
+  reason:
+    | "local_modification_confirmation_required"
+    | "compatibility_regression"
+    | "not_updatable"
+    | "invalid_candidate"
+    | "duplicate_content"
+    | "missing_stage"
+    | "stale_observation"
+    | "compensation_failed",
+) => `skills.library.update.reason.${reason}`;
+
+const targetAnchor = (skillId: string, consumer: DeploymentConsumer) =>
+  `#deployment-control-${skillId}-${consumer}-global`;
 
 function CompatibilityBadge({
   consumer,
@@ -116,6 +153,10 @@ export const LibrarySkillsPanel = forwardRef<
     const updateMetadata = useUpdateLibrarySkillMetadata();
     const acquireZip = useAcquireLibrarySkillsFromZip();
     const applyDeployments = useApplySkillDeployments();
+    const checkLibraryUpdate = useCheckLibrarySkillUpdate();
+    const applyLibraryUpdate = useApplyLibrarySkillUpdate();
+    const inspectLibraryDeletion = useInspectLibrarySkillDeletion();
+    const deleteLibrary = useDeleteLibrarySkill();
     const refreshDeployments = useRefreshSkillDeployments();
     const [query, setQuery] = useState("");
     const [editing, setEditing] = useState<LibrarySkill | null>(null);
@@ -126,18 +167,55 @@ export const LibrarySkillsPanel = forwardRef<
       directory: string;
     } | null>(null);
     const [uniqueDirectory, setUniqueDirectory] = useState("");
+    const [updateChecks, setUpdateChecks] = useState<
+      Record<string, LibrarySkillUpdateCheckResult>
+    >({});
+    const [updateConfirmation, setUpdateConfirmation] = useState<{
+      skill: LibrarySkill;
+      check: LibrarySkillUpdateCheckResult;
+    } | null>(null);
+    const [confirmLocalModifications, setConfirmLocalModifications] =
+      useState(false);
+    const [updateResult, setUpdateResult] = useState<{
+      skillId: string;
+      outcome: string;
+      reason?: string;
+      backupPath?: string;
+      message?: string;
+    } | null>(null);
+    const [deletionInspection, setDeletionInspection] = useState<{
+      skill: LibrarySkill;
+      inspection: LibrarySkillDeletionInspection;
+    } | null>(null);
+    const [deletionResult, setDeletionResult] = useState<{
+      skillId: string;
+      outcome: string;
+      backupPath?: string;
+      message?: string;
+      items: DeploymentItemResult[];
+    } | null>(null);
 
     const blocked =
       updateMetadata.isPending ||
       acquireZip.isPending ||
       applyDeployments.isPending ||
+      checkLibraryUpdate.isPending ||
+      applyLibraryUpdate.isPending ||
+      inspectLibraryDeletion.isPending ||
+      deleteLibrary.isPending ||
       editing !== null ||
-      zipCollision !== null;
+      zipCollision !== null ||
+      updateConfirmation !== null;
+    const navigationBlocked = blocked || deletionInspection !== null;
 
     useEffect(() => {
-      onInteractionBlockedChange?.(blocked);
-      onNavigationBlockedChange?.(blocked);
-    }, [blocked, onInteractionBlockedChange, onNavigationBlockedChange]);
+      onInteractionBlockedChange?.(navigationBlocked);
+      onNavigationBlockedChange?.(navigationBlocked);
+    }, [
+      navigationBlocked,
+      onInteractionBlockedChange,
+      onNavigationBlockedChange,
+    ]);
 
     useEffect(() => {
       return () => {
@@ -196,6 +274,115 @@ export const LibrarySkillsPanel = forwardRef<
     const openAcquireFromZip = async () => {
       const filePath = await skillsApi.openZipFileDialog();
       if (filePath) await acquireZipFile(filePath);
+    };
+
+    const checkForLibraryUpdate = async (skill: LibrarySkill) => {
+      try {
+        const result = await checkLibraryUpdate.mutateAsync(skill.id);
+        setUpdateChecks((current) => ({ ...current, [skill.id]: result }));
+        setUpdateResult(null);
+      } catch {
+        toast.error(t("skills.library.update.checkFailed"));
+      }
+    };
+
+    const beginLibraryUpdate = (
+      skill: LibrarySkill,
+      check: LibrarySkillUpdateCheckResult,
+    ) => {
+      if (
+        check.outcome !== "update_available" ||
+        !check.stageToken ||
+        check.affectedDeployments.some((item) => !item.stagedCompatible)
+      )
+        return;
+      setConfirmLocalModifications(!check.localModified);
+      setUpdateConfirmation({ skill, check });
+    };
+
+    const submitLibraryUpdate = async () => {
+      if (!updateConfirmation) return;
+      const { skill, check } = updateConfirmation;
+      if (!check.stageToken) return;
+      if (check.localModified && !confirmLocalModifications) return;
+
+      try {
+        const result = await applyLibraryUpdate.mutateAsync({
+          librarySkillId: skill.id,
+          observationToken: check.observationToken,
+          stageToken: check.stageToken,
+          confirmLocalModifications,
+        });
+        setUpdateResult({
+          skillId: skill.id,
+          outcome: result.outcome,
+          reason: result.reason,
+          backupPath: result.backupPath,
+          message: result.message,
+        });
+        const retryableBlockedReasons = new Set([
+          "local_modification_confirmation_required",
+          "compatibility_regression",
+          "duplicate_content",
+        ]);
+        const stageRemainsUsable =
+          result.outcome === "blocked" &&
+          result.reason !== undefined &&
+          retryableBlockedReasons.has(result.reason);
+        if (!stageRemainsUsable) {
+          setUpdateChecks((current) => {
+            const next = { ...current };
+            delete next[skill.id];
+            return next;
+          });
+        }
+        setUpdateConfirmation(null);
+        if (result.outcome === "updated") {
+          toast.success(t("skills.library.update.applied"));
+        }
+      } catch {
+        toast.error(t("skills.library.update.applyFailed"));
+      }
+    };
+
+    const inspectLibraryForDeletion = async (skill: LibrarySkill) => {
+      try {
+        const inspection = await inspectLibraryDeletion.mutateAsync(skill.id);
+        setDeletionResult(null);
+        setDeletionInspection({ skill, inspection });
+      } catch {
+        toast.error(t("skills.library.delete.inspectFailed"));
+      }
+    };
+
+    const submitLibraryDeletion = async () => {
+      if (!deletionInspection) return;
+      try {
+        const result = await deleteLibrary.mutateAsync({
+          librarySkillId: deletionInspection.skill.id,
+          observationToken: deletionInspection.inspection.observationToken,
+        });
+        setDeletionResult({
+          skillId: deletionInspection.skill.id,
+          outcome: result.outcome,
+          backupPath: result.backupPath,
+          message: result.message,
+          items: result.items,
+        });
+        if (result.outcome === "deleted") {
+          setDeletionInspection(null);
+          toast.success(t("skills.library.delete.success"));
+        } else {
+          const refreshed = await inspectLibraryDeletion.mutateAsync(
+            deletionInspection.skill.id,
+          );
+          setDeletionInspection((current) =>
+            current ? { ...current, inspection: refreshed } : current,
+          );
+        }
+      } catch {
+        toast.error(t("skills.library.delete.failed"));
+      }
     };
 
     const applyGlobalDeployment = async (intent: DeploymentIntent) => {
@@ -280,6 +467,7 @@ export const LibrarySkillsPanel = forwardRef<
       return (
         <div
           key={consumer}
+          id={`deployment-control-${skill.id}-${consumer}-global`}
           className="flex min-w-[16rem] flex-1 flex-wrap items-center gap-2"
           data-testid={`deployment-control-${consumer}`}
         >
@@ -452,7 +640,185 @@ export const LibrarySkillsPanel = forwardRef<
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("skills.library.delete.action")}
+                      title={t("skills.library.delete.action")}
+                      disabled={blocked}
+                      onClick={() => void inspectLibraryForDeletion(skill)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={blocked}
+                      onClick={() => void checkForLibraryUpdate(skill)}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      {t("skills.library.update.check")}
+                    </Button>
+                    {updateChecks[skill.id]?.outcome === "update_available" &&
+                      updateChecks[skill.id]?.stageToken && (
+                        <Button
+                          size="sm"
+                          disabled={
+                            blocked ||
+                            updateChecks[skill.id].affectedDeployments.some(
+                              (item) => !item.stagedCompatible,
+                            )
+                          }
+                          onClick={() =>
+                            beginLibraryUpdate(skill, updateChecks[skill.id])
+                          }
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          {t("skills.library.update.apply")}
+                        </Button>
+                      )}
+                    {updateChecks[skill.id] && (
+                      <Badge
+                        variant={
+                          updateChecks[skill.id].outcome === "update_available"
+                            ? "default"
+                            : updateChecks[skill.id].outcome === "up_to_date"
+                              ? "secondary"
+                              : "destructive"
+                        }
+                        data-testid={`library-update-status-${skill.id}`}
+                      >
+                        {t(updateOutcomeKey(updateChecks[skill.id].outcome))}
+                      </Badge>
+                    )}
+                  </div>
+                  {updateChecks[skill.id] && (
+                    <div
+                      className="mt-2 space-y-2 rounded-md border bg-muted/40 p-3 text-xs"
+                      data-testid={`library-update-details-${skill.id}`}
+                    >
+                      {updateChecks[skill.id].message && (
+                        <p>{updateChecks[skill.id].message}</p>
+                      )}
+                      {updateChecks[skill.id].localModified && (
+                        <p className="font-medium text-destructive">
+                          {t("skills.library.update.localModified")}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                        <span>
+                          {t("skills.library.update.recordedHash")}:{" "}
+                          <code>
+                            {updateChecks[skill.id].recordedContentHash}
+                          </code>
+                        </span>
+                        {updateChecks[skill.id].stagedContentHash && (
+                          <span>
+                            {t("skills.library.update.stagedHash")}:{" "}
+                            <code>
+                              {updateChecks[skill.id].stagedContentHash}
+                            </code>
+                          </span>
+                        )}
+                      </div>
+                      {updateChecks[skill.id].affectedDeployments.length >
+                        0 && (
+                        <div className="space-y-1">
+                          <p className="font-medium">
+                            {t("skills.library.update.affectedDeployments")}
+                          </p>
+                          {updateChecks[skill.id].affectedDeployments.map(
+                            (affected) => {
+                              const { inspection } = affected;
+                              const target = inspection.target;
+                              const lifecycle =
+                                inspection.status === "archived"
+                                  ? t("skills.library.update.archived")
+                                  : t("skills.library.update.active");
+                              return (
+                                <div
+                                  key={`${target.consumer}-${target.workspace}-${target.workspaceId ?? "global"}`}
+                                  className="flex flex-wrap items-center gap-2"
+                                >
+                                  {target.workspace === "global" ? (
+                                    <a
+                                      className="underline underline-offset-2"
+                                      href={targetAnchor(
+                                        inspection.librarySkillId,
+                                        target.consumer,
+                                      )}
+                                    >
+                                      {target.consumer} / {target.workspace}
+                                    </a>
+                                  ) : onOpenProjects ? (
+                                    <button
+                                      type="button"
+                                      className="underline underline-offset-2"
+                                      onClick={() => {
+                                        setUpdateConfirmation(null);
+                                        setDeletionInspection(null);
+                                        onOpenProjects();
+                                      }}
+                                    >
+                                      {target.consumer} / {target.workspace}
+                                      {target.workspaceId
+                                        ? ` (${target.workspaceId})`
+                                        : ""}
+                                    </button>
+                                  ) : (
+                                    <span>
+                                      {target.consumer} / {target.workspace}
+                                      {target.workspaceId
+                                        ? ` (${target.workspaceId})`
+                                        : ""}
+                                    </span>
+                                  )}
+                                  <Badge variant="outline">{lifecycle}</Badge>
+                                  {!affected.stagedCompatible && (
+                                    <span className="text-destructive">
+                                      {t(
+                                        "skills.library.update.compatibilityRegression",
+                                      )}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            },
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {updateResult?.skillId === skill.id && (
+                    <div
+                      className={
+                        updateResult.outcome === "recovery_required"
+                          ? "mt-2 rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive"
+                          : "mt-2 rounded-md border bg-muted/40 p-3 text-xs"
+                      }
+                      data-testid={`library-update-result-${skill.id}`}
+                    >
+                      <p className="font-medium">
+                        {t(
+                          updateApplyOutcomeKey(updateResult.outcome as never),
+                        )}
+                      </p>
+                      {updateResult.reason && (
+                        <p>
+                          {t(updateReasonKey(updateResult.reason as never))}
+                        </p>
+                      )}
+                      {updateResult.message && <p>{updateResult.message}</p>}
+                      {updateResult.backupPath && (
+                        <p>
+                          {t("skills.library.update.backupPath")}:{" "}
+                          <code>{updateResult.backupPath}</code>
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
                     {renderDeploymentControl(skill, "claude", deploymentState)}
                     {renderDeploymentControl(
@@ -466,6 +832,221 @@ export const LibrarySkillsPanel = forwardRef<
             </div>
           )}
         </ScrollArea>
+
+        <Dialog
+          open={updateConfirmation !== null}
+          onOpenChange={(open) => {
+            if (!open) setUpdateConfirmation(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t("skills.library.update.confirmTitle")}
+              </DialogTitle>
+              <DialogDescription>
+                {t("skills.library.update.confirmDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            {updateConfirmation && (
+              <div className="space-y-3 py-2 text-sm">
+                <p>
+                  {updateConfirmation.skill.displayName} (
+                  <code>{updateConfirmation.skill.directory}</code>)
+                </p>
+                {updateConfirmation.check.localModified && (
+                  <label className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive">
+                    <input
+                      type="checkbox"
+                      checked={confirmLocalModifications}
+                      onChange={(event) =>
+                        setConfirmLocalModifications(event.target.checked)
+                      }
+                      aria-label={t(
+                        "skills.library.update.confirmLocalModifications",
+                      )}
+                    />
+                    <span>
+                      {t("skills.library.update.confirmLocalModifications")}
+                    </span>
+                  </label>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {t("skills.library.update.backupNotice")}
+                </p>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setUpdateConfirmation(null)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                onClick={() => void submitLibraryUpdate()}
+                disabled={
+                  applyLibraryUpdate.isPending ||
+                  (Boolean(updateConfirmation?.check.localModified) &&
+                    !confirmLocalModifications)
+                }
+              >
+                {applyLibraryUpdate.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {t("skills.library.update.confirmApply")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={deletionInspection !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeletionInspection(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("skills.library.delete.title")}</DialogTitle>
+              <DialogDescription>
+                {t("skills.library.delete.description")}
+              </DialogDescription>
+            </DialogHeader>
+            {deletionInspection && (
+              <div className="space-y-3 py-2 text-sm">
+                <p>
+                  {deletionInspection.skill.displayName} (
+                  <code>{deletionInspection.skill.directory}</code>)
+                </p>
+                {deletionInspection.inspection.targets.length === 0 ? (
+                  <p className="text-muted-foreground">
+                    {t("skills.library.delete.noDeployments")}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {deletionInspection.inspection.targets.map((target) => {
+                      const deployment = target.inspection;
+                      const targetName = `${deployment.target.consumer} / ${deployment.target.workspace}${deployment.target.workspaceId ? ` (${deployment.target.workspaceId})` : ""}`;
+                      const anchor =
+                        deployment.target.workspace === "global"
+                          ? targetAnchor(
+                              deployment.librarySkillId,
+                              deployment.target.consumer,
+                            )
+                          : undefined;
+                      return (
+                        <div
+                          key={`${deployment.target.consumer}-${deployment.target.workspace}-${deployment.target.workspaceId ?? "global"}`}
+                          className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs"
+                        >
+                          {anchor ? (
+                            <a
+                              className="underline underline-offset-2"
+                              href={anchor}
+                            >
+                              {targetName}
+                            </a>
+                          ) : onOpenProjects ? (
+                            <button
+                              type="button"
+                              className="underline underline-offset-2"
+                              onClick={() => {
+                                setDeletionInspection(null);
+                                onOpenProjects();
+                              }}
+                            >
+                              {targetName}
+                            </button>
+                          ) : (
+                            <span>{targetName}</span>
+                          )}
+                          <Badge
+                            variant={
+                              target.actionRequired === "forget"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                          >
+                            {t(
+                              target.actionRequired === "forget"
+                                ? "skills.library.delete.forgetRequired"
+                                : "skills.library.delete.removeExpectedLink",
+                            )}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {deletionInspection.inspection.blocked && (
+                  <p className="text-xs text-destructive">
+                    {t("skills.library.delete.blockedDescription")}
+                  </p>
+                )}
+                {deletionInspection.inspection.message && (
+                  <p className="text-xs text-muted-foreground">
+                    {deletionInspection.inspection.message}
+                  </p>
+                )}
+                {deletionResult?.skillId === deletionInspection.skill.id && (
+                  <div
+                    className={
+                      deletionResult.outcome === "recovery_required"
+                        ? "rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive"
+                        : "rounded-md border bg-muted/40 p-3 text-xs"
+                    }
+                    data-testid={`library-delete-result-${deletionInspection.skill.id}`}
+                  >
+                    <p className="font-medium">
+                      {t(
+                        `skills.library.delete.outcome.${deletionResult.outcome}`,
+                      )}
+                    </p>
+                    {deletionResult.backupPath && (
+                      <p>
+                        {t("skills.library.update.backupPath")}:{" "}
+                        <code>{deletionResult.backupPath}</code>
+                      </p>
+                    )}
+                    {deletionResult.message && <p>{deletionResult.message}</p>}
+                    {deletionResult.items.length > 0 && (
+                      <ul className="mt-2 list-disc space-y-1 pl-4">
+                        {deletionResult.items.map((item) => (
+                          <li
+                            key={`${item.librarySkillId}-${item.target.consumer}-${item.target.workspace}-${item.target.workspaceId ?? "global"}`}
+                          >
+                            {item.target.consumer} / {item.target.workspace}:{" "}
+                            <code>{item.outcome}</code>
+                            {item.message ? ` - ${item.message}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setDeletionInspection(null)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => void submitLibraryDeletion()}
+                disabled={deleteLibrary.isPending}
+              >
+                {deleteLibrary.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {t("skills.library.delete.confirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={editing !== null} onOpenChange={() => setEditing(null)}>
           <DialogContent>

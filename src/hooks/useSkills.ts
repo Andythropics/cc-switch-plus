@@ -17,6 +17,12 @@ import {
   type DeploymentBatchResult,
   type DeploymentInspectionResult,
   type DeploymentQuery,
+  type LibrarySkillDeletionInspection,
+  type LibrarySkillDeletionIntent,
+  type LibrarySkillDeletionResult,
+  type LibrarySkillUpdateCheckResult,
+  type LibrarySkillUpdateIntent,
+  type LibrarySkillUpdateResult,
   type SkillUpdateInfo,
   type SkillsShSearchResult,
 } from "@/lib/api/skills";
@@ -282,6 +288,69 @@ export function useUpdateLibrarySkillMetadata() {
     },
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+  });
+}
+
+/** Check and stage a remote Library snapshot without touching live content. */
+export function useCheckLibrarySkillUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation<LibrarySkillUpdateCheckResult, Error, string>({
+    mutationFn: (librarySkillId) =>
+      skillsApi.checkLibrarySkillUpdate(librarySkillId),
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        ["skills", "libraryUpdate", result.librarySkillId],
+        result,
+      );
+    },
+  });
+}
+
+/** Apply a staged snapshot and reconcile all Library/deployment observations. */
+export function useApplyLibrarySkillUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation<LibrarySkillUpdateResult, Error, LibrarySkillUpdateIntent>(
+    {
+      mutationFn: (intent) => skillsApi.applyLibrarySkillUpdate(intent),
+      onSettled: (_result, _error, intent) =>
+        Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+          queryClient.invalidateQueries({
+            queryKey: ["skills", "deployments"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["skills", "libraryUpdate", intent.librarySkillId],
+          }),
+        ]),
+    },
+  );
+}
+
+/** Inspect deployment reachability before a destructive Library delete. */
+export function useInspectLibrarySkillDeletion() {
+  return useMutation<LibrarySkillDeletionInspection, Error, string>({
+    mutationFn: (librarySkillId) =>
+      skillsApi.inspectLibrarySkillDeletion(librarySkillId),
+  });
+}
+
+/** Delete a Library snapshot and invalidate all affected observations. */
+export function useDeleteLibrarySkill() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    LibrarySkillDeletionResult,
+    Error,
+    LibrarySkillDeletionIntent
+  >({
+    mutationFn: (intent) => skillsApi.deleteLibrarySkill(intent),
+    onSettled: (_result, _error, intent) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "libraryUpdate", intent.librarySkillId],
+        }),
+      ]),
   });
 }
 

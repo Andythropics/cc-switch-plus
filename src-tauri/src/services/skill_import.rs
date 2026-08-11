@@ -221,6 +221,10 @@ struct FindingRecord {
     content_hash: Option<String>,
 }
 
+// Replaced carries the old and new snapshots plus rollback paths. Boxing the
+// large variant would complicate the admission/rollback ownership flow; this
+// internal enum is short-lived and never crosses the command boundary.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum ImportAdmission {
     Existing(crate::services::skill::LibrarySkill),
@@ -1630,7 +1634,7 @@ fn cleanup_paths(paths: &[&Path]) -> Vec<String> {
         .collect()
 }
 
-fn create_backup_root() -> Result<PathBuf> {
+pub(crate) fn create_backup_root() -> Result<PathBuf> {
     let parent = crate::config::get_app_config_dir().join("skill-import-backups");
     fs::create_dir_all(&parent)?;
     let root = parent.join(uuid::Uuid::new_v4().to_string());
@@ -1639,7 +1643,7 @@ fn create_backup_root() -> Result<PathBuf> {
     Ok(root)
 }
 
-fn prune_backup_roots(parent: &Path) -> Result<()> {
+pub(crate) fn prune_backup_roots(parent: &Path) -> Result<()> {
     let mut roots = fs::read_dir(parent)?
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| {
@@ -1649,7 +1653,7 @@ fn prune_backup_roots(parent: &Path) -> Result<()> {
                 .then_some((metadata.modified().ok(), entry.path()))
         })
         .collect::<Vec<_>>();
-    roots.sort_by(|left, right| left.0.cmp(&right.0));
+    roots.sort_by_key(|entry| entry.0);
     while roots.len() > 20 {
         let (_, path) = roots.remove(0);
         fs::remove_dir_all(path)?;
@@ -1769,7 +1773,7 @@ fn git_status(
             paths: vec!["<nested repository>".to_string()],
         };
     }
-    let relative_path = match source.strip_prefix(&root) {
+    let relative_path = match source.strip_prefix(root) {
         Ok(path) => path,
         Err(_) => {
             return ProjectSkillImportGitState {

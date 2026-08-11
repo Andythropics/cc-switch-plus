@@ -73,14 +73,19 @@ pub use services::{
 };
 #[cfg(target_os = "macos")]
 pub use services::{
-    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
-    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
-    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
-    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
-    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
-    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
-    ProjectSkillImportValidationStatus, ProjectWorkspace, ProjectWorkspaceService,
-    WorkspaceLifecycle, WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
+    LibrarySkillDeletionAction, LibrarySkillDeletionInspection, LibrarySkillDeletionIntent,
+    LibrarySkillDeletionOutcome, LibrarySkillDeletionResult, LibrarySkillDeletionTarget,
+    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
+    LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
+    LibrarySkillUpdateService, ProjectSkillImportDirectoryCollision,
+    ProjectSkillImportDirectoryCollisionKind, ProjectSkillImportFinding,
+    ProjectSkillImportGitState, ProjectSkillImportInspection, ProjectSkillImportIntent,
+    ProjectSkillImportLibraryMatch, ProjectSkillImportMode, ProjectSkillImportOutcome,
+    ProjectSkillImportReplaceBlockReason, ProjectSkillImportReplaceEligibility,
+    ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
+    ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
+    ProjectWorkspace, ProjectWorkspaceService, UpdateDeploymentImpact, WorkspaceLifecycle,
+    WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
     WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
@@ -1488,6 +1493,14 @@ pub fn run() {
             commands::inspectProjectSkillImports,
             #[cfg(target_os = "macos")]
             commands::applyProjectSkillImport,
+            #[cfg(target_os = "macos")]
+            commands::checkLibrarySkillUpdate,
+            #[cfg(target_os = "macos")]
+            commands::applyLibrarySkillUpdate,
+            #[cfg(target_os = "macos")]
+            commands::inspectLibrarySkillDeletion,
+            #[cfg(target_os = "macos")]
+            commands::deleteLibrarySkill,
             commands::acquire_library_skill,
             commands::acquire_library_skills_from_zip,
             commands::update_library_skill_metadata,

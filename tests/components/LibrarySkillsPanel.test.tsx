@@ -15,6 +15,10 @@ const {
   openZipMock,
   applyDeploymentsMock,
   refreshDeploymentsMock,
+  checkLibraryUpdateMock,
+  applyLibraryUpdateMock,
+  inspectLibraryDeletionMock,
+  deleteLibraryMock,
   deploymentStateMock,
   toastErrorMock,
 } = vi.hoisted(() => ({
@@ -23,6 +27,10 @@ const {
   openZipMock: vi.fn(),
   applyDeploymentsMock: vi.fn(),
   refreshDeploymentsMock: vi.fn(),
+  checkLibraryUpdateMock: vi.fn(),
+  applyLibraryUpdateMock: vi.fn(),
+  inspectLibraryDeletionMock: vi.fn(),
+  deleteLibraryMock: vi.fn(),
   deploymentStateMock: { items: [] as unknown[] },
   toastErrorMock: vi.fn(),
 }));
@@ -64,6 +72,22 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: applyDeploymentsMock,
     isPending: false,
   }),
+  useCheckLibrarySkillUpdate: () => ({
+    mutateAsync: checkLibraryUpdateMock,
+    isPending: false,
+  }),
+  useApplyLibrarySkillUpdate: () => ({
+    mutateAsync: applyLibraryUpdateMock,
+    isPending: false,
+  }),
+  useInspectLibrarySkillDeletion: () => ({
+    mutateAsync: inspectLibraryDeletionMock,
+    isPending: false,
+  }),
+  useDeleteLibrarySkill: () => ({
+    mutateAsync: deleteLibraryMock,
+    isPending: false,
+  }),
   useRefreshSkillDeployments: () => refreshDeploymentsMock,
 }));
 
@@ -84,6 +108,23 @@ describe("LibrarySkillsPanel", () => {
       items: [{ outcome: "applied" }],
     });
     refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
+    checkLibraryUpdateMock.mockReset();
+    applyLibraryUpdateMock.mockReset().mockResolvedValue({
+      librarySkillId: "library-1",
+      outcome: "updated",
+      affectedDeployments: [],
+    });
+    inspectLibraryDeletionMock.mockReset().mockResolvedValue({
+      librarySkillId: "library-1",
+      observationToken: "delete-observation",
+      targets: [],
+      blocked: false,
+    });
+    deleteLibraryMock.mockReset().mockResolvedValue({
+      librarySkillId: "library-1",
+      outcome: "deleted",
+      items: [],
+    });
     toastErrorMock.mockReset();
     deploymentStateMock.items = [];
     librarySkill.source = {
@@ -474,6 +515,286 @@ describe("LibrarySkillsPanel", () => {
     expect(
       screen.getByRole("button", { name: "skills.library.deployClaude" }),
     ).toBeEnabled();
+  });
+
+  it("requires explicit confirmation before applying a staged update over local edits", async () => {
+    checkLibraryUpdateMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "update_available",
+      observationToken: "update-observation",
+      stageToken: "update-stage",
+      recordedContentHash: "recorded",
+      liveContentHash: "edited",
+      stagedContentHash: "upstream",
+      localModified: true,
+      affectedDeployments: [],
+    });
+    applyLibraryUpdateMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "blocked",
+      reason: "stale_observation",
+      message: "Library changed while confirmation was open",
+      affectedDeployments: [],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.check" }),
+    );
+    expect(checkLibraryUpdateMock).toHaveBeenCalledWith("library-1");
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.apply" }),
+    );
+    expect(applyLibraryUpdateMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "skills.library.update.confirmLocalModifications",
+      }),
+    ).not.toBeChecked();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skills.library.update.confirmLocalModifications",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.update.confirmApply",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applyLibraryUpdateMock).toHaveBeenCalledWith({
+        librarySkillId: "library-1",
+        observationToken: "update-observation",
+        stageToken: "update-stage",
+        confirmLocalModifications: true,
+      }),
+    );
+    expect(
+      screen.getByText("skills.library.update.reason.stale_observation"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.update.apply" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows archived compatibility regressions and blocks staged replacement", async () => {
+    checkLibraryUpdateMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "update_available",
+      observationToken: "update-observation",
+      stageToken: "update-stage",
+      recordedContentHash: "recorded",
+      stagedContentHash: "upstream",
+      localModified: false,
+      affectedDeployments: [
+        {
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: {
+              consumer: "claude",
+              workspace: "project",
+              workspaceId: "workspace-archived",
+            },
+            observed: {
+              state: "correct_link",
+              targetPath: "/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+            },
+            observationToken: "deployment-observation",
+            status: "archived",
+          },
+          currentCompatible: true,
+          stagedCompatible: false,
+        },
+        {
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: { consumer: "codex", workspace: "global" },
+            observed: {
+              state: "correct_link",
+              targetPath: "/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+            },
+            observationToken: "deployment-observation-codex",
+            status: "drift",
+          },
+          currentCompatible: true,
+          stagedCompatible: false,
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.check" }),
+    );
+    expect(
+      screen.getAllByText("skills.library.update.compatibilityRegression"),
+    ).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "skills.library.update.apply" }),
+    ).toBeDisabled();
+    expect(applyLibraryUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("removes a consumed staged token after a successful update", async () => {
+    checkLibraryUpdateMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "update_available",
+      observationToken: "update-observation",
+      stageToken: "update-stage",
+      recordedContentHash: "recorded",
+      stagedContentHash: "upstream",
+      localModified: false,
+      affectedDeployments: [],
+    });
+    applyLibraryUpdateMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "updated",
+      affectedDeployments: [],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.check" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.apply" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.update.confirmApply",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applyLibraryUpdateMock).toHaveBeenCalledWith({
+        librarySkillId: "library-1",
+        observationToken: "update-observation",
+        stageToken: "update-stage",
+        confirmLocalModifications: true,
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "skills.library.update.apply" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("library-update-status-library-1"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps a not-updatable check explicit without exposing an Apply action", async () => {
+    checkLibraryUpdateMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "not_updatable",
+      observationToken: "update-observation",
+      recordedContentHash: "recorded",
+      localModified: false,
+      affectedDeployments: [],
+      message: "local import has no upstream source",
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.check" }),
+    );
+    expect(
+      screen.getByTestId("library-update-status-library-1"),
+    ).toHaveTextContent("skills.library.update.outcome.not_updatable");
+    expect(
+      screen.queryByRole("button", { name: "skills.library.update.apply" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("surfaces partial deletion results and recovery backup paths", async () => {
+    inspectLibraryDeletionMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      observationToken: "delete-observation",
+      blocked: true,
+      targets: [
+        {
+          actionRequired: "remove_expected_link",
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: { consumer: "claude", workspace: "global" },
+            observed: {
+              state: "correct_link",
+              targetPath: "/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+            },
+            observationToken: "delete-observation",
+            status: "in_sync",
+          },
+        },
+        {
+          actionRequired: "forget",
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: { consumer: "codex", workspace: "global" },
+            observed: {
+              state: "unreadable",
+              targetPath: "/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+            },
+            observationToken: "delete-observation",
+            status: "drift",
+          },
+        },
+      ],
+    });
+    deleteLibraryMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      outcome: "recovery_required",
+      backupPath: "/tmp/backup/review-skill",
+      message: "one target remained blocked",
+      items: [
+        {
+          librarySkillId: "library-1",
+          target: { consumer: "claude", workspace: "global" },
+          outcome: "removed",
+        },
+        {
+          librarySkillId: "library-1",
+          target: { consumer: "codex", workspace: "global" },
+          outcome: "blocked",
+          message: "forget required",
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.delete.action" }),
+    );
+    expect(
+      screen.getByText("skills.library.delete.forgetRequired"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.delete.confirm" }),
+    );
+
+    await waitFor(() =>
+      expect(deleteLibraryMock).toHaveBeenCalledWith({
+        librarySkillId: "library-1",
+        observationToken: "delete-observation",
+      }),
+    );
+    expect(screen.getByText("/tmp/backup/review-skill")).toBeInTheDocument();
+    expect(screen.getByText("one target remained blocked")).toBeInTheDocument();
+    expect(screen.getByText("removed")).toBeInTheDocument();
+    expect(screen.getByText("blocked")).toBeInTheDocument();
   });
 
   it("requires an explicit unique directory when ZIP acquisition collides", async () => {

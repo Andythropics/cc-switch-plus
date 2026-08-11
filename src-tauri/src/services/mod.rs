@@ -26,6 +26,8 @@ pub mod skill;
 pub mod skill_deployment;
 #[cfg(target_os = "macos")]
 pub mod skill_import;
+#[cfg(target_os = "macos")]
+pub mod skill_update;
 pub mod speedtest;
 pub mod sql_helpers;
 pub mod stream_check;
@@ -71,6 +73,14 @@ pub use skill_import::{
     ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
     ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
     ProjectSkillImportValidationStatus,
+};
+#[cfg(target_os = "macos")]
+pub use skill_update::{
+    LibrarySkillDeletionAction, LibrarySkillDeletionInspection, LibrarySkillDeletionIntent,
+    LibrarySkillDeletionOutcome, LibrarySkillDeletionResult, LibrarySkillDeletionTarget,
+    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
+    LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
+    LibrarySkillUpdateService, UpdateDeploymentImpact,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
 pub use usage_cache::UsageCache;

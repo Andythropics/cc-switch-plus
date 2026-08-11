@@ -66,6 +66,105 @@ export interface LibrarySkillCompatibility {
   codex: ConsumerCompatibility;
 }
 
+/** A deployment whose compatibility may regress when a staged snapshot lands. */
+export interface LibrarySkillUpdateAffectedDeployment {
+  inspection: DeploymentInspection;
+  currentCompatible: boolean;
+  stagedCompatible: boolean;
+}
+
+export type LibrarySkillUpdateCheckOutcome =
+  | "update_available"
+  | "up_to_date"
+  | "not_updatable"
+  | "invalid_candidate";
+
+export interface LibrarySkillUpdateCheckResult {
+  librarySkillId: string;
+  outcome: LibrarySkillUpdateCheckOutcome;
+  observationToken: string;
+  stageToken?: string;
+  recordedContentHash: string;
+  liveContentHash?: string;
+  stagedContentHash?: string;
+  localModified: boolean;
+  compatibility?: LibrarySkillCompatibility;
+  affectedDeployments: LibrarySkillUpdateAffectedDeployment[];
+  message?: string;
+}
+
+export type LibrarySkillUpdateApplyOutcome =
+  | "updated"
+  | "up_to_date"
+  | "blocked"
+  | "stale"
+  | "rolled_back"
+  | "recovery_required";
+
+export type LibrarySkillUpdateApplyReason =
+  | "local_modification_confirmation_required"
+  | "compatibility_regression"
+  | "not_updatable"
+  | "invalid_candidate"
+  | "duplicate_content"
+  | "missing_stage"
+  | "stale_observation"
+  | "compensation_failed";
+
+export interface LibrarySkillUpdateIntent {
+  librarySkillId: string;
+  observationToken: string;
+  stageToken: string;
+  confirmLocalModifications: boolean;
+}
+
+export interface LibrarySkillUpdateResult {
+  librarySkillId: string;
+  outcome: LibrarySkillUpdateApplyOutcome;
+  reason?: LibrarySkillUpdateApplyReason;
+  recordedContentHash?: string;
+  liveContentHash?: string;
+  stagedContentHash?: string;
+  backupPath?: string;
+  affectedDeployments: LibrarySkillUpdateAffectedDeployment[];
+  message?: string;
+}
+
+export type LibrarySkillDeletionAction = "remove_expected_link" | "forget";
+
+export interface LibrarySkillDeletionTarget {
+  inspection: DeploymentInspection;
+  actionRequired: LibrarySkillDeletionAction;
+}
+
+export interface LibrarySkillDeletionInspection {
+  librarySkillId: string;
+  observationToken: string;
+  targets: LibrarySkillDeletionTarget[];
+  blocked: boolean;
+  message?: string;
+}
+
+export interface LibrarySkillDeletionIntent {
+  librarySkillId: string;
+  observationToken: string;
+}
+
+export type LibrarySkillDeletionOutcome =
+  | "deleted"
+  | "blocked"
+  | "stale"
+  | "rolled_back"
+  | "recovery_required";
+
+export interface LibrarySkillDeletionResult {
+  librarySkillId: string;
+  outcome: LibrarySkillDeletionOutcome;
+  items: DeploymentItemResult[];
+  backupPath?: string;
+  message?: string;
+}
+
 /** Private, undeployed Skill snapshot owned by the Library. */
 export interface LibrarySkill {
   id: string;
@@ -358,6 +457,34 @@ export const skillsApi = {
       displayName,
       description,
     });
+  },
+
+  /** Check and stage an upstream Library snapshot without changing live content. */
+  async checkLibrarySkillUpdate(
+    librarySkillId: string,
+  ): Promise<LibrarySkillUpdateCheckResult> {
+    return await invoke("checkLibrarySkillUpdate", { librarySkillId });
+  },
+
+  /** Apply a previously staged snapshot after fresh-token and confirmation checks. */
+  async applyLibrarySkillUpdate(
+    intent: LibrarySkillUpdateIntent,
+  ): Promise<LibrarySkillUpdateResult> {
+    return await invoke("applyLibrarySkillUpdate", { intent });
+  },
+
+  /** Inspect all deployment records before attempting Library deletion. */
+  async inspectLibrarySkillDeletion(
+    librarySkillId: string,
+  ): Promise<LibrarySkillDeletionInspection> {
+    return await invoke("inspectLibrarySkillDeletion", { librarySkillId });
+  },
+
+  /** Delete a Library snapshot after explicit deployment reconciliation. */
+  async deleteLibrarySkill(
+    intent: LibrarySkillDeletionIntent,
+  ): Promise<LibrarySkillDeletionResult> {
+    return await invoke("deleteLibrarySkill", { intent });
   },
 
   /** 获取可恢复的 Skill 备份列表 */

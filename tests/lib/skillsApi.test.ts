@@ -185,4 +185,64 @@ describe("Skills Library API", () => {
       },
     });
   });
+
+  it("checks and stages an upstream Library update without touching live content", async () => {
+    const result = {
+      librarySkillId: "library-id",
+      outcome: "update_available",
+      observationToken: "observation-update",
+      stageToken: "stage-update",
+      recordedContentHash: "recorded",
+      liveContentHash: "live",
+      stagedContentHash: "staged",
+      localModified: true,
+      affectedDeployments: [],
+    };
+    invokeMock.mockResolvedValueOnce(result);
+
+    await expect(
+      skillsApi.checkLibrarySkillUpdate("library-id"),
+    ).resolves.toEqual(result);
+    expect(invokeMock).toHaveBeenCalledWith("checkLibrarySkillUpdate", {
+      librarySkillId: "library-id",
+    });
+    expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("path");
+  });
+
+  it("applies a staged update with explicit local-modification confirmation", async () => {
+    await skillsApi.applyLibrarySkillUpdate({
+      librarySkillId: "library-id",
+      observationToken: "observation-update",
+      stageToken: "stage-update",
+      confirmLocalModifications: true,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("applyLibrarySkillUpdate", {
+      intent: {
+        librarySkillId: "library-id",
+        observationToken: "observation-update",
+        stageToken: "stage-update",
+        confirmLocalModifications: true,
+      },
+    });
+  });
+
+  it("inspects then deletes only with a fresh observation token", async () => {
+    await skillsApi.inspectLibrarySkillDeletion("library-id");
+    expect(invokeMock).toHaveBeenCalledWith("inspectLibrarySkillDeletion", {
+      librarySkillId: "library-id",
+    });
+
+    await skillsApi.deleteLibrarySkill({
+      librarySkillId: "library-id",
+      observationToken: "deletion-observation",
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("deleteLibrarySkill", {
+      intent: {
+        librarySkillId: "library-id",
+        observationToken: "deletion-observation",
+      },
+    });
+    expect(invokeMock.mock.calls[1][1]).not.toHaveProperty("forgetTargets");
+  });
 });

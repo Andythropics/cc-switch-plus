@@ -13,8 +13,14 @@ use crate::services::skill::{
 };
 use crate::services::{
     DeploymentBatch, DeploymentBatchResult, DeploymentInspectionResult, DeploymentQuery,
-    ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
-    ProjectSkillImportService, SkillDeploymentService,
+    SkillDeploymentService,
+};
+#[cfg(target_os = "macos")]
+use crate::services::{
+    LibrarySkillDeletionInspection, LibrarySkillDeletionIntent, LibrarySkillDeletionResult,
+    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateCheck, LibrarySkillUpdateResult,
+    LibrarySkillUpdateService, ProjectSkillImportInspection, ProjectSkillImportIntent,
+    ProjectSkillImportResult, ProjectSkillImportService,
 };
 use crate::store::AppState;
 use std::collections::HashMap;
@@ -139,6 +145,70 @@ pub fn update_library_skill_metadata(
         description.as_deref(),
     )
     .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn checkLibrarySkillUpdate(
+    librarySkillId: String,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkillUpdateCheck, String> {
+    LibrarySkillAcquisitionService::ensure_supported_platform()
+        .map_err(|error| error.to_string())?;
+    let skill = app_state
+        .db
+        .get_library_skill_by_id(&librarySkillId)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("Library Skill not found: {librarySkillId}"))?;
+    if !matches!(
+        skill.source.kind,
+        LibrarySourceKind::Git | LibrarySourceKind::Marketplace
+    ) {
+        return LibrarySkillUpdateService::check_not_updatable(&app_state.db, &librarySkillId)
+            .map_err(|error| error.to_string());
+    }
+    let (_snapshot, repository_root) =
+        LibrarySkillAcquisitionService::download_repository_snapshot_exact(&skill.source)
+            .await
+            .map_err(|error| error.to_string())?;
+    LibrarySkillUpdateService::stage_from_repository_snapshot(
+        &app_state.db,
+        &librarySkillId,
+        &repository_root,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn applyLibrarySkillUpdate(
+    intent: LibrarySkillUpdateApplyIntent,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkillUpdateResult, String> {
+    LibrarySkillUpdateService::apply(&app_state.db, intent).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn inspectLibrarySkillDeletion(
+    librarySkillId: String,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkillDeletionInspection, String> {
+    LibrarySkillUpdateService::inspect_deletion(&app_state.db, &librarySkillId)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn deleteLibrarySkill(
+    intent: LibrarySkillDeletionIntent,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkillDeletionResult, String> {
+    LibrarySkillUpdateService::delete(&app_state.db, intent).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

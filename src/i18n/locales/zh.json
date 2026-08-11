@@ -2364,6 +2364,69 @@
       "actualTarget": "观测目标",
       "collisionTitle": "目录已存在",
       "collisionDescription": "技能库中已存在目录为“{{directory}}”的技能。请选择其他目录以获取此技能。",
+      "update": {
+        "check": "检查更新",
+        "checkFailed": "无法检查此技能的更新",
+        "apply": "应用暂存更新",
+        "applied": "技能库已更新",
+        "confirmTitle": "应用暂存的技能库更新？",
+        "confirmDescription": "暂存快照已通过校验，应用后会原子替换完整技能库内容。",
+        "confirmApply": "应用更新",
+        "confirmLocalModifications": "我了解本地修改会被替换，并确认先创建内容备份。",
+        "backupNotice": "替换前会保留备份，可用于恢复。",
+        "localModified": "检测到本地修改，包括通过部署链接进行的编辑。",
+        "recordedHash": "记录内容",
+        "stagedHash": "暂存内容",
+        "affectedDeployments": "部署兼容性影响",
+        "compatibilityRegression": "暂存快照与此目标不兼容。",
+        "active": "活动目标",
+        "archived": "已归档目标",
+        "backupPath": "备份路径",
+        "outcome": {
+          "update_available": "更新已暂存，等待应用",
+          "up_to_date": "已是最新",
+          "not_updatable": "没有上游更新源",
+          "invalid_candidate": "候选内容校验失败"
+        },
+        "applyOutcome": {
+          "updated": "技能库已更新",
+          "up_to_date": "已经是最新",
+          "blocked": "更新被阻止",
+          "stale": "更新观察已过期",
+          "rolled_back": "更新已回滚",
+          "recovery_required": "需要恢复"
+        },
+        "reason": {
+          "local_modification_confirmation_required": "替换前请确认本地修改。",
+          "compatibility_regression": "更新会使已知部署不兼容。",
+          "not_updatable": "此技能没有更新源。",
+          "invalid_candidate": "暂存候选内容校验失败。",
+          "duplicate_content": "暂存内容已由其他技能库技能代表。",
+          "missing_stage": "暂存更新已不可用。",
+          "stale_observation": "检查后技能库已发生变化，请重新检查再应用。",
+          "compensation_failed": "替换补偿失败，请使用备份路径恢复。"
+        }
+      },
+      "delete": {
+        "action": "删除技能库技能",
+        "title": "删除技能库技能？",
+        "description": "先移除可访问的预期链接；漂移或不可访问记录会继续受保护，须明确使用“忘记记录”。",
+        "confirm": "删除技能库技能",
+        "success": "技能库技能已删除",
+        "failed": "无法删除此技能库技能",
+        "inspectFailed": "无法检查删除所需的部署状态",
+        "noDeployments": "没有剩余的部署记录。",
+        "blockedDescription": "删除会先移除精确预期链接，但可能因漂移或不可访问记录而阻止。请对这些记录使用现有“忘记记录”，然后重新检查。",
+        "removeExpectedLink": "将移除预期链接",
+        "forgetRequired": "请先忘记记录",
+        "outcome": {
+          "deleted": "技能库技能已删除",
+          "blocked": "删除被阻止，请处理列出的记录",
+          "stale": "删除观察已过期",
+          "rolled_back": "删除已回滚",
+          "recovery_required": "需要恢复"
+        }
+      },
       "macOnlyTitle": "私有技能库仅支持 macOS",
       "macOnlyDescription": "私有技能库目前仅支持在 macOS 上使用。"
     },

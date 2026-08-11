@@ -301,6 +301,138 @@ impl SkillDeploymentService {
         self.apply_one(intent)
     }
 
+    /// Restore a Deployment row captured before a composite Library deletion.
+    /// This deliberately bypasses Active-only lifecycle guards so an Archived
+    /// workspace's exact expected link and original desired row can be restored
+    /// after a later filesystem/DB failure.
+    pub(crate) fn restore_removed_for_composite(
+        &self,
+        desired: &DesiredDeployment,
+    ) -> Result<DeploymentItemResult> {
+        let row_exists = self
+            .db
+            .get_skill_deployment(&desired.library_skill_id, &desired.target)?
+            .is_some();
+        let skill = self
+            .db
+            .get_library_skill_by_id(&desired.library_skill_id)?
+            .ok_or_else(|| anyhow!("Library Skill not found: {}", desired.library_skill_id))?;
+        if skill.directory != desired.library_directory {
+            return Err(anyhow!(
+                "Deployment directory identity changed during compensation"
+            ));
+        }
+        let target_path = {
+            #[cfg(target_os = "macos")]
+            if desired.target.workspace == WorkspaceKind::Project {
+                project_removal_target_root(
+                    &self.db,
+                    &desired.target.workspace_id,
+                    desired.target.consumer,
+                )?
+                .join(&desired.library_directory)
+            } else {
+                self.target_path(&desired.target, &desired.library_directory)?
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                self.target_path(&desired.target, &desired.library_directory)?
+            }
+        };
+        let expected = self.library_path(&desired.library_directory)?;
+        if !expected.is_dir() {
+            return Err(anyhow!(
+                "Library source is missing during Deployment compensation"
+            ));
+        }
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut created_link = false;
+        match fs::symlink_metadata(&target_path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                if fs::read_link(&target_path)? != expected {
+                    return Err(anyhow!("Deployment target drifted during compensation"));
+                }
+            }
+            Ok(_) => return Err(anyhow!("Deployment target is occupied during compensation")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                #[cfg(debug_assertions)]
+                if FORCE_COMPENSATION_FAILURE.swap(false, Ordering::SeqCst) {
+                    return Err(anyhow!("injected compensation failure"));
+                }
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&expected, &target_path)?;
+                #[cfg(not(unix))]
+                return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
+                created_link = true;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        #[cfg(target_os = "macos")]
+        let git_exclude_path = if desired.target.workspace == WorkspaceKind::Project {
+            let project_root = target_path
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
+            match add_git_exclude(
+                project_root,
+                desired.target.consumer,
+                &desired.library_directory,
+            ) {
+                Ok(path) => path,
+                Err(error) => {
+                    if created_link {
+                        let _ = fs::remove_file(&target_path);
+                    }
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        if row_exists {
+            return Ok(DeploymentItemResult {
+                library_skill_id: desired.library_skill_id.clone(),
+                target: desired.target.clone(),
+                outcome: DeploymentMutationOutcome::AlreadyInSync,
+                message: None,
+                inspection: None,
+            });
+        }
+        if let Err(error) = self.db.save_skill_deployment(desired) {
+            let mut compensation = Vec::new();
+            if created_link {
+                if let Err(compensation_error) = fs::remove_file(&target_path) {
+                    compensation.push(compensation_error.to_string());
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(path) = git_exclude_path {
+                if let Err(compensation_error) =
+                    remove_git_exclude(&path, desired.target.consumer, &desired.library_directory)
+                {
+                    compensation.push(compensation_error.to_string());
+                }
+            }
+            return if compensation.is_empty() {
+                Err(error.into())
+            } else {
+                Err(anyhow!(
+                    "Deployment compensation DB restore failed ({error}); filesystem compensation failed: {}",
+                    compensation.join("; ")
+                ))
+            };
+        }
+        Ok(DeploymentItemResult {
+            library_skill_id: desired.library_skill_id.clone(),
+            target: desired.target.clone(),
+            outcome: DeploymentMutationOutcome::Applied,
+            message: None,
+            inspection: None,
+        })
+    }
+
     #[cfg(debug_assertions)]
     #[doc(hidden)]
     pub fn force_compensation_failure_for_test(enabled: bool) {

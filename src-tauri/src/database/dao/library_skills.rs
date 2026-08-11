@@ -223,4 +223,52 @@ impl Database {
         .map_err(|error| AppError::Database(error.to_string()))?;
         Ok(())
     }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn disappear_library_skill_on_update_for_test(&self) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS test_disappear_library_skill_update;
+             CREATE TRIGGER test_disappear_library_skill_update
+             BEFORE UPDATE ON library_skills
+             BEGIN
+               DELETE FROM library_skills WHERE id = OLD.id;
+               SELECT RAISE(IGNORE);
+             END;",
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn disappear_library_skill_on_delete_for_test(&self) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS test_disappear_library_skill_delete;
+             CREATE TRIGGER test_disappear_library_skill_delete
+             BEFORE DELETE ON library_skills
+             BEGIN
+               DELETE FROM library_skills WHERE id = OLD.id;
+               SELECT RAISE(IGNORE);
+             END;",
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn fail_library_skill_deletes_for_test(&self) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS test_fail_library_skill_delete;
+             CREATE TRIGGER test_fail_library_skill_delete
+             BEFORE DELETE ON library_skills
+             BEGIN SELECT RAISE(ABORT, 'injected Library Skill delete failure'); END;",
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
 }

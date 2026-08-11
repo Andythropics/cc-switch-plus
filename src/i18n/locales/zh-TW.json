@@ -2365,6 +2365,69 @@
       "actualTarget": "觀測目標",
       "collisionTitle": "目錄已存在",
       "collisionDescription": "技能庫中已有目錄為「{{directory}}」的技能。請選擇其他目錄以取得此技能。",
+      "update": {
+        "check": "檢查更新",
+        "checkFailed": "無法檢查此技能的更新",
+        "apply": "套用暫存更新",
+        "applied": "技能庫已更新",
+        "confirmTitle": "套用暫存的技能庫更新？",
+        "confirmDescription": "暫存快照已通過驗證，套用後會以原子方式替換完整技能庫內容。",
+        "confirmApply": "套用更新",
+        "confirmLocalModifications": "我了解本機修改會被替換，並確認先建立內容備份。",
+        "backupNotice": "替換前會保留備份，可用於復原。",
+        "localModified": "偵測到本機修改，包括透過部署連結進行的編輯。",
+        "recordedHash": "記錄內容",
+        "stagedHash": "暫存內容",
+        "affectedDeployments": "部署相容性影響",
+        "compatibilityRegression": "暫存快照與此目標不相容。",
+        "active": "使用中目標",
+        "archived": "已封存目標",
+        "backupPath": "備份路徑",
+        "outcome": {
+          "update_available": "更新已暫存，等待套用",
+          "up_to_date": "已是最新",
+          "not_updatable": "沒有上游更新來源",
+          "invalid_candidate": "候選內容驗證失敗"
+        },
+        "applyOutcome": {
+          "updated": "技能庫已更新",
+          "up_to_date": "已是最新",
+          "blocked": "更新遭到阻擋",
+          "stale": "更新觀察已過期",
+          "rolled_back": "更新已復原",
+          "recovery_required": "需要復原"
+        },
+        "reason": {
+          "local_modification_confirmation_required": "替換前請確認本機修改。",
+          "compatibility_regression": "更新會使已知部署不相容。",
+          "not_updatable": "此技能沒有更新來源。",
+          "invalid_candidate": "暫存候選內容驗證失敗。",
+          "duplicate_content": "暫存內容已由其他技能庫技能代表。",
+          "missing_stage": "暫存更新已不可用。",
+          "stale_observation": "檢查後技能庫已變更，請重新檢查再套用。",
+          "compensation_failed": "替換補償失敗，請使用備份路徑復原。"
+        }
+      },
+      "delete": {
+        "action": "刪除技能庫技能",
+        "title": "刪除技能庫技能？",
+        "description": "先移除可存取的預期連結；漂移或無法存取的記錄會繼續受保護，必須明確使用「忘記記錄」。",
+        "confirm": "刪除技能庫技能",
+        "success": "技能庫技能已刪除",
+        "failed": "無法刪除此技能庫技能",
+        "inspectFailed": "無法檢查刪除所需的部署狀態",
+        "noDeployments": "沒有剩餘的部署記錄。",
+        "blockedDescription": "刪除會先移除精確預期連結，但可能因漂移或無法存取記錄而阻擋。請對這些記錄使用現有「忘記記錄」，再重新檢查。",
+        "removeExpectedLink": "將移除預期連結",
+        "forgetRequired": "請先忘記記錄",
+        "outcome": {
+          "deleted": "技能庫技能已刪除",
+          "blocked": "刪除遭到阻擋，請處理列出的記錄",
+          "stale": "刪除觀察已過期",
+          "rolled_back": "刪除已復原",
+          "recovery_required": "需要復原"
+        }
+      },
       "macOnlyTitle": "私人技能庫僅支援 macOS",
       "macOnlyDescription": "私人技能庫目前僅支援在 macOS 上使用。"
     },

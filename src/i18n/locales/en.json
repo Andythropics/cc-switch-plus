@@ -2364,6 +2364,69 @@
       "actualTarget": "Observed target",
       "collisionTitle": "Directory already exists",
       "collisionDescription": "A skill with the directory \"{{directory}}\" is already in your library. Choose a different directory to acquire this skill.",
+      "update": {
+        "check": "Check for updates",
+        "checkFailed": "Could not check this Library Skill for updates",
+        "apply": "Apply staged update",
+        "applied": "Library Skill updated",
+        "confirmTitle": "Apply staged Library update?",
+        "confirmDescription": "The staged snapshot passed validation. Applying it replaces the complete Library content atomically.",
+        "confirmApply": "Apply update",
+        "confirmLocalModifications": "I understand local modifications will be replaced; create a content backup first.",
+        "backupNotice": "A backup is retained before replacement and can be used for recovery.",
+        "localModified": "Local modifications were detected, including edits through a Deployment link.",
+        "recordedHash": "Recorded content",
+        "stagedHash": "Staged content",
+        "affectedDeployments": "Deployment compatibility impact",
+        "compatibilityRegression": "The staged snapshot is incompatible with this target.",
+        "active": "Active target",
+        "archived": "Archived target",
+        "backupPath": "Backup path",
+        "outcome": {
+          "update_available": "Update staged and ready",
+          "up_to_date": "Up to date",
+          "not_updatable": "No upstream update source",
+          "invalid_candidate": "Candidate failed validation"
+        },
+        "applyOutcome": {
+          "updated": "Library Skill updated",
+          "up_to_date": "Already up to date",
+          "blocked": "Update blocked",
+          "stale": "Update observation is stale",
+          "rolled_back": "Update rolled back",
+          "recovery_required": "Recovery required"
+        },
+        "reason": {
+          "local_modification_confirmation_required": "Confirm local modifications before replacing this content.",
+          "compatibility_regression": "The update would regress a known Deployment.",
+          "not_updatable": "This Library Skill has no update source.",
+          "invalid_candidate": "The staged candidate failed validation.",
+          "duplicate_content": "The staged content is already represented by another Library Skill.",
+          "missing_stage": "The staged update is no longer available.",
+          "stale_observation": "The Library changed after this check; check again before applying.",
+          "compensation_failed": "Replacement compensation failed; use the backup path to recover."
+        }
+      },
+      "delete": {
+        "action": "Delete Library Skill",
+        "title": "Delete Library Skill?",
+        "description": "Reachable expected links are removed first. Drifted or unreachable records stay protected until you explicitly use Forget.",
+        "confirm": "Delete Library Skill",
+        "success": "Library Skill deleted",
+        "failed": "Could not delete this Library Skill",
+        "inspectFailed": "Could not inspect deployments for deletion",
+        "noDeployments": "No recorded Deployments remain.",
+        "blockedDescription": "Deletion may remove exact expected links, then remain blocked for drifted or unreachable records. Use the existing Forget action for those records and inspect again.",
+        "removeExpectedLink": "Expected link will be removed",
+        "forgetRequired": "Forget record first",
+        "outcome": {
+          "deleted": "Library Skill deleted",
+          "blocked": "Deletion blocked; reconcile listed records",
+          "stale": "Deletion observation is stale",
+          "rolled_back": "Deletion rolled back",
+          "recovery_required": "Recovery required"
+        }
+      },
       "macOnlyTitle": "Private Skill Library is available on macOS only",
       "macOnlyDescription": "The private Skill Library is currently supported only on macOS."
     },

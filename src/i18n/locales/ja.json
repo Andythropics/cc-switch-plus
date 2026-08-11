@@ -2364,6 +2364,69 @@
       "actualTarget": "観測ターゲット",
       "collisionTitle": "ディレクトリが既に存在します",
       "collisionDescription": "ディレクトリ「{{directory}}」のスキルは、既にライブラリにあります。別のディレクトリを選択して取得してください。",
+      "update": {
+        "check": "更新を確認",
+        "checkFailed": "このスキルの更新を確認できませんでした",
+        "apply": "ステージ済み更新を適用",
+        "applied": "スキルライブラリを更新しました",
+        "confirmTitle": "ステージ済みの更新を適用しますか？",
+        "confirmDescription": "ステージ済みスナップショットは検証済みです。適用するとライブラリ全体をアトミックに置き換えます。",
+        "confirmApply": "更新を適用",
+        "confirmLocalModifications": "ローカル変更が置き換えられることを理解し、先に内容をバックアップします。",
+        "backupNotice": "置き換え前にバックアップを保持し、復旧に利用できます。",
+        "localModified": "デプロイリンク経由の編集を含むローカル変更を検出しました。",
+        "recordedHash": "記録済み内容",
+        "stagedHash": "ステージ済み内容",
+        "affectedDeployments": "デプロイ互換性への影響",
+        "compatibilityRegression": "ステージ済みスナップショットはこの対象と互換性がありません。",
+        "active": "アクティブ対象",
+        "archived": "アーカイブ済み対象",
+        "backupPath": "バックアップパス",
+        "outcome": {
+          "update_available": "更新をステージしました",
+          "up_to_date": "最新です",
+          "not_updatable": "アップストリーム更新元がありません",
+          "invalid_candidate": "候補の検証に失敗しました"
+        },
+        "applyOutcome": {
+          "updated": "スキルライブラリを更新しました",
+          "up_to_date": "すでに最新です",
+          "blocked": "更新をブロックしました",
+          "stale": "更新の観測が古くなっています",
+          "rolled_back": "更新をロールバックしました",
+          "recovery_required": "復旧が必要です"
+        },
+        "reason": {
+          "local_modification_confirmation_required": "内容を置き換える前にローカル変更を確認してください。",
+          "compatibility_regression": "更新により既知のデプロイが非互換になります。",
+          "not_updatable": "このスキルには更新元がありません。",
+          "invalid_candidate": "ステージ済み候補の検証に失敗しました。",
+          "duplicate_content": "ステージ済み内容は別のライブラリスキルで既に管理されています。",
+          "missing_stage": "ステージ済み更新は利用できなくなりました。",
+          "stale_observation": "確認後にライブラリが変更されました。適用前に再確認してください。",
+          "compensation_failed": "置換の補償処理に失敗しました。バックアップパスから復旧してください。"
+        }
+      },
+      "delete": {
+        "action": "ライブラリスキルを削除",
+        "title": "ライブラリスキルを削除しますか？",
+        "description": "到達可能な想定リンクを先に削除します。ドリフトまたは到達不能な記録は、明示的に「記録を忘れる」まで保護されます。",
+        "confirm": "ライブラリスキルを削除",
+        "success": "ライブラリスキルを削除しました",
+        "failed": "ライブラリスキルを削除できませんでした",
+        "inspectFailed": "削除前のデプロイ状態を確認できませんでした",
+        "noDeployments": "残っているデプロイ記録はありません。",
+        "blockedDescription": "正確な想定リンクは先に削除されますが、ドリフトまたは到達不能な記録で停止する場合があります。既存の「記録を忘れる」を実行してから再確認してください。",
+        "removeExpectedLink": "想定リンクを削除します",
+        "forgetRequired": "先に記録を忘れてください",
+        "outcome": {
+          "deleted": "ライブラリスキルを削除しました",
+          "blocked": "削除をブロックしました。記録を確認してください",
+          "stale": "削除の観測が古くなっています",
+          "rolled_back": "削除をロールバックしました",
+          "recovery_required": "復旧が必要です"
+        }
+      },
       "macOnlyTitle": "プライベートスキルライブラリは macOS 専用です",
       "macOnlyDescription": "プライベートスキルライブラリは現在 macOS でのみ利用できます。"
     },

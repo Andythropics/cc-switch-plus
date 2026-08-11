@@ -4054,6 +4054,64 @@ impl LibrarySkillAcquisitionService {
         Err(last_error.unwrap_or_else(|| anyhow!("all GitHub branch downloads failed")))
     }
 
+    /// Download exactly the persisted upstream branch for a Library update.
+    /// Unlike discovery acquisition this helper never falls back to main or
+    /// master: a deleted/moved branch must become an invalid candidate rather
+    /// than silently changing the Library's origin.
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn download_repository_snapshot_exact(
+        source: &LibrarySkillSource,
+    ) -> Result<(tempfile::TempDir, PathBuf)> {
+        let owner = source
+            .repo_owner
+            .as_deref()
+            .ok_or_else(|| anyhow!("Library Skill source has no repository owner"))?;
+        let repo = source
+            .repo_name
+            .as_deref()
+            .ok_or_else(|| anyhow!("Library Skill source has no repository name"))?;
+        let branch = source
+            .repo_branch
+            .as_deref()
+            .ok_or_else(|| anyhow!("Library Skill source has no persisted repository branch"))?;
+        SkillService::validate_repo_ref(owner, repo, branch)?;
+        let url = format!("https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip");
+        SkillService::assert_github_archive_url(&url, owner, repo)?;
+        let response = crate::proxy::http_client::get().get(&url).send().await?;
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "GitHub archive download failed with status {}",
+                response.status()
+            ));
+        }
+        let mut body = Vec::new();
+        let mut response = response;
+        while let Some(chunk) = response.chunk().await? {
+            if body.len().saturating_add(chunk.len()) as u64 > MAX_ARCHIVE_DOWNLOAD_BYTES {
+                return Err(anyhow!("GitHub archive exceeds the download limit"));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        let archive = zip::ZipArchive::new(std::io::Cursor::new(body))?;
+        let extracted = Self::extract_archive_preserving_links(archive)?;
+        let mut entries = fs::read_dir(extracted.path())?
+            .filter_map(std::result::Result::ok)
+            .collect::<Vec<_>>();
+        entries.sort_by_key(fs::DirEntry::file_name);
+        let repo_root = if entries.len() == 1 {
+            let entry = &entries[0];
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                entry.path()
+            } else {
+                extracted.path().to_path_buf()
+            }
+        } else {
+            extracted.path().to_path_buf()
+        };
+        Ok((extracted, repo_root))
+    }
+
     pub async fn acquire_discoverable(
         db: &Arc<Database>,
         skill: &DiscoverableSkill,
