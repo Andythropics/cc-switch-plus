@@ -18,6 +18,9 @@
 
 </div>
 
+> [!IMPORTANT]
+> 本项目是一个基于上游 [CC Switch](https://github.com/farion1231/cc-switch) 的二次开发项目，用于个人定制化开发。
+
 ## ❤️赞助商
 
 > [想出现在这里？](mailto:farion1231@gmail.com)

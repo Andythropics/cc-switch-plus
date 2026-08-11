@@ -18,6 +18,9 @@
 
 </div>
 
+> [!IMPORTANT]
+> 本リポジトリは、上流の [CC Switch](https://github.com/farion1231/cc-switch) をベースに、個人向けにカスタマイズした二次開発プロジェクトです。
+
 ## ❤️スポンサー
 
 > [ここに掲載しませんか？](mailto:farion1231@gmail.com)

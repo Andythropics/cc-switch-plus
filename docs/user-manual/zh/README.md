@@ -2,6 +2,9 @@
 
 > Claude Code / Claude Desktop / Codex / Gemini CLI / OpenCode / OpenClaw / Hermes 全方位辅助工具
 
+> [!IMPORTANT]
+> 本手册对应一个基于上游 [CC Switch](https://github.com/farion1231/cc-switch) 的二次开发项目，用于个人定制化开发。
+
 ## 目录结构
 
 ```

@@ -2,6 +2,9 @@
 
 > Claude Code / Claude Desktop / Codex / Gemini CLI / OpenCode / OpenClaw / Hermes オールインワンアシスタント
 
+> [!IMPORTANT]
+> 本マニュアルは、上流の [CC Switch](https://github.com/farion1231/cc-switch) をベースに、個人向けにカスタマイズした二次開発プロジェクトのものです。
+
 ## 目次構成
 
 ```

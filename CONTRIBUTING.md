@@ -4,6 +4,9 @@
 
 Thank you for your interest in contributing to CC Switch! Please read our [Code of Conduct](./CODE_OF_CONDUCT.md) before participating.
 
+> [!IMPORTANT]
+> This repository is a personal customization and secondary-development project based on the upstream [CC Switch](https://github.com/farion1231/cc-switch) project. Contributions here target this customized project.
+
 ## How to Contribute
 
 There are many ways to contribute:
@@ -139,6 +142,9 @@ CC Switch supports three languages. When modifying user-facing text:
 > [English Version](#contributing-to-cc-switch)
 
 感谢你对 CC Switch 的贡献兴趣！参与之前请阅读我们的[行为准则](./CODE_OF_CONDUCT.md)。
+
+> [!IMPORTANT]
+> 本项目是一个基于上游 [CC Switch](https://github.com/farion1231/cc-switch) 的二次开发项目，用于个人定制化开发；提交到本仓库的贡献以此定制项目为目标。
 
 ## 如何贡献
 
