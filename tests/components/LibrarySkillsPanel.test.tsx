@@ -14,12 +14,14 @@ const {
   acquireZipMock,
   openZipMock,
   applyDeploymentsMock,
+  refreshDeploymentsMock,
   deploymentStateMock,
 } = vi.hoisted(() => ({
   updateMetadataMock: vi.fn(),
   acquireZipMock: vi.fn(),
   openZipMock: vi.fn(),
   applyDeploymentsMock: vi.fn(),
+  refreshDeploymentsMock: vi.fn(),
   deploymentStateMock: { items: [] as unknown[] },
 }));
 
@@ -60,6 +62,7 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: applyDeploymentsMock,
     isPending: false,
   }),
+  useRefreshSkillDeployments: () => refreshDeploymentsMock,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -78,6 +81,7 @@ describe("LibrarySkillsPanel", () => {
     applyDeploymentsMock.mockReset().mockResolvedValue({
       items: [{ outcome: "applied" }],
     });
+    refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
     deploymentStateMock.items = [];
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
     librarySkill.compatibility.codex = { compatible: true, issues: [] };
@@ -151,6 +155,15 @@ describe("LibrarySkillsPanel", () => {
         ],
       }),
     );
+  });
+
+  it("reconciles active deployment observations from the manual refresh control", async () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+
+    expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
   });
 
   it("deploys an acquired Library Skill to Codex Global through the apply seam", async () => {

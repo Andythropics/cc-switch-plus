@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpen, Link2, Loader2, Unlink } from "lucide-react";
+import { FolderOpen, Link2, Loader2, RefreshCw, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +10,10 @@ import {
   useLibrarySkills,
   useProjectWorkspaces,
   useRegisterProjectWorkspace,
+  useRefreshSkillDeployments,
   useSkillDeployments,
 } from "@/hooks/useSkills";
+import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { settingsApi } from "@/lib/api/settings";
 import type {
   DeploymentConsumer,
@@ -22,6 +24,10 @@ import type { ProjectWorkspace } from "@/lib/api/projectWorkspaces";
 
 interface ProjectWorkspacesPanelProps {
   onOpenLibrary?: () => void;
+}
+
+export interface ProjectWorkspacesPanelHandle {
+  refresh: () => Promise<void>;
 }
 
 function ProjectWorkspaceDeployments({
@@ -93,7 +99,9 @@ function ProjectWorkspaceDeployments({
     const compatible = skill.compatibility[consumer].compatible;
     const blocked =
       !compatible ||
-      ["conflict", "orphaned", "unsupported", "blocked"].includes(status);
+      ["conflict", "orphaned", "archived", "unsupported", "blocked"].includes(
+        status,
+      );
     const deployed = status === "in_sync";
     const label =
       consumer === "claude"
@@ -104,9 +112,16 @@ function ProjectWorkspaceDeployments({
       t("skills.library.incompatibleConsumer", { consumer: label });
     return (
       <div key={consumer} className="flex flex-wrap items-center gap-1.5">
-        <Badge variant={status === "in_sync" ? "secondary" : "outline"}>
-          {label}: {t(`skills.library.deploymentStatus.${status}`)}
-        </Badge>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">
+            {label}
+          </span>
+          <DeploymentStatusBadge
+            status={status}
+            observed={deployment?.observed}
+            desired={Boolean(deployment?.desired)}
+          />
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -171,12 +186,14 @@ function ProjectWorkspaceDeployments({
   );
 }
 
-export function ProjectWorkspacesPanel({
-  onOpenLibrary,
-}: ProjectWorkspacesPanelProps) {
+export const ProjectWorkspacesPanel = forwardRef<
+  ProjectWorkspacesPanelHandle,
+  ProjectWorkspacesPanelProps
+>(function ProjectWorkspacesPanel({ onOpenLibrary }, ref) {
   const { t } = useTranslation();
   const { data: workspaces = [], isLoading } = useProjectWorkspaces();
   const register = useRegisterProjectWorkspace();
+  const refreshDeployments = useRefreshSkillDeployments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selected =
@@ -194,6 +211,10 @@ export function ProjectWorkspacesPanel({
       toast.error(String(error));
     }
   };
+
+  useImperativeHandle(ref, () => ({ refresh: refreshDeployments }), [
+    refreshDeployments,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -221,6 +242,15 @@ export function ProjectWorkspacesPanel({
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
           )}
           {t("skills.projects.register")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t("skills.refresh")}
+          title={t("skills.refresh")}
+          onClick={() => void refreshDeployments()}
+        >
+          <RefreshCw className="h-4 w-4" />
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
@@ -265,10 +295,9 @@ export function ProjectWorkspacesPanel({
                     {workspace.rootPath}
                   </p>
                 </button>
-                {selected?.id === workspace.id &&
-                  workspace.lifecycle === "active" && (
-                    <ProjectWorkspaceDeployments workspace={workspace} />
-                  )}
+                {selected?.id === workspace.id && (
+                  <ProjectWorkspaceDeployments workspace={workspace} />
+                )}
               </article>
             ))}
           </div>
@@ -276,4 +305,6 @@ export function ProjectWorkspacesPanel({
       </div>
     </div>
   );
-}
+});
+
+ProjectWorkspacesPanel.displayName = "ProjectWorkspacesPanel";

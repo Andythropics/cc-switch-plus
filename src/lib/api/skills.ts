@@ -100,6 +100,7 @@ export type ObservedDeploymentState =
   | "correct_link"
   | "redirected_link"
   | "broken_link"
+  | "invalid_link"
   | "occupied_directory"
   | "occupied_file"
   | "unreadable"
@@ -122,6 +123,7 @@ export type DeploymentStatus =
   | "conflict"
   | "orphaned"
   | "blocked"
+  | "archived"
   | "unsupported";
 
 export interface DeploymentInspection {

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   useApplySkillDeployments,
+  useRefreshSkillDeployments,
   useSkillDeployments,
 } from "@/hooks/useSkills";
 
@@ -76,5 +77,49 @@ describe("Skill Deployment hooks", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "deployments"],
     });
+  });
+
+  it("reconciles active observations when the window regains focus", async () => {
+    apiMocks.inspectDeployments.mockResolvedValue({ items: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderHook(
+      () => useSkillDeployments({ consumer: "claude", workspace: "global" }),
+      { wrapper: wrapper(queryClient) },
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.inspectDeployments).toHaveBeenCalledTimes(1),
+    );
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() =>
+      expect(apiMocks.inspectDeployments).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("supports an explicit manual reconciliation without replacing cached data", async () => {
+    apiMocks.inspectDeployments.mockResolvedValue({ items: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(
+      () => ({
+        deployment: useSkillDeployments({
+          consumer: "codex",
+          workspace: "global",
+        }),
+        refresh: useRefreshSkillDeployments(),
+      }),
+      { wrapper: wrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.deployment.isSuccess).toBe(true));
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(apiMocks.inspectDeployments).toHaveBeenCalledTimes(2);
+    expect(result.current.deployment.data).toEqual({ items: [] });
   });
 });

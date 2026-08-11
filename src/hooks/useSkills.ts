@@ -1,3 +1,4 @@
+import { useCallback, useEffect } from "react";
 import {
   useMutation,
   useQuery,
@@ -55,12 +56,39 @@ export function useLibrarySkills() {
 
 /** Desired + observed deployment state for the selected global target. */
 export function useSkillDeployments(query?: DeploymentQuery) {
-  return useQuery<DeploymentInspectionResult>({
+  const deploymentQuery = useQuery<DeploymentInspectionResult>({
     queryKey: ["skills", "deployments", query ?? {}],
     queryFn: () => skillsApi.inspectDeployments(query),
     staleTime: 0,
+    // The Tauri window focus event is not always surfaced through React
+    // Query's browser focus manager. Reconcile explicitly below so desktop
+    // focus regain has the same semantics as browser focus.
+    refetchOnWindowFocus: false,
     placeholderData: keepPreviousData,
   });
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      void deploymentQuery.refetch();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [deploymentQuery.refetch]);
+
+  return deploymentQuery;
+}
+
+/** Reconcile every mounted Global or Project Deployment observation. */
+export function useRefreshSkillDeployments() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () =>
+      queryClient.refetchQueries({
+        queryKey: ["skills", "deployments"],
+        type: "active",
+      }),
+    [queryClient],
+  );
 }
 
 export function useApplySkillDeployments() {

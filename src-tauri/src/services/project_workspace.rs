@@ -212,6 +212,36 @@ pub(crate) fn project_target_root(
         .join("skills"))
 }
 
+/// Resolve a project target for read-only reconciliation. Unlike mutation
+/// target resolution this intentionally permits archived/unavailable rows so
+/// inspection can report their stable lifecycle without changing the project.
+pub(crate) fn project_observation_target_root(
+    db: &Database,
+    workspace_id: &str,
+    consumer: DeploymentConsumer,
+) -> Result<PathBuf> {
+    let workspace = db
+        .get_project_workspace(workspace_id)?
+        .ok_or_else(|| anyhow!("Project Workspace not found: {workspace_id}"))?;
+    Ok(workspace
+        .root_path
+        .join(consumer_directory(consumer))
+        .join("skills"))
+}
+
+pub(crate) fn project_workspace_lifecycle(
+    db: &Database,
+    workspace_id: &str,
+) -> Result<WorkspaceLifecycle> {
+    let Some(mut workspace) = db.get_project_workspace(workspace_id)? else {
+        return Err(anyhow!("Project Workspace not found: {workspace_id}"));
+    };
+    if workspace.lifecycle == WorkspaceLifecycle::Active && !workspace.root_path.is_dir() {
+        workspace.lifecycle = WorkspaceLifecycle::Unavailable;
+    }
+    Ok(workspace.lifecycle)
+}
+
 pub(crate) fn project_git_exclude_path(root: &Path) -> Option<PathBuf> {
     let output = Command::new("git")
         .args([

@@ -10,12 +10,14 @@ const {
   applyDeploymentsMock,
   pickDirectoryMock,
   registerWorkspaceMock,
+  refreshDeploymentsMock,
   claudeState,
   codexState,
 } = vi.hoisted(() => ({
   applyDeploymentsMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   registerWorkspaceMock: vi.fn(),
+  refreshDeploymentsMock: vi.fn(),
   claudeState: { items: [] as unknown[] },
   codexState: { items: [] as unknown[] },
 }));
@@ -66,6 +68,7 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: applyDeploymentsMock,
     isPending: false,
   }),
+  useRefreshSkillDeployments: () => refreshDeploymentsMock,
 }));
 
 vi.mock("@/lib/api/settings", () => ({
@@ -91,6 +94,7 @@ describe("ProjectWorkspacesPanel", () => {
     applyDeploymentsMock.mockReset().mockResolvedValue({
       items: [{ outcome: "applied" }],
     });
+    refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
     claudeState.items = [];
     codexState.items = [];
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
@@ -134,6 +138,15 @@ describe("ProjectWorkspacesPanel", () => {
         },
       ],
     });
+  });
+
+  it("reconciles active deployment observations from the manual refresh control", async () => {
+    render(<ProjectWorkspacesPanel />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+
+    expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
   });
 
   it("disables only an incompatible consumer while leaving the other deployable", () => {

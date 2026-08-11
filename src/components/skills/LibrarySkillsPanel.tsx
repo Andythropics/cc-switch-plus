@@ -13,6 +13,7 @@ import {
   Loader2,
   Link2,
   Pencil,
+  RefreshCw,
   Search,
   Unlink,
   XCircle,
@@ -37,6 +38,7 @@ import {
   useAcquireLibrarySkillsFromZip,
   useApplySkillDeployments,
   useLibrarySkills,
+  useRefreshSkillDeployments,
   useSkillDeployments,
   useUpdateLibrarySkillMetadata,
 } from "@/hooks/useSkills";
@@ -47,6 +49,7 @@ import type {
   DeploymentIntent,
   LibrarySkill,
 } from "@/lib/api/skills";
+import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
@@ -58,6 +61,7 @@ interface LibrarySkillsPanelProps {
 export interface LibrarySkillsPanelHandle {
   openDiscovery: () => void;
   openAcquireFromZip: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const sourceSummary = (skill: LibrarySkill) => {
@@ -113,6 +117,7 @@ export const LibrarySkillsPanel = forwardRef<
     const updateMetadata = useUpdateLibrarySkillMetadata();
     const acquireZip = useAcquireLibrarySkillsFromZip();
     const applyDeployments = useApplySkillDeployments();
+    const refreshDeployments = useRefreshSkillDeployments();
     const [query, setQuery] = useState("");
     const [editing, setEditing] = useState<LibrarySkill | null>(null);
     const [displayName, setDisplayName] = useState("");
@@ -253,6 +258,7 @@ export const LibrarySkillsPanel = forwardRef<
         !compatibility.compatible ||
         status === "conflict" ||
         status === "orphaned" ||
+        status === "archived" ||
         status === "unsupported" ||
         status === "blocked";
       const consumerLabel =
@@ -277,14 +283,12 @@ export const LibrarySkillsPanel = forwardRef<
           className="flex min-w-[16rem] flex-1 flex-wrap items-center gap-2"
           data-testid={`deployment-control-${consumer}`}
         >
-          <Badge
-            variant={status === "in_sync" ? "secondary" : "outline"}
-            title={
-              !compatibility.compatible ? incompatibilityMessage : undefined
-            }
-          >
-            {t(`skills.library.deploymentStatus.${status}`)}
-          </Badge>
+          <DeploymentStatusBadge
+            status={status}
+            observed={deployment?.observed}
+            desired={Boolean(deployment?.desired)}
+            className="flex-1"
+          />
           {isDeployed ? (
             <Button
               variant="outline"
@@ -327,6 +331,7 @@ export const LibrarySkillsPanel = forwardRef<
     useImperativeHandle(ref, () => ({
       openDiscovery: onOpenDiscovery,
       openAcquireFromZip,
+      refresh: refreshDeployments,
     }));
 
     const filtered = useMemo(() => {
@@ -364,6 +369,15 @@ export const LibrarySkillsPanel = forwardRef<
               {t("skills.projects.title")}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("skills.refresh")}
+            title={t("skills.refresh")}
+            onClick={() => void refreshDeployments()}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
 
         <div className="px-5 py-3">

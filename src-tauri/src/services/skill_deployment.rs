@@ -17,7 +17,8 @@ use crate::config::get_home_dir;
 use crate::database::Database;
 #[cfg(target_os = "macos")]
 use crate::services::project_workspace::{
-    add_git_exclude, project_target_root, remove_git_exclude,
+    add_git_exclude, project_observation_target_root, project_target_root,
+    project_workspace_lifecycle, remove_git_exclude, WorkspaceLifecycle,
 };
 use crate::services::skill::{ConsumerCompatibility, LibrarySkill};
 
@@ -76,6 +77,7 @@ pub enum ObservedDeploymentState {
     CorrectLink,
     RedirectedLink,
     BrokenLink,
+    InvalidLink,
     OccupiedDirectory,
     OccupiedFile,
     Unreadable,
@@ -103,7 +105,14 @@ pub enum DeploymentStatus {
     Conflict,
     Orphaned,
     Blocked,
+    Archived,
     Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReconciliationLifecycle {
+    Archived,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -255,8 +264,13 @@ impl SkillDeploymentService {
     }
 
     pub fn inspect(&self, query: DeploymentQuery) -> Result<DeploymentInspectionResult> {
-        Self::ensure_supported_platform()?;
         let target = query.target();
+        #[cfg(not(target_os = "macos"))]
+        {
+            return self.inspect_unsupported(&query, target);
+        }
+        #[cfg(target_os = "macos")]
+        Self::ensure_supported_platform()?;
         let library_skills = self.db.list_library_skills()?;
         let desired = self.db.list_skill_deployments()?;
         let requested = query.library_skill_ids.as_ref();
@@ -283,6 +297,65 @@ impl SkillDeploymentService {
                 .any(|item| item.library_skill_id == row.library_skill_id)
             {
                 items.push(self.inspect_missing_library(row, &target)?);
+            }
+        }
+        items.sort_by(|left, right| {
+            left.library_directory
+                .cmp(&right.library_directory)
+                .then(left.library_skill_id.cmp(&right.library_skill_id))
+        });
+        Ok(DeploymentInspectionResult { items })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn inspect_unsupported(
+        &self,
+        query: &DeploymentQuery,
+        target: DeploymentTarget,
+    ) -> Result<DeploymentInspectionResult> {
+        let library_skills = self.db.list_library_skills()?;
+        let desired = self.db.list_skill_deployments()?;
+        let requested = query.library_skill_ids.as_ref();
+        let unsupported = || ObservedDeployment {
+            state: ObservedDeploymentState::UnsupportedPlatform,
+            target_path: String::new(),
+            expected_target: String::new(),
+            actual_target: None,
+        };
+        let mut items = Vec::new();
+        for skill in library_skills {
+            if requested.is_some_and(|ids| !ids.iter().any(|id| id == &skill.id)) {
+                continue;
+            }
+            let desired_item = desired
+                .iter()
+                .find(|item| item.library_skill_id == skill.id && item.target == target)
+                .cloned();
+            items.push(DeploymentInspection {
+                library_skill_id: skill.id,
+                library_directory: skill.directory,
+                target: target.clone(),
+                desired: desired_item,
+                observed: unsupported(),
+                status: DeploymentStatus::Unsupported,
+            });
+        }
+        for row in desired.iter().filter(|row| row.target == target) {
+            if requested.is_some_and(|ids| !ids.iter().any(|id| id == &row.library_skill_id)) {
+                continue;
+            }
+            if !items
+                .iter()
+                .any(|item| item.library_skill_id == row.library_skill_id)
+            {
+                items.push(DeploymentInspection {
+                    library_skill_id: row.library_skill_id.clone(),
+                    library_directory: row.library_directory.clone(),
+                    target: target.clone(),
+                    desired: Some(row.clone()),
+                    observed: unsupported(),
+                    status: DeploymentStatus::Unsupported,
+                });
             }
         }
         items.sort_by(|left, right| {
@@ -418,6 +491,7 @@ impl SkillDeploymentService {
             | ObservedDeploymentState::OccupiedFile
             | ObservedDeploymentState::RedirectedLink
             | ObservedDeploymentState::BrokenLink
+            | ObservedDeploymentState::InvalidLink
             | ObservedDeploymentState::Unreadable
             | ObservedDeploymentState::InvalidTargetRoot
             | ObservedDeploymentState::UnrecordedLink
@@ -673,8 +747,28 @@ impl SkillDeploymentService {
         desired: Option<DesiredDeployment>,
         target: &DeploymentTarget,
     ) -> Result<DeploymentInspection> {
-        let observed = self.observe(skill, target)?;
-        let status = Self::status_for(desired.is_some(), &observed.state);
+        let mut observed = self.observe(skill, target)?;
+        if desired.is_none() && observed.state == ObservedDeploymentState::CorrectLink {
+            observed.state = ObservedDeploymentState::UnrecordedLink;
+        }
+        #[cfg(target_os = "macos")]
+        let lifecycle = if target.workspace == WorkspaceKind::Project {
+            match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
+                WorkspaceLifecycle::Active => None,
+                WorkspaceLifecycle::Archived => Some(ReconciliationLifecycle::Archived),
+                WorkspaceLifecycle::Unavailable => Some(ReconciliationLifecycle::Unavailable),
+            }
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "macos"))]
+        let lifecycle: Option<ReconciliationLifecycle> = None;
+        let status = Self::status_for(
+            desired.is_some(),
+            &observed.state,
+            lifecycle.as_ref(),
+            Self::is_compatible(skill, target.consumer),
+        );
         Ok(DeploymentInspection {
             library_skill_id: skill.id.clone(),
             library_directory: skill.directory.clone(),
@@ -690,8 +784,20 @@ impl SkillDeploymentService {
         desired: &DesiredDeployment,
         target: &DeploymentTarget,
     ) -> Result<DeploymentInspection> {
-        let target_path = self.target_path(target, &desired.library_directory)?;
+        let target_path = self.observation_target_path(target, &desired.library_directory)?;
         let expected = self.library_path(&desired.library_directory)?;
+        #[cfg(target_os = "macos")]
+        let lifecycle = if target.workspace == WorkspaceKind::Project {
+            match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
+                WorkspaceLifecycle::Active => None,
+                WorkspaceLifecycle::Archived => Some(ReconciliationLifecycle::Archived),
+                WorkspaceLifecycle::Unavailable => Some(ReconciliationLifecycle::Unavailable),
+            }
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "macos"))]
+        let lifecycle: Option<ReconciliationLifecycle> = None;
         Ok(DeploymentInspection {
             library_skill_id: desired.library_skill_id.clone(),
             library_directory: desired.library_directory.clone(),
@@ -703,7 +809,12 @@ impl SkillDeploymentService {
                 expected_target: expected.display().to_string(),
                 actual_target: None,
             },
-            status: DeploymentStatus::Orphaned,
+            status: Self::status_for(
+                true,
+                &ObservedDeploymentState::LibraryMissing,
+                lifecycle.as_ref(),
+                true,
+            ),
         })
     }
 
@@ -712,7 +823,7 @@ impl SkillDeploymentService {
         skill: &LibrarySkill,
         target: &DeploymentTarget,
     ) -> Result<ObservedDeployment> {
-        let target_path = self.target_path(target, &skill.directory)?;
+        let target_path = self.observation_target_path(target, &skill.directory)?;
         let expected = self.library_path(&skill.directory)?;
         let expected_string = expected.display().to_string();
         if !expected.is_dir() {
@@ -782,6 +893,8 @@ impl SkillDeploymentService {
         let actual_string = actual.display().to_string();
         let state = if actual.is_absolute() && actual == expected {
             ObservedDeploymentState::CorrectLink
+        } else if !actual.is_absolute() {
+            ObservedDeploymentState::InvalidLink
         } else if actual.exists() {
             ObservedDeploymentState::RedirectedLink
         } else {
@@ -795,7 +908,21 @@ impl SkillDeploymentService {
         })
     }
 
-    fn status_for(desired: bool, observed: &ObservedDeploymentState) -> DeploymentStatus {
+    fn status_for(
+        desired: bool,
+        observed: &ObservedDeploymentState,
+        lifecycle: Option<&ReconciliationLifecycle>,
+        compatible: bool,
+    ) -> DeploymentStatus {
+        if matches!(lifecycle, Some(ReconciliationLifecycle::Archived)) {
+            return DeploymentStatus::Archived;
+        }
+        if matches!(lifecycle, Some(ReconciliationLifecycle::Unavailable)) {
+            return DeploymentStatus::Blocked;
+        }
+        if !compatible {
+            return DeploymentStatus::Blocked;
+        }
         match (desired, observed) {
             (false, ObservedDeploymentState::Missing) => DeploymentStatus::NotDeployed,
             (true, ObservedDeploymentState::CorrectLink) => DeploymentStatus::InSync,
@@ -803,11 +930,12 @@ impl SkillDeploymentService {
             (_, ObservedDeploymentState::OccupiedDirectory)
             | (_, ObservedDeploymentState::OccupiedFile)
             | (_, ObservedDeploymentState::RedirectedLink)
-            | (_, ObservedDeploymentState::UnrecordedLink)
             | (_, ObservedDeploymentState::InvalidTargetRoot) => DeploymentStatus::Conflict,
+            (_, ObservedDeploymentState::UnrecordedLink) => DeploymentStatus::Orphaned,
             (_, ObservedDeploymentState::LibraryMissing) => DeploymentStatus::Orphaned,
             (_, ObservedDeploymentState::Unreadable)
             | (_, ObservedDeploymentState::BrokenLink)
+            | (_, ObservedDeploymentState::InvalidLink)
             | (true, ObservedDeploymentState::Missing) => DeploymentStatus::Drift,
             (_, ObservedDeploymentState::UnsupportedPlatform) => DeploymentStatus::Unsupported,
         }
@@ -834,6 +962,40 @@ impl SkillDeploymentService {
                 #[cfg(target_os = "macos")]
                 {
                     project_target_root(&self.db, &target.workspace_id, target.consumer)?
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    return Err(anyhow!(
+                        "project Deployment targets are supported on macOS only"
+                    ));
+                }
+            }
+        };
+        Ok(root.join(directory))
+    }
+
+    fn observation_target_path(
+        &self,
+        target: &DeploymentTarget,
+        directory: &str,
+    ) -> Result<PathBuf> {
+        Self::validate_target(target)?;
+        Self::validate_directory(directory)?;
+        let root = match (target.consumer, target.workspace) {
+            (DeploymentConsumer::Claude, WorkspaceKind::Global) => {
+                get_home_dir().join(".claude").join("skills")
+            }
+            (DeploymentConsumer::Codex, WorkspaceKind::Global) => {
+                get_home_dir().join(".agents").join("skills")
+            }
+            (_, WorkspaceKind::Project) => {
+                #[cfg(target_os = "macos")]
+                {
+                    project_observation_target_root(
+                        &self.db,
+                        &target.workspace_id,
+                        target.consumer,
+                    )?
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -909,6 +1071,13 @@ impl SkillDeploymentService {
                 consumer,
                 compatibility.issues.join("; ")
             ))
+        }
+    }
+
+    fn is_compatible(skill: &LibrarySkill, consumer: DeploymentConsumer) -> bool {
+        match consumer {
+            DeploymentConsumer::Claude => skill.compatibility.claude.compatible,
+            DeploymentConsumer::Codex => skill.compatibility.codex.compatible,
         }
     }
 
