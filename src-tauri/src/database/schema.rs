@@ -540,6 +540,12 @@ impl Database {
                         Self::migrate_v18_to_v19(conn)?;
                         Self::set_user_version(conn, 19)?;
                     }
+                    #[cfg(target_os = "macos")]
+                    19 => {
+                        log::info!("迁移数据库从 v19 到 v20（记录 Project Workspace 稳定身份）");
+                        Self::migrate_v19_to_v20(conn)?;
+                        Self::set_user_version(conn, 20)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1297,6 +1303,7 @@ impl Database {
                 display_name TEXT NOT NULL,
                 root_path TEXT NOT NULL UNIQUE,
                 root_kind TEXT NOT NULL CHECK (root_kind IN ('git_repository', 'git_worktree', 'non_git')),
+                registration_fingerprint TEXT NOT NULL DEFAULT '',
                 lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'archived', 'unavailable')),
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -1317,6 +1324,74 @@ impl Database {
     fn migrate_v18_to_v19(conn: &Connection) -> Result<(), AppError> {
         Self::create_project_workspaces_table(conn)?;
         log::info!("v18 -> v19 迁移完成：已添加 Project Workspace 身份");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
+        Self::add_column_if_missing(
+            conn,
+            "project_workspaces",
+            "registration_fingerprint",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+
+        // Existing rows that still have a reachable root can be upgraded to
+        // the same stable identity used by newly registered Workspaces. Rows
+        // whose roots are already gone retain an empty marker and therefore
+        // cannot be relocated without an explicit re-registration.
+        let mut statement = conn
+            .prepare(
+                "SELECT id, root_path, root_kind
+                 FROM project_workspaces
+                 WHERE registration_fingerprint = ''",
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        let mut updates = Vec::new();
+        for row in rows {
+            let (id, root_path, root_kind) =
+                row.map_err(|error| AppError::Database(error.to_string()))?;
+            let root_kind = match root_kind.as_str() {
+                "git_repository" => {
+                    crate::services::project_workspace::WorkspaceRootKind::GitRepository
+                }
+                "git_worktree" => {
+                    crate::services::project_workspace::WorkspaceRootKind::GitWorktree
+                }
+                "non_git" => crate::services::project_workspace::WorkspaceRootKind::NonGit,
+                _ => continue,
+            };
+            let root = std::path::Path::new(&root_path);
+            if root.is_dir() {
+                if let Ok(fingerprint) =
+                    crate::services::project_workspace::registration_fingerprint_for_root(
+                        root, root_kind,
+                    )
+                {
+                    updates.push((id, fingerprint));
+                }
+            }
+        }
+        drop(statement);
+        for (id, fingerprint) in updates {
+            conn.execute(
+                "UPDATE project_workspaces
+                 SET registration_fingerprint = ?2
+                 WHERE id = ?1",
+                rusqlite::params![id, fingerprint],
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        }
+        log::info!("v19 -> v20 迁移完成：已添加 Project Workspace 稳定身份");
         Ok(())
     }
 
@@ -3470,6 +3545,126 @@ mod tests {
             deployment,
             ("library-1".to_string(), "claude".to_string(), 40)
         );
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v19_to_v20_backfills_reachable_identity_and_preserves_unavailable_rows(
+    ) -> Result<(), AppError> {
+        use std::fs;
+        use std::process::Command;
+
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute("DROP TABLE project_workspaces", [])?;
+        conn.execute(
+            "CREATE TABLE project_workspaces (
+                id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                root_path TEXT NOT NULL UNIQUE,
+                root_kind TEXT NOT NULL CHECK (root_kind IN ('git_repository', 'git_worktree', 'non_git')),
+                lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'archived', 'unavailable')),
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        let reachable =
+            tempfile::tempdir().map_err(|error| AppError::Database(error.to_string()))?;
+        let git_status = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(reachable.path())
+            .status()
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        assert!(git_status.success());
+        for args in [
+            ["config", "user.email", "schema-tests@example.com"],
+            ["config", "user.name", "Schema Tests"],
+        ] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(reachable.path())
+                .status()
+                .map_err(|error| AppError::Database(error.to_string()))?;
+            assert!(status.success());
+        }
+        fs::write(reachable.path().join("README.md"), "schema\n")
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        for args in [
+            &["add", "README.md"][..],
+            &["commit", "--quiet", "-m", "initial"][..],
+        ] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(reachable.path())
+                .status()
+                .map_err(|error| AppError::Database(error.to_string()))?;
+            assert!(status.success());
+        }
+        let unavailable =
+            tempfile::tempdir().map_err(|error| AppError::Database(error.to_string()))?;
+        let unavailable_path = unavailable.path().to_path_buf();
+        drop(unavailable);
+        conn.execute(
+            "INSERT INTO project_workspaces
+             (id, display_name, root_path, root_kind, lifecycle, created_at, updated_at)
+             VALUES ('reachable', 'Reachable', ?1, 'git_repository', 'active', 1, 2),
+                    ('unavailable', 'Unavailable', ?2, 'non_git', 'archived', 3, 4)",
+            rusqlite::params![
+                reachable.path().display().to_string(),
+                unavailable_path.display().to_string()
+            ],
+        )?;
+        conn.execute(
+            "INSERT INTO library_skills (
+                id, directory, display_name, source_json, compatibility_json,
+                content_hash, acquired_at, updated_at
+             ) VALUES ('library-1', 'schema-skill', 'Schema Skill', '{}', '{}', 'hash', 5, 6)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO skill_deployments (
+                id, library_skill_id, consumer, workspace_kind,
+                library_directory, workspace_id, created_at, updated_at
+             ) VALUES ('deployment-1', 'library-1', 'claude', 'project',
+                       'schema-skill', 'reachable', 7, 8)",
+            [],
+        )?;
+        Database::set_user_version(&conn, 19)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::has_column(
+            &conn,
+            "project_workspaces",
+            "registration_fingerprint"
+        )?);
+        let reachable_fingerprint: String = conn.query_row(
+            "SELECT registration_fingerprint FROM project_workspaces WHERE id = 'reachable'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert!(reachable_fingerprint.starts_with("git:v2:"));
+        assert!(!reachable_fingerprint.ends_with(":empty"));
+        let unavailable_fingerprint: String = conn.query_row(
+            "SELECT registration_fingerprint FROM project_workspaces WHERE id = 'unavailable'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert!(unavailable_fingerprint.is_empty());
+        let workspace_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM project_workspaces", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(workspace_count, 2);
+        let deployment_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM skill_deployments", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(deployment_count, 1);
         Ok(())
     }
 }

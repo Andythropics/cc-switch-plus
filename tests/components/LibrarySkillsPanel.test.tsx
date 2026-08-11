@@ -407,7 +407,7 @@ describe("LibrarySkillsPanel", () => {
     );
   });
 
-  it("does not expose resolution actions for archived or unavailable deployments", () => {
+  it("keeps cleanup available while blocking repair for archived deployments", () => {
     deploymentStateMock.items = [
       {
         librarySkillId: "library-1",
@@ -427,14 +427,14 @@ describe("LibrarySkillsPanel", () => {
         name: "skills.library.replaceForeignLink",
       }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "skills.library.forget" }),
-    ).not.toBeInTheDocument();
+    screen
+      .getAllByRole("button", { name: "skills.library.forget" })
+      .forEach((button) => expect(button).toBeEnabled());
     expect(
       screen.getAllByRole("button", {
         name: "skills.library.undeployClaude",
       })[0],
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 
   it("disables an incompatible consumer while leaving Claude usable", () => {

@@ -19,8 +19,8 @@ use crate::config::get_home_dir;
 use crate::database::Database;
 #[cfg(target_os = "macos")]
 use crate::services::project_workspace::{
-    add_git_exclude, project_observation_target_root, project_target_root,
-    project_workspace_lifecycle, remove_git_exclude, WorkspaceLifecycle,
+    add_git_exclude, project_observation_target_root, project_removal_target_root,
+    project_target_root, project_workspace_lifecycle, remove_git_exclude, WorkspaceLifecycle,
 };
 use crate::services::skill::{ConsumerCompatibility, LibrarySkill};
 use sha2::{Digest, Sha256};
@@ -827,9 +827,9 @@ impl SkillDeploymentService {
         library_skill_id: &str,
         target: &DeploymentTarget,
     ) -> Result<DeploymentItemResult> {
+        let library = self.db.get_library_skill_by_id(library_skill_id)?;
         let desired = self.db.get_skill_deployment(library_skill_id, target)?;
         let Some(desired) = desired else {
-            let library = self.db.get_library_skill_by_id(library_skill_id)?;
             return Ok(if let Some(skill) = library {
                 self.result(
                     &skill,
@@ -847,18 +847,46 @@ impl SkillDeploymentService {
                 }
             });
         };
-
-        if let Some(message) = self.workspace_block_message(target)? {
-            return Ok(DeploymentItemResult {
-                library_skill_id: library_skill_id.to_string(),
-                target: target.clone(),
-                outcome: DeploymentMutationOutcome::Blocked,
-                message: Some(message),
-                inspection: None,
-            });
-        }
-
-        let target_path = self.target_path(target, &desired.library_directory)?;
+        let target_path = {
+            #[cfg(target_os = "macos")]
+            if target.workspace == WorkspaceKind::Project {
+                match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
+                    WorkspaceLifecycle::Unavailable => {
+                        return Ok(DeploymentItemResult {
+                            library_skill_id: library_skill_id.to_string(),
+                            target: target.clone(),
+                            outcome: DeploymentMutationOutcome::Blocked,
+                            message: Some("Project Workspace is unavailable".to_string()),
+                            inspection: None,
+                        });
+                    }
+                    WorkspaceLifecycle::Active | WorkspaceLifecycle::Archived => {
+                        match project_removal_target_root(
+                            &self.db,
+                            &target.workspace_id,
+                            target.consumer,
+                        ) {
+                            Ok(root) => root.join(&desired.library_directory),
+                            Err(error) => {
+                                return Ok(DeploymentItemResult {
+                                    library_skill_id: library_skill_id.to_string(),
+                                    target: target.clone(),
+                                    outcome: DeploymentMutationOutcome::Blocked,
+                                    message: Some(error.to_string()),
+                                    inspection: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.target_path(target, &desired.library_directory)?
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                self.target_path(target, &desired.library_directory)?
+            }
+        };
         let expected = self.library_path(&desired.library_directory)?;
         let metadata = match fs::symlink_metadata(&target_path) {
             Ok(metadata) => metadata,
@@ -955,7 +983,6 @@ impl SkillDeploymentService {
             }
             return Err(error.into());
         }
-        let library = self.db.get_library_skill_by_id(library_skill_id)?;
         Ok(if let Some(skill) = library {
             self.result(&skill, target, DeploymentMutationOutcome::Removed, None)
         } else {
@@ -984,15 +1011,6 @@ impl SkillDeploymentService {
                 inspection: None,
             });
         };
-        if let Some(message) = self.workspace_block_message(target)? {
-            return Ok(DeploymentItemResult {
-                library_skill_id: library_skill_id.to_string(),
-                target: target.clone(),
-                outcome: DeploymentMutationOutcome::Blocked,
-                message: Some(message),
-                inspection: None,
-            });
-        }
         self.db.delete_skill_deployment(&desired.id)?;
         Ok(DeploymentItemResult {
             library_skill_id: library_skill_id.to_string(),

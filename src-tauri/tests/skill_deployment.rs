@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::Command;
 
 use cc_switch_lib::{
@@ -58,6 +58,11 @@ fn target() -> DeploymentTarget {
 
 fn codex_target() -> DeploymentTarget {
     DeploymentTarget::global(DeploymentConsumer::Codex)
+}
+
+fn non_git_fingerprint(root: &std::path::Path) -> String {
+    let metadata = fs::metadata(root).expect("read non-Git root metadata");
+    format!("non_git:v2:{}:{}", metadata.dev(), metadata.ino())
 }
 
 #[test]
@@ -1226,8 +1231,9 @@ fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
         .save_project_workspace(&ProjectWorkspace {
             id: archived_id.clone(),
             display_name: "Archived lifecycle".to_string(),
-            root_path: archived_root.path().to_path_buf(),
+            root_path: fs::canonicalize(archived_root.path()).expect("canonical archived root"),
             root_kind: WorkspaceRootKind::NonGit,
+            registration_fingerprint: non_git_fingerprint(archived_root.path()),
             lifecycle: WorkspaceLifecycle::Archived,
             created_at: 1,
             updated_at: 1,
@@ -1250,6 +1256,14 @@ fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
         .db
         .save_skill_deployment(&archived_desired)
         .expect("save archived deployment");
+    let archived_link = archived_root.path().join(".claude/skills/lifecycle-review");
+    fs::create_dir_all(archived_link.parent().expect("archived skills parent"))
+        .expect("create archived skills root");
+    std::os::unix::fs::symlink(
+        ensure_test_home().join(".cc-switch/skills/lifecycle-review"),
+        &archived_link,
+    )
+    .expect("create archived managed link");
     let deployment = SkillDeploymentService::new(state.db.clone());
     let archived_inspection = deployment
         .inspect(DeploymentQuery::for_target(archived_target.clone()))
@@ -1270,6 +1284,24 @@ fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
         archived_repair.items[0].outcome,
         DeploymentMutationOutcome::Blocked
     );
+    let archived_forget = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Forget {
+            library_skill_id: skill.id.clone(),
+            target: archived_target.clone(),
+        }))
+        .expect("archived forget result");
+    assert_eq!(
+        archived_forget.items[0].outcome,
+        DeploymentMutationOutcome::Forgotten
+    );
+    assert!(
+        archived_link.exists(),
+        "Forget must leave the archived link"
+    );
+    state
+        .db
+        .save_skill_deployment(&archived_desired)
+        .expect("restore archived desired row for undeploy");
     let archived_undeploy = deployment
         .apply(DeploymentBatch::single(DeploymentIntent::Undeploy {
             library_skill_id: skill.id.clone(),
@@ -1278,17 +1310,11 @@ fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
         .expect("archived undeploy result");
     assert_eq!(
         archived_undeploy.items[0].outcome,
-        DeploymentMutationOutcome::Blocked
+        DeploymentMutationOutcome::Removed
     );
-    let archived_forget = deployment
-        .apply(DeploymentBatch::single(DeploymentIntent::Forget {
-            library_skill_id: skill.id.clone(),
-            target: archived_undeploy.items[0].target.clone(),
-        }))
-        .expect("archived forget result");
-    assert_eq!(
-        archived_forget.items[0].outcome,
-        DeploymentMutationOutcome::Blocked
+    assert!(
+        !archived_link.exists(),
+        "archived undeploy removes managed link"
     );
 
     let unavailable_root = tempfile::tempdir().expect("create unavailable root");
@@ -1299,8 +1325,9 @@ fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
         .save_project_workspace(&ProjectWorkspace {
             id: unavailable_id.clone(),
             display_name: "Unavailable lifecycle".to_string(),
-            root_path: unavailable_path,
+            root_path: fs::canonicalize(&unavailable_path).expect("canonical unavailable root"),
             root_kind: WorkspaceRootKind::NonGit,
+            registration_fingerprint: non_git_fingerprint(&unavailable_path),
             lifecycle: WorkspaceLifecycle::Active,
             created_at: 1,
             updated_at: 1,
@@ -1360,7 +1387,7 @@ fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
         .expect("unavailable forget result");
     assert_eq!(
         unavailable_forget.items[0].outcome,
-        DeploymentMutationOutcome::Blocked
+        DeploymentMutationOutcome::Forgotten
     );
 }
 
@@ -1585,8 +1612,9 @@ fn inspect_reports_broken_library_missing_unrecorded_and_lifecycle_states() {
     let archived_workspace = ProjectWorkspace {
         id: archived_id.clone(),
         display_name: "Archived project".to_string(),
-        root_path: archived_root.path().to_path_buf(),
+        root_path: fs::canonicalize(archived_root.path()).expect("canonical archived root"),
         root_kind: WorkspaceRootKind::NonGit,
+        registration_fingerprint: non_git_fingerprint(archived_root.path()),
         lifecycle: WorkspaceLifecycle::Archived,
         created_at: 1,
         updated_at: 1,

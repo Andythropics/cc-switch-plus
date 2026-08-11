@@ -54,7 +54,7 @@ use std::sync::Mutex;
 /// 当前 Schema 版本号
 /// 每次修改表结构时递增，并在 schema.rs 中添加相应的迁移逻辑
 #[cfg(target_os = "macos")]
-pub(crate) const SCHEMA_VERSION: i32 = 19;
+pub(crate) const SCHEMA_VERSION: i32 = 20;
 #[cfg(not(target_os = "macos"))]
 pub(crate) const SCHEMA_VERSION: i32 = 16;
 

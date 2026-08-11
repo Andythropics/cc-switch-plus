@@ -10,16 +10,32 @@ const {
   applyDeploymentsMock,
   pickDirectoryMock,
   registerWorkspaceMock,
+  renameWorkspaceMock,
+  archiveWorkspaceMock,
+  restoreWorkspaceMock,
+  relocateWorkspaceMock,
+  forgetWorkspaceMock,
   refreshDeploymentsMock,
   claudeState,
   codexState,
+  workspaceRows,
+  toastSuccessMock,
+  toastErrorMock,
 } = vi.hoisted(() => ({
   applyDeploymentsMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   registerWorkspaceMock: vi.fn(),
+  renameWorkspaceMock: vi.fn(),
+  archiveWorkspaceMock: vi.fn(),
+  restoreWorkspaceMock: vi.fn(),
+  relocateWorkspaceMock: vi.fn(),
+  forgetWorkspaceMock: vi.fn(),
   refreshDeploymentsMock: vi.fn(),
   claudeState: { items: [] as unknown[] },
   codexState: { items: [] as unknown[] },
+  workspaceRows: [] as unknown[],
+  toastSuccessMock: vi.fn(),
+  toastErrorMock: vi.fn(),
 }));
 
 const workspace: ProjectWorkspace = {
@@ -55,9 +71,32 @@ const librarySkill: LibrarySkill = {
 };
 
 vi.mock("@/hooks/useSkills", () => ({
-  useProjectWorkspaces: () => ({ data: [workspace], isLoading: false }),
+  useProjectWorkspaces: () => ({
+    data: workspaceRows.length ? workspaceRows : [workspace],
+    isLoading: false,
+  }),
   useRegisterProjectWorkspace: () => ({
     mutateAsync: registerWorkspaceMock,
+    isPending: false,
+  }),
+  useRenameProjectWorkspace: () => ({
+    mutateAsync: renameWorkspaceMock,
+    isPending: false,
+  }),
+  useArchiveProjectWorkspace: () => ({
+    mutateAsync: archiveWorkspaceMock,
+    isPending: false,
+  }),
+  useRestoreProjectWorkspace: () => ({
+    mutateAsync: restoreWorkspaceMock,
+    isPending: false,
+  }),
+  useRelocateProjectWorkspace: () => ({
+    mutateAsync: relocateWorkspaceMock,
+    isPending: false,
+  }),
+  useForgetProjectWorkspace: () => ({
+    mutateAsync: forgetWorkspaceMock,
     isPending: false,
   }),
   useLibrarySkills: () => ({ data: [librarySkill], isLoading: false }),
@@ -76,8 +115,22 @@ vi.mock("@/lib/api/settings", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: toastSuccessMock, error: toastErrorMock },
 }));
+
+const archivedWorkspace: ProjectWorkspace = {
+  ...workspace,
+  id: "workspace-archived",
+  displayName: "Archived workspace",
+  lifecycle: "archived",
+};
+
+const unavailableWorkspace: ProjectWorkspace = {
+  ...workspace,
+  id: "workspace-unavailable",
+  displayName: "Unavailable workspace",
+  lifecycle: "unavailable",
+};
 
 describe("ProjectWorkspacesPanel", () => {
   beforeEach(() => {
@@ -91,10 +144,24 @@ describe("ProjectWorkspacesPanel", () => {
         scopes: [],
       },
     });
+    renameWorkspaceMock.mockReset().mockResolvedValue(workspace);
+    archiveWorkspaceMock.mockReset().mockResolvedValue({
+      ...workspace,
+      lifecycle: "archived",
+    });
+    restoreWorkspaceMock.mockReset().mockResolvedValue(workspace);
+    relocateWorkspaceMock.mockReset().mockResolvedValue({
+      outcome: "relocated",
+      workspace,
+    });
+    forgetWorkspaceMock.mockReset().mockResolvedValue(true);
     applyDeploymentsMock.mockReset().mockResolvedValue({
       items: [{ outcome: "applied" }],
     });
     refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
+    toastErrorMock.mockReset();
+    toastSuccessMock.mockReset();
+    workspaceRows.length = 0;
     claudeState.items = [];
     codexState.items = [];
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
@@ -215,5 +282,287 @@ describe("ProjectWorkspacesPanel", () => {
         path: "/tmp/new-workspace",
       });
     });
+  });
+
+  it("keeps archived workspaces out of the active list while making them discoverable", async () => {
+    workspaceRows.push(workspace, archivedWorkspace);
+    render(<ProjectWorkspacesPanel />);
+
+    expect(screen.getByText("Demo workspace")).toBeInTheDocument();
+    expect(screen.queryByText("Archived workspace")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.showArchived" }),
+    );
+    expect(screen.getByText("Archived workspace")).toBeInTheDocument();
+    expect(
+      screen.getByText("skills.projects.lifecycle.archived"),
+    ).toBeInTheDocument();
+  });
+
+  it("renames only the Project Workspace display name", async () => {
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.rename" }),
+    );
+    const name = screen.getByLabelText("skills.projects.displayName");
+    await user.clear(name);
+    await user.type(name, "Renamed workspace");
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.renameConfirm" }),
+    );
+
+    await waitFor(() =>
+      expect(renameWorkspaceMock).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        displayName: "Renamed workspace",
+      }),
+    );
+  });
+
+  it("confirms archive with an explicit no-project-mutation promise", async () => {
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.archive" }),
+    );
+
+    expect(
+      screen.getByText("skills.projects.archiveDescription"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.archiveConfirm" }),
+    );
+
+    await waitFor(() =>
+      expect(archiveWorkspaceMock).toHaveBeenCalledWith("workspace-1"),
+    );
+  });
+
+  it("restores an archived workspace through its lifecycle action", async () => {
+    workspaceRows.push(archivedWorkspace);
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.showArchived" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.restore" }),
+    );
+
+    await waitFor(() =>
+      expect(restoreWorkspaceMock).toHaveBeenCalledWith("workspace-archived"),
+    );
+  });
+
+  it("offers relocation only for unavailable workspaces and sends the picked path", async () => {
+    workspaceRows.push(unavailableWorkspace);
+    pickDirectoryMock.mockResolvedValueOnce("/tmp/relocated-workspace");
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.relocate" }),
+    );
+    expect(pickDirectoryMock).toHaveBeenCalledTimes(1);
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.projects.relocateConfirm",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(relocateWorkspaceMock).toHaveBeenCalledWith({
+        workspaceId: "workspace-unavailable",
+        path: "/tmp/relocated-workspace",
+      }),
+    );
+  });
+
+  it("explains that an existing old root should be registered distinctly", async () => {
+    workspaceRows.push(unavailableWorkspace);
+    pickDirectoryMock.mockResolvedValueOnce("/tmp/candidate");
+    relocateWorkspaceMock.mockResolvedValueOnce({
+      outcome: "registered_distinct",
+      workspace: { ...unavailableWorkspace, id: "workspace-distinct" },
+    });
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.relocate" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.projects.relocateConfirm",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(toastSuccessMock).toHaveBeenCalledWith(
+        "skills.projects.relocateDistinctSuccess",
+      ),
+    );
+  });
+
+  it("allows permanent Forget only for Archived and surfaces deployment guards", async () => {
+    workspaceRows.push(archivedWorkspace);
+    forgetWorkspaceMock.mockRejectedValueOnce(
+      new Error("deployments remain for this workspace"),
+    );
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.showArchived" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.forget" }),
+    );
+    expect(
+      screen.getByText("skills.projects.forgetDescription"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.forgetConfirm" }),
+    );
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        expect.stringContaining("deployments remain for this workspace"),
+      ),
+    );
+    expect(
+      screen.getByText("skills.projects.forgetDescription"),
+    ).toBeInTheDocument();
+  });
+
+  it("blocks Deploy and Repair while Archived or Unavailable inspection is pending", async () => {
+    workspaceRows.push(unavailableWorkspace);
+    render(<ProjectWorkspacesPanel />);
+
+    screen
+      .getAllByRole("button", { name: "skills.projects.deploy" })
+      .forEach((button) => expect(button).toBeDisabled());
+
+    // Archived rows are hidden from the active list but remain discoverable.
+    workspaceRows.length = 0;
+    workspaceRows.push(archivedWorkspace);
+    // The mock query reads the shared rows on render; remounting gives the
+    // lifecycle section a fresh archived-only view.
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", {
+        name: "skills.projects.showArchived",
+      })[0],
+    );
+    await user.click(screen.getByText("Archived workspace"));
+    screen
+      .getAllByRole("button", { name: "skills.projects.deploy" })
+      .forEach((button) => expect(button).toBeDisabled());
+  });
+
+  it("keeps Archived cleanup actions reachable even while filesystem actions are blocked", async () => {
+    workspaceRows.length = 0;
+    workspaceRows.push(archivedWorkspace);
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "archived",
+        desired: { id: "desired-archived" },
+        observed: { state: "correct_link" },
+        observationToken: "archived-token",
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.showArchived" }),
+    );
+    await user.click(screen.getByText("Archived workspace"));
+
+    expect(
+      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.forget" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps DB-only Forget reachable for an Unavailable workspace but blocks Undeploy", () => {
+    workspaceRows.length = 0;
+    workspaceRows.push(unavailableWorkspace);
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "blocked",
+        desired: { id: "desired-unavailable" },
+        observed: { state: "missing" },
+        observationToken: "unavailable-token",
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.forget" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps Active blocked/incompatible cleanup available", () => {
+    workspaceRows.length = 0;
+    workspaceRows.push(workspace);
+    librarySkill.compatibility.claude = {
+      compatible: false,
+      issues: ["consumer does not support this skill"],
+    };
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "blocked",
+        desired: { id: "desired-blocked" },
+        observed: { state: "missing" },
+        observationToken: "blocked-token",
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.forget" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps unsupported cleanup controls disabled and resolution actions hidden", () => {
+    workspaceRows.length = 0;
+    workspaceRows.push(workspace);
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "unsupported",
+        desired: { id: "desired-unsupported" },
+        observed: { state: "unsupported_platform" },
+        observationToken: "unsupported-token",
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.forget" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.repair" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "skills.library.replaceForeignLink",
+      }),
+    ).not.toBeInTheDocument();
   });
 });

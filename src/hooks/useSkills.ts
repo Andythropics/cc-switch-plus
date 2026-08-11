@@ -103,7 +103,9 @@ export function useApplySkillDeployments() {
 export function useProjectWorkspaces() {
   return useQuery<ProjectWorkspace[]>({
     queryKey: ["skills", "projectWorkspaces"],
-    queryFn: () => projectWorkspacesApi.list(),
+    // Keep archived identities available to the lifecycle section; the
+    // Projects UI separates active and archived rows for presentation.
+    queryFn: () => projectWorkspacesApi.list(true),
     staleTime: 0,
     placeholderData: keepPreviousData,
   });
@@ -129,6 +131,61 @@ export function useRegisterProjectWorkspace() {
         queryKey: ["skills", "projectWorkspaces"],
       }),
   });
+}
+
+function useProjectWorkspaceMutation<TVariables, TResult>(
+  mutationFn: (variables: TVariables) => Promise<TResult>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation<TResult, Error, TVariables>({
+    mutationFn,
+    // Lifecycle changes affect both the list and deployment inspection (an
+    // archived or relocated root must be re-derived before showing actions).
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "projectWorkspaces"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
+      ]),
+  });
+}
+
+export function useRenameProjectWorkspace() {
+  return useProjectWorkspaceMutation(
+    ({
+      workspaceId,
+      displayName,
+    }: {
+      workspaceId: string;
+      displayName: string;
+    }) => projectWorkspacesApi.rename(workspaceId, displayName),
+  );
+}
+
+export function useArchiveProjectWorkspace() {
+  return useProjectWorkspaceMutation((workspaceId: string) =>
+    projectWorkspacesApi.archive(workspaceId),
+  );
+}
+
+export function useRestoreProjectWorkspace() {
+  return useProjectWorkspaceMutation((workspaceId: string) =>
+    projectWorkspacesApi.restore(workspaceId),
+  );
+}
+
+export function useRelocateProjectWorkspace() {
+  return useProjectWorkspaceMutation(
+    ({ workspaceId, path }: { workspaceId: string; path: string }) =>
+      projectWorkspacesApi.relocate(workspaceId, path),
+  );
+}
+
+export function useForgetProjectWorkspace() {
+  return useProjectWorkspaceMutation((workspaceId: string) =>
+    projectWorkspacesApi.forget(workspaceId),
+  );
 }
 
 export function useAcquireLibrarySkill() {

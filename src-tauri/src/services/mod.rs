@@ -42,7 +42,8 @@ pub use omo::OmoService;
 #[cfg(target_os = "macos")]
 pub use project_workspace::{
     ProjectWorkspace, ProjectWorkspaceService, WorkspaceLifecycle, WorkspaceRegistration,
-    WorkspaceRegistrationScan, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+    WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
+    WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use prompt::PromptService;
 pub use provider::{ProviderService, ProviderSortUpdate, SwitchResult};

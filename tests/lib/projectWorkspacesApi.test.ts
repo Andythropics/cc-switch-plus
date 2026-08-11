@@ -39,10 +39,55 @@ describe("Project Workspace API", () => {
     });
   });
 
-  it("lists registered workspaces without accepting a caller-supplied root", async () => {
-    await projectWorkspacesApi.list();
+  it("lists registered workspaces with an explicit archived-row policy", async () => {
+    await projectWorkspacesApi.list(true);
 
-    expect(invokeMock).toHaveBeenCalledWith("list_project_workspaces");
-    expect(invokeMock.mock.calls[0][1]).toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith("list_project_workspaces", {
+      includeArchived: true,
+    });
+  });
+
+  it("exposes lifecycle mutations through explicit workspace commands", async () => {
+    await projectWorkspacesApi.rename("workspace-1", "Renamed");
+    expect(invokeMock).toHaveBeenLastCalledWith("rename_project_workspace", {
+      workspaceId: "workspace-1",
+      displayName: "Renamed",
+    });
+
+    await projectWorkspacesApi.archive("workspace-1");
+    expect(invokeMock).toHaveBeenLastCalledWith("archive_project_workspace", {
+      workspaceId: "workspace-1",
+    });
+
+    await projectWorkspacesApi.restore("workspace-1");
+    expect(invokeMock).toHaveBeenLastCalledWith("restore_project_workspace", {
+      workspaceId: "workspace-1",
+    });
+
+    await projectWorkspacesApi.relocate("workspace-1", "/tmp/new-root");
+    expect(invokeMock).toHaveBeenLastCalledWith("relocate_project_workspace", {
+      workspaceId: "workspace-1",
+      path: "/tmp/new-root",
+    });
+
+    await projectWorkspacesApi.forget("workspace-1");
+    expect(invokeMock).toHaveBeenLastCalledWith("forget_project_workspace", {
+      workspaceId: "workspace-1",
+    });
+  });
+
+  it("preserves the structured relocation outcome from the backend", async () => {
+    invokeMock.mockResolvedValueOnce({
+      outcome: "registered_distinct",
+      workspace: { id: "workspace-distinct" },
+    });
+
+    const result = await projectWorkspacesApi.relocate(
+      "workspace-1",
+      "/tmp/candidate",
+    );
+
+    expect(result.outcome).toBe("registered_distinct");
+    expect(result.workspace.id).toBe("workspace-distinct");
   });
 });

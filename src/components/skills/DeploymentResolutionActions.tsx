@@ -17,12 +17,14 @@ import type {
   DeploymentTarget,
   LibrarySkill,
 } from "@/lib/api/skills";
+import type { WorkspaceLifecycle } from "@/lib/api/projectWorkspaces";
 
 interface DeploymentResolutionActionsProps {
   skill: LibrarySkill;
   target: DeploymentTarget;
   deployment?: DeploymentInspection;
   compatible: boolean;
+  workspaceLifecycle?: WorkspaceLifecycle;
   /** Disable actions while the containing panel is busy. */
   disabled?: boolean;
   isPending?: boolean;
@@ -51,6 +53,7 @@ export function DeploymentResolutionActions({
   target,
   deployment,
   compatible,
+  workspaceLifecycle = "active",
   disabled = false,
   isPending = false,
   deployLabel,
@@ -64,8 +67,11 @@ export function DeploymentResolutionActions({
   const status = deployment?.status ?? "not_deployed";
   const hasDesired = Boolean(deployment?.desired);
   const isLifecycleBlocked = lifecycleBlockedStatuses.has(status);
-  const actionsDisabled =
-    disabled || isPending || !compatible || isLifecycleBlocked;
+  const isUnsupported = status === "unsupported";
+  const filesystemUnavailable = workspaceLifecycle === "unavailable";
+  const lifecyclePreventsFilesystem =
+    workspaceLifecycle !== "active" || isLifecycleBlocked;
+  const actionsDisabled = disabled || isPending;
   const observationToken = deployment?.observationToken;
   const observedState = deployment?.observed.state;
 
@@ -73,17 +79,22 @@ export function DeploymentResolutionActions({
   // Foreign links are handled by the explicit replacement flow below.
   const canRepair =
     hasDesired &&
+    workspaceLifecycle === "active" &&
     status === "drift" &&
     observedState === "missing" &&
     Boolean(observationToken);
   const canReplaceForeignLink =
     hasDesired &&
+    workspaceLifecycle === "active" &&
     (status === "conflict" || status === "drift") &&
     (observedState === "redirected_link" ||
       observedState === "broken_link" ||
       observedState === "invalid_link") &&
     Boolean(observationToken);
-  const canForget = hasDesired && status !== "in_sync" && !isLifecycleBlocked;
+  // DB-only cleanup is safe for every recorded, out-of-sync deployment. The
+  // backend still guards the mutation, while unsupported targets remain
+  // visible-but-disabled so the user can see why they cannot be resolved.
+  const canForget = hasDesired && status !== "in_sync";
   const canUndeploy = hasDesired;
   const canDeploy = !hasDesired && status === "not_deployed";
 
@@ -97,7 +108,12 @@ export function DeploymentResolutionActions({
         <Button
           variant="outline"
           size="sm"
-          disabled={actionsDisabled}
+          disabled={
+            actionsDisabled ||
+            !compatible ||
+            lifecyclePreventsFilesystem ||
+            isUnsupported
+          }
           onClick={() =>
             apply({
               action: "deploy",
@@ -115,7 +131,7 @@ export function DeploymentResolutionActions({
         <Button
           variant="outline"
           size="sm"
-          disabled={actionsDisabled}
+          disabled={actionsDisabled || filesystemUnavailable || isUnsupported}
           title={
             status === "drift" || status === "conflict"
               ? t("skills.library.undeploySafetyDescription")
@@ -138,7 +154,12 @@ export function DeploymentResolutionActions({
         <Button
           variant="outline"
           size="sm"
-          disabled={actionsDisabled}
+          disabled={
+            actionsDisabled ||
+            !compatible ||
+            lifecyclePreventsFilesystem ||
+            isUnsupported
+          }
           onClick={() =>
             apply({
               action: "repair",
@@ -157,7 +178,12 @@ export function DeploymentResolutionActions({
         <Button
           variant="destructive"
           size="sm"
-          disabled={actionsDisabled}
+          disabled={
+            actionsDisabled ||
+            !compatible ||
+            lifecyclePreventsFilesystem ||
+            isUnsupported
+          }
           onClick={() => setReplaceDialogOpen(true)}
         >
           <Wrench className="mr-1.5 h-3.5 w-3.5" />
@@ -169,7 +195,7 @@ export function DeploymentResolutionActions({
         <Button
           variant="ghost"
           size="sm"
-          disabled={actionsDisabled}
+          disabled={actionsDisabled || isUnsupported}
           title={t("skills.library.forgetDescription")}
           onClick={() => setForgetDialogOpen(true)}
         >

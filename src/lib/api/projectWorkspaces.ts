@@ -35,6 +35,13 @@ export interface WorkspaceRegistration {
   scan: WorkspaceRegistrationScan;
 }
 
+export type WorkspaceRelocationOutcome = "relocated" | "registered_distinct";
+
+export interface WorkspaceRelocation {
+  outcome: WorkspaceRelocationOutcome;
+  workspace: ProjectWorkspace;
+}
+
 export const projectWorkspacesApi = {
   async inspect(path: string): Promise<WorkspaceRegistrationScan> {
     return await invoke("inspect_project_workspace", { path });
@@ -50,7 +57,36 @@ export const projectWorkspacesApi = {
     });
   },
 
-  async list(): Promise<ProjectWorkspace[]> {
-    return await invoke("list_project_workspaces");
+  async list(includeArchived = false): Promise<ProjectWorkspace[]> {
+    return await invoke("list_project_workspaces", { includeArchived });
+  },
+
+  async rename(
+    workspaceId: string,
+    displayName: string,
+  ): Promise<ProjectWorkspace> {
+    return await invoke("rename_project_workspace", {
+      workspaceId,
+      displayName: displayName.trim(),
+    });
+  },
+
+  async archive(workspaceId: string): Promise<ProjectWorkspace> {
+    return await invoke("archive_project_workspace", { workspaceId });
+  },
+
+  async restore(workspaceId: string): Promise<ProjectWorkspace> {
+    return await invoke("restore_project_workspace", { workspaceId });
+  },
+
+  async relocate(
+    workspaceId: string,
+    path: string,
+  ): Promise<WorkspaceRelocation> {
+    return await invoke("relocate_project_workspace", { workspaceId, path });
+  },
+
+  async forget(workspaceId: string): Promise<boolean> {
+    return await invoke("forget_project_workspace", { workspaceId });
   },
 };

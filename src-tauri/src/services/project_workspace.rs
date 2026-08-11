@@ -9,12 +9,14 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
 use crate::database::Database;
 use crate::services::skill_deployment::DeploymentConsumer;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,6 +41,12 @@ pub struct ProjectWorkspace {
     pub display_name: String,
     pub root_path: PathBuf,
     pub root_kind: WorkspaceRootKind,
+    /// Stable registration identity used to validate a later relocation.
+    ///
+    /// This intentionally is not derived from the current filesystem path:
+    /// moving a registered project must preserve its identity while a
+    /// different repository/worktree must not be able to claim it.
+    pub registration_fingerprint: String,
     pub lifecycle: WorkspaceLifecycle,
     pub created_at: i64,
     pub updated_at: i64,
@@ -76,6 +84,20 @@ pub struct WorkspaceRegistration {
     pub scan: WorkspaceRegistrationScan,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceRelocationOutcome {
+    Relocated,
+    RegisteredDistinct,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRelocation {
+    pub outcome: WorkspaceRelocationOutcome,
+    pub workspace: ProjectWorkspace,
+}
+
 pub struct ProjectWorkspaceService {
     db: Arc<Database>,
 }
@@ -97,12 +119,30 @@ impl ProjectWorkspaceService {
         selected_path: &Path,
         display_name: Option<String>,
     ) -> Result<WorkspaceRegistration> {
+        Self::ensure_supported_platform()?;
         let scan = Self::scan_path(selected_path)?;
+        self.register_scan(scan, display_name)
+    }
+
+    fn register_scan(
+        &self,
+        scan: WorkspaceRegistrationScan,
+        display_name: Option<String>,
+    ) -> Result<WorkspaceRegistration> {
         let root = &scan.canonical_root;
+        let registration_fingerprint = registration_fingerprint_for_root(root, scan.root_kind)?;
         for existing in self.db.list_project_workspaces()? {
             if paths_overlap(&existing.root_path, root) {
                 return Err(anyhow!(
                     "Project Workspace overlaps registered root {}",
+                    existing.root_path.display()
+                ));
+            }
+            if !existing.registration_fingerprint.is_empty()
+                && existing.registration_fingerprint == registration_fingerprint
+            {
+                return Err(anyhow!(
+                    "Project Workspace identity is already registered at {}; use Relocate or Restore",
                     existing.root_path.display()
                 ));
             }
@@ -121,6 +161,7 @@ impl ProjectWorkspaceService {
                 .unwrap_or(default_name),
             root_path: root.clone(),
             root_kind: scan.root_kind,
+            registration_fingerprint,
             lifecycle: WorkspaceLifecycle::Active,
             created_at: now,
             updated_at: now,
@@ -129,32 +170,202 @@ impl ProjectWorkspaceService {
         Ok(WorkspaceRegistration { workspace, scan })
     }
 
-    pub fn list(&self) -> Result<Vec<ProjectWorkspace>> {
+    /// List workspaces, optionally including archived identities. Active roots
+    /// that have become unreachable are persisted as Unavailable before the
+    /// response is returned, so the API and future mutations observe the same
+    /// lifecycle state.
+    pub fn list(&self, include_archived: bool) -> Result<Vec<ProjectWorkspace>> {
         Self::ensure_supported_platform()?;
-        Ok(self
-            .db
-            .list_project_workspaces()?
+        let workspaces = self.refresh_unavailable(self.db.list_project_workspaces()?)?;
+        Ok(workspaces
             .into_iter()
-            .map(|mut workspace| {
-                if workspace.lifecycle == WorkspaceLifecycle::Active
-                    && !workspace.root_path.is_dir()
-                {
-                    workspace.lifecycle = WorkspaceLifecycle::Unavailable;
-                }
-                workspace
+            .filter(|workspace| {
+                include_archived || workspace.lifecycle != WorkspaceLifecycle::Archived
             })
             .collect())
     }
 
     pub fn get(&self, id: &str) -> Result<Option<ProjectWorkspace>> {
         Self::ensure_supported_platform()?;
-        let Some(mut workspace) = self.db.get_project_workspace(id)? else {
-            return Ok(None);
-        };
-        if workspace.lifecycle == WorkspaceLifecycle::Active && !workspace.root_path.is_dir() {
-            workspace.lifecycle = WorkspaceLifecycle::Unavailable;
+        Ok(self
+            .db
+            .get_project_workspace(id)?
+            .map(|workspace| self.refresh_unavailable(vec![workspace]))
+            .transpose()?
+            .and_then(|mut workspaces| workspaces.pop()))
+    }
+
+    /// Rename a Workspace display label without changing its physical
+    /// identity or any project content.
+    pub fn rename(&self, id: &str, display_name: String) -> Result<ProjectWorkspace> {
+        Self::ensure_supported_platform()?;
+        let mut workspace = self
+            .get(id)?
+            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+        let display_name = display_name.trim();
+        if display_name.is_empty() {
+            return Err(anyhow!("Project Workspace display name cannot be empty"));
         }
-        Ok(Some(workspace))
+        workspace.display_name = display_name.to_string();
+        workspace.updated_at = Utc::now().timestamp();
+        self.db.update_project_workspace(&workspace)?;
+        Ok(workspace)
+    }
+
+    /// Archive (unregister) an Active or Unavailable Workspace. This is
+    /// metadata-only: links, project files, and local Git excludes are left
+    /// exactly as they are.
+    pub fn archive(&self, id: &str) -> Result<ProjectWorkspace> {
+        Self::ensure_supported_platform()?;
+        let mut workspace = self
+            .get(id)?
+            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+        match workspace.lifecycle {
+            WorkspaceLifecycle::Active | WorkspaceLifecycle::Unavailable => {
+                workspace.lifecycle = WorkspaceLifecycle::Archived;
+            }
+            WorkspaceLifecycle::Archived => {
+                return Err(anyhow!("Project Workspace is already archived"));
+            }
+        }
+        workspace.updated_at = Utc::now().timestamp();
+        self.db.update_project_workspace(&workspace)?;
+        Ok(workspace)
+    }
+
+    /// Restore an Archived Workspace. A retained root that is still reachable
+    /// returns Active; if the project remains away, the identity is restored
+    /// as Unavailable and can later be relocated.
+    pub fn restore(&self, id: &str) -> Result<ProjectWorkspace> {
+        Self::ensure_supported_platform()?;
+        let mut workspace = self
+            .get(id)?
+            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+        if workspace.lifecycle != WorkspaceLifecycle::Archived {
+            return Err(anyhow!(
+                "Project Workspace can only be restored from Archived"
+            ));
+        }
+        workspace.lifecycle =
+            if workspace.root_path.is_dir() && workspace_root_matches_identity(&workspace)? {
+                WorkspaceLifecycle::Active
+            } else {
+                WorkspaceLifecycle::Unavailable
+            };
+        workspace.updated_at = Utc::now().timestamp();
+        self.db.update_project_workspace(&workspace)?;
+        Ok(workspace)
+    }
+
+    /// Relocate an Unavailable Workspace after validating the replacement's
+    /// canonical root and persisted filesystem/repository identity. A missing
+    /// old root may retain the Workspace ID only when the full fingerprint
+    /// matches; otherwise relocation is rejected so callers can explicitly
+    /// register the candidate as a distinct Workspace. A reappeared old root
+    /// always follows the structured distinct-registration outcome.
+    pub fn relocate(&self, id: &str, new_path: &Path) -> Result<WorkspaceRelocation> {
+        Self::ensure_supported_platform()?;
+        let workspace = self
+            .get(id)?
+            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+        if workspace.lifecycle != WorkspaceLifecycle::Unavailable {
+            return Err(anyhow!(
+                "Project Workspace relocation requires an Unavailable workspace"
+            ));
+        }
+        let scan = Self::scan_path(new_path)?;
+        let old_root_exists = path_node_exists(&workspace.root_path);
+        let candidate_fingerprint =
+            registration_fingerprint_for_root(&scan.canonical_root, scan.root_kind)?;
+
+        // A still-present old path is a distinct registration rather than a
+        // silent retargeting of this Workspace ID. When the old path is truly
+        // gone, every root kind must prove the persisted identity; an
+        // unrelated Non-Git directory can still be explicitly registered as a
+        // separate Workspace through `register`.
+        if old_root_exists {
+            if scan.canonical_root == workspace.root_path {
+                return Err(anyhow!(
+                    "Project Workspace replacement path is already this registered root"
+                ));
+            }
+            let registration = self.register_scan(scan, None)?;
+            return Ok(WorkspaceRelocation {
+                outcome: WorkspaceRelocationOutcome::RegisteredDistinct,
+                workspace: registration.workspace,
+            });
+        }
+
+        if scan.root_kind != workspace.root_kind {
+            return Err(anyhow!(
+                "Project Workspace replacement root kind does not match the registered identity"
+            ));
+        }
+        if workspace.registration_fingerprint.is_empty()
+            || candidate_fingerprint != workspace.registration_fingerprint
+        {
+            return Err(anyhow!(
+                "Project Workspace replacement does not match the registered repository identity"
+            ));
+        }
+
+        let mut relocated = workspace;
+        relocated.root_path = scan.canonical_root;
+        relocated.root_kind = scan.root_kind;
+        relocated.registration_fingerprint = candidate_fingerprint;
+        relocated.lifecycle = WorkspaceLifecycle::Active;
+        relocated.updated_at = Utc::now().timestamp();
+        self.db.update_project_workspace(&relocated)?;
+        Ok(WorkspaceRelocation {
+            outcome: WorkspaceRelocationOutcome::Relocated,
+            workspace: relocated,
+        })
+    }
+
+    /// Permanently forget an Archived Workspace identity only after all of
+    /// its desired Project Deployments are gone. No filesystem operation is
+    /// performed, so project content and any surviving unmanaged/managed links
+    /// remain untouched for explicit Deployment actions.
+    pub fn forget(&self, id: &str) -> Result<bool> {
+        Self::ensure_supported_platform()?;
+        let workspace = self
+            .get(id)?
+            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+        if workspace.lifecycle != WorkspaceLifecycle::Archived {
+            return Err(anyhow!(
+                "Project Workspace can only be forgotten from Archived"
+            ));
+        }
+        let deployments = self.db.list_skill_deployments()?;
+        if deployments.iter().any(|deployment| {
+            deployment.target.workspace == crate::services::skill_deployment::WorkspaceKind::Project
+                && deployment.target.workspace_id == workspace.id
+        }) {
+            return Err(anyhow!(
+                "Project Workspace still has desired Deployments; remove or explicitly forget them first"
+            ));
+        }
+        self.db
+            .delete_project_workspace(&workspace.id)
+            .map_err(Into::into)
+    }
+
+    fn refresh_unavailable(
+        &self,
+        workspaces: Vec<ProjectWorkspace>,
+    ) -> Result<Vec<ProjectWorkspace>> {
+        let mut refreshed = Vec::with_capacity(workspaces.len());
+        for mut workspace in workspaces {
+            if workspace.lifecycle == WorkspaceLifecycle::Active
+                && !workspace_root_matches_identity(&workspace)?
+            {
+                workspace.lifecycle = WorkspaceLifecycle::Unavailable;
+                workspace.updated_at = Utc::now().timestamp();
+                self.db.update_project_workspace(&workspace)?;
+            }
+            refreshed.push(workspace);
+        }
+        Ok(refreshed)
     }
 
     fn scan_path(selected_path: &Path) -> Result<WorkspaceRegistrationScan> {
@@ -190,6 +401,94 @@ impl ProjectWorkspaceService {
     }
 }
 
+fn path_node_exists(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
+/// Derive a stable identity marker for a canonical project root. The
+/// device/inode pair protects against treating a clone or copied directory as
+/// the same Workspace, while Git roots additionally use immutable repository
+/// history and the linked-worktree admin path (relative to the shared Git
+/// directory). A rename or `git worktree move` preserves the filesystem object
+/// identity, while ordinary commits do not change the root-commit set.
+pub(crate) fn registration_fingerprint_for_root(
+    root: &Path,
+    root_kind: WorkspaceRootKind,
+) -> Result<String> {
+    let metadata = fs::metadata(root)
+        .with_context(|| format!("read Workspace root metadata {}", root.display()))?;
+    let device = metadata.dev();
+    let inode = metadata.ino();
+    if root_kind == WorkspaceRootKind::NonGit {
+        return Ok(format!("non_git:v2:{device}:{inode}"));
+    }
+
+    let mut root_commits = git_output(root, &["rev-list", "--max-parents=0", "--all"])?
+        .lines()
+        .map(str::trim)
+        .filter(|commit| !commit.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    root_commits.sort();
+    let history = root_commits.join("\n");
+    let common_dir = git_output(root, &["rev-parse", "--git-common-dir"])?;
+    let git_dir = git_output(root, &["rev-parse", "--git-dir"])?;
+    let common_dir = canonical_git_path(root, common_dir.trim())?;
+    let git_dir = canonical_git_path(root, git_dir.trim())?;
+    let admin_identity = if root_kind == WorkspaceRootKind::GitWorktree {
+        git_dir
+            .strip_prefix(&common_dir)
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| git_dir.to_string_lossy().replace('\\', "/"))
+    } else {
+        "repository".to_string()
+    };
+
+    let mut hasher = Sha256::new();
+    hasher.update(match root_kind {
+        WorkspaceRootKind::GitRepository => b"git_repository\0" as &[u8],
+        WorkspaceRootKind::GitWorktree => b"git_worktree\0" as &[u8],
+        WorkspaceRootKind::NonGit => b"non_git\0" as &[u8],
+    });
+    hasher.update(device.to_le_bytes());
+    hasher.update(inode.to_le_bytes());
+    hasher.update(b"\0");
+    hasher.update(admin_identity.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(history.as_bytes());
+    if history.is_empty() {
+        return Ok(format!("git:v2:{:x}:empty", hasher.finalize()));
+    }
+    Ok(format!("git:v2:{:x}", hasher.finalize()))
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .args(["-C", &root.display().to_string()])
+        .args(args)
+        .output()
+        .with_context(|| format!("run git {:?}", args))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn canonical_git_path(root: &Path, path: &str) -> Result<PathBuf> {
+    let path = Path::new(path);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    fs::canonicalize(&path)
+        .with_context(|| format!("canonicalize Git identity path {}", path.display()))
+}
+
 /// Resolve the target root for the shared Deployment service. Callers pass a
 /// Workspace identity; no caller-provided filesystem path is accepted.
 pub(crate) fn project_target_root(
@@ -203,8 +502,36 @@ pub(crate) fn project_target_root(
     if workspace.lifecycle != WorkspaceLifecycle::Active {
         return Err(anyhow!("Project Workspace is not active"));
     }
-    if !workspace.root_path.is_dir() {
+    if !workspace_root_matches_identity(&workspace)? {
         return Err(anyhow!("Project Workspace is unavailable"));
+    }
+    Ok(workspace
+        .root_path
+        .join(consumer_directory(consumer))
+        .join("skills"))
+}
+
+/// Resolve a target root for safe Undeploy. Archived Workspaces may be
+/// removed when their retained root still matches its persisted identity;
+/// Unavailable or identity-mismatched roots are rejected without touching FS.
+pub(crate) fn project_removal_target_root(
+    db: &Database,
+    workspace_id: &str,
+    consumer: DeploymentConsumer,
+) -> Result<PathBuf> {
+    let workspace = db
+        .get_project_workspace(workspace_id)?
+        .ok_or_else(|| anyhow!("Project Workspace not found: {workspace_id}"))?;
+    if workspace.lifecycle == WorkspaceLifecycle::Unavailable {
+        return Err(anyhow!("Project Workspace is unavailable"));
+    }
+    if workspace.lifecycle != WorkspaceLifecycle::Active
+        && workspace.lifecycle != WorkspaceLifecycle::Archived
+    {
+        return Err(anyhow!("Project Workspace cannot remove Deployments"));
+    }
+    if !workspace_root_matches_identity(&workspace)? {
+        return Err(anyhow!("Project Workspace root identity is unavailable"));
     }
     Ok(workspace
         .root_path
@@ -236,10 +563,32 @@ pub(crate) fn project_workspace_lifecycle(
     let Some(mut workspace) = db.get_project_workspace(workspace_id)? else {
         return Err(anyhow!("Project Workspace not found: {workspace_id}"));
     };
-    if workspace.lifecycle == WorkspaceLifecycle::Active && !workspace.root_path.is_dir() {
+    if workspace.lifecycle == WorkspaceLifecycle::Active
+        && !workspace_root_matches_identity(&workspace)?
+    {
         workspace.lifecycle = WorkspaceLifecycle::Unavailable;
     }
     Ok(workspace.lifecycle)
+}
+
+fn workspace_root_matches_identity(workspace: &ProjectWorkspace) -> Result<bool> {
+    let root = fs::canonicalize(&workspace.root_path).ok();
+    let Some(root) = root else {
+        return Ok(false);
+    };
+    let Ok((resolved_root, resolved_kind)) = resolve_project_root(&root) else {
+        return Ok(false);
+    };
+    if resolved_root != root || resolved_kind != workspace.root_kind {
+        return Ok(false);
+    }
+    if workspace.registration_fingerprint.is_empty() {
+        return Ok(false);
+    }
+    let Ok(candidate) = registration_fingerprint_for_root(&root, resolved_kind) else {
+        return Ok(false);
+    };
+    Ok(candidate == workspace.registration_fingerprint)
 }
 
 pub(crate) fn project_git_exclude_path(root: &Path) -> Option<PathBuf> {

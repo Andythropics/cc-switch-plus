@@ -74,7 +74,8 @@ pub use services::{
 #[cfg(target_os = "macos")]
 pub use services::{
     ProjectWorkspace, ProjectWorkspaceService, WorkspaceLifecycle, WorkspaceRegistration,
-    WorkspaceRegistrationScan, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+    WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
+    WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1486,6 +1487,16 @@ pub fn run() {
             commands::register_project_workspace,
             #[cfg(target_os = "macos")]
             commands::list_project_workspaces,
+            #[cfg(target_os = "macos")]
+            commands::rename_project_workspace,
+            #[cfg(target_os = "macos")]
+            commands::archive_project_workspace,
+            #[cfg(target_os = "macos")]
+            commands::restore_project_workspace,
+            #[cfg(target_os = "macos")]
+            commands::relocate_project_workspace,
+            #[cfg(target_os = "macos")]
+            commands::forget_project_workspace,
             commands::get_skill_backups,
             commands::delete_skill_backup,
             commands::install_skill_unified,
