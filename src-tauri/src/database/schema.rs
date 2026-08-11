@@ -119,6 +119,8 @@ impl Database {
         // their legacy schema and data untouched.
         #[cfg(target_os = "macos")]
         Self::create_library_skills_table(conn)?;
+        #[cfg(target_os = "macos")]
+        Self::create_skill_deployments_table(conn)?;
 
         // 7. Settings 表
         conn.execute(
@@ -521,6 +523,14 @@ impl Database {
                         log::info!("迁移数据库从 v16 到 v17（添加私有 Skill Library 元数据）");
                         Self::migrate_v16_to_v17(conn)?;
                         Self::set_user_version(conn, 17)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    17 => {
+                        log::info!(
+                            "迁移数据库从 v17 到 v18（添加 Skill Deployment desired state）"
+                        );
+                        Self::migrate_v17_to_v18(conn)?;
+                        Self::set_user_version(conn, 18)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1234,6 +1244,40 @@ impl Database {
     fn migrate_v16_to_v17(conn: &Connection) -> Result<(), AppError> {
         Self::create_library_skills_table(conn)?;
         log::info!("v16 -> v17 迁移完成：已添加私有 Skill Library 元数据");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn create_skill_deployments_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skill_deployments (
+                id TEXT PRIMARY KEY,
+                library_skill_id TEXT NOT NULL,
+                consumer TEXT NOT NULL CHECK (consumer IN ('claude', 'codex')),
+                workspace_kind TEXT NOT NULL CHECK (workspace_kind IN ('global', 'project')),
+                library_directory TEXT NOT NULL,
+                workspace_id TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE (library_skill_id, consumer, workspace_kind, workspace_id),
+                FOREIGN KEY (library_skill_id) REFERENCES library_skills(id)
+            )",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 skill_deployments 表失败: {error}")))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_deployments_target
+             ON skill_deployments(consumer, workspace_kind, workspace_id)",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 Deployment 索引失败: {error}")))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+        Self::create_skill_deployments_table(conn)?;
+        log::info!("v17 -> v18 迁移完成：已添加 Skill Deployment desired state");
         Ok(())
     }
 
@@ -3305,6 +3349,42 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
         assert_eq!(legacy, ("legacy".to_string(), 1, 0));
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v17_to_v18_adds_deployments_without_touching_library_metadata(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute("DROP TABLE skill_deployments", [])?;
+        conn.execute(
+            "INSERT INTO library_skills (
+                id, directory, display_name, description, source_json,
+                compatibility_json, content_hash, acquired_at, updated_at
+             ) VALUES (
+                'library-1', 'review-skill', 'Review Skill', 'Preserve me',
+                '{}', '{}', 'content-hash', 10, 20
+             )",
+            [],
+        )?;
+        Database::set_user_version(&conn, 17)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::table_exists(&conn, "skill_deployments")?);
+        let library: (String, String, i64) = conn.query_row(
+            "SELECT directory, display_name, updated_at
+             FROM library_skills WHERE id = 'library-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(
+            library,
+            ("review-skill".to_string(), "Review Skill".to_string(), 20)
+        );
         Ok(())
     }
 }

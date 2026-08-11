@@ -62,9 +62,13 @@ pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::reapply_current_codex_official_live,
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, DiscoverableSkill, EndpointLatency, LibrarySkill,
+    ConfigService, DeploymentBatch, DeploymentBatchResult, DeploymentConsumer,
+    DeploymentInspection, DeploymentInspectionResult, DeploymentIntent, DeploymentItemResult,
+    DeploymentMutationOutcome, DeploymentQuery, DeploymentStatus, DeploymentTarget,
+    DesiredDeployment, DiscoverableSkill, EndpointLatency, LibrarySkill,
     LibrarySkillAcquisitionService, LibrarySkillSource, LibrarySourceKind, McpService,
-    PromptService, ProviderService, ProxyService, SkillService, SpeedtestService,
+    ObservedDeployment, ObservedDeploymentState, PromptService, ProviderService, ProxyService,
+    SkillDeploymentService, SkillService, SpeedtestService, WorkspaceKind,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1465,6 +1469,8 @@ pub fn run() {
             // Skill management (v3.10.0+ unified)
             commands::get_installed_skills,
             commands::get_library_skills,
+            commands::inspect_skill_deployments,
+            commands::apply_skill_deployments,
             commands::acquire_library_skill,
             commands::acquire_library_skills_from_zip,
             commands::update_library_skill_metadata,

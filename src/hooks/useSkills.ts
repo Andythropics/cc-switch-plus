@@ -12,6 +12,10 @@ import {
   type InstalledSkill,
   type LibrarySkill,
   type LibrarySourceKind,
+  type DeploymentBatch,
+  type DeploymentBatchResult,
+  type DeploymentInspectionResult,
+  type DeploymentQuery,
   type SkillUpdateInfo,
   type SkillsShSearchResult,
 } from "@/lib/api/skills";
@@ -40,6 +44,25 @@ export function useLibrarySkills() {
     queryFn: () => skillsApi.getLibrary(),
     staleTime: Infinity,
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Desired + observed deployment state for the selected global target. */
+export function useSkillDeployments(query?: DeploymentQuery) {
+  return useQuery<DeploymentInspectionResult>({
+    queryKey: ["skills", "deployments", query ?? {}],
+    queryFn: () => skillsApi.inspectDeployments(query),
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useApplySkillDeployments() {
+  const queryClient = useQueryClient();
+  return useMutation<DeploymentBatchResult, Error, DeploymentBatch>({
+    mutationFn: (batch) => skillsApi.applyDeployments(batch),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
   });
 }
 

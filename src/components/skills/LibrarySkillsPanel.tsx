@@ -11,8 +11,10 @@ import {
   FileArchive,
   Library,
   Loader2,
+  Link2,
   Pencil,
   Search,
+  Unlink,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,11 +35,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useAcquireLibrarySkillsFromZip,
+  useApplySkillDeployments,
   useLibrarySkills,
+  useSkillDeployments,
   useUpdateLibrarySkillMetadata,
 } from "@/hooks/useSkills";
 import { skillsApi } from "@/lib/api";
-import type { ConsumerCompatibility, LibrarySkill } from "@/lib/api/skills";
+import type {
+  ConsumerCompatibility,
+  DeploymentIntent,
+  DeploymentTarget,
+  LibrarySkill,
+} from "@/lib/api/skills";
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
@@ -87,8 +96,13 @@ export const LibrarySkillsPanel = forwardRef<
   ) => {
     const { t } = useTranslation();
     const { data: skills = [], isLoading } = useLibrarySkills();
+    const { data: deploymentState } = useSkillDeployments({
+      consumer: "claude",
+      workspace: "global",
+    });
     const updateMetadata = useUpdateLibrarySkillMetadata();
     const acquireZip = useAcquireLibrarySkillsFromZip();
+    const applyDeployments = useApplySkillDeployments();
     const [query, setQuery] = useState("");
     const [editing, setEditing] = useState<LibrarySkill | null>(null);
     const [displayName, setDisplayName] = useState("");
@@ -102,6 +116,7 @@ export const LibrarySkillsPanel = forwardRef<
     const blocked =
       updateMetadata.isPending ||
       acquireZip.isPending ||
+      applyDeployments.isPending ||
       editing !== null ||
       zipCollision !== null;
 
@@ -167,6 +182,46 @@ export const LibrarySkillsPanel = forwardRef<
     const openAcquireFromZip = async () => {
       const filePath = await skillsApi.openZipFileDialog();
       if (filePath) await acquireZipFile(filePath);
+    };
+
+    const globalClaudeTarget: DeploymentTarget = {
+      consumer: "claude",
+      workspace: "global",
+    };
+
+    const applyGlobalDeployment = async (
+      skill: LibrarySkill,
+      action: Extract<
+        DeploymentIntent,
+        { action: "deploy" | "undeploy" }
+      >["action"],
+    ) => {
+      try {
+        const result = await applyDeployments.mutateAsync({
+          intents: [
+            {
+              action,
+              librarySkillId: skill.id,
+              target: globalClaudeTarget,
+            },
+          ],
+        });
+        const item = result.items[0];
+        if (item?.outcome === "error") {
+          throw new Error(item.message || t("skills.library.deploymentFailed"));
+        }
+        if (item?.outcome === "conflict") {
+          toast.error(t("skills.library.deploymentConflict"));
+          return;
+        }
+        toast.success(
+          action === "deploy"
+            ? t("skills.library.deploySuccess")
+            : t("skills.library.undeploySuccess"),
+        );
+      } catch (error) {
+        toast.error(String(error));
+      }
     };
 
     useImperativeHandle(ref, () => ({
@@ -296,6 +351,57 @@ export const LibrarySkillsPanel = forwardRef<
                       <Pencil className="h-4 w-4" />
                     </Button>
                   </div>
+                  {(() => {
+                    const deployment = deploymentState?.items.find(
+                      (item) => item.librarySkillId === skill.id,
+                    );
+                    const compatible = skill.compatibility.claude.compatible;
+                    const status = deployment?.status ?? "not_deployed";
+                    const isDeployed = status === "in_sync";
+                    const isBlocked =
+                      !compatible ||
+                      status === "conflict" ||
+                      status === "orphaned" ||
+                      status === "unsupported";
+                    return (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                        <Badge
+                          variant={
+                            status === "in_sync" ? "secondary" : "outline"
+                          }
+                        >
+                          {t(`skills.library.deploymentStatus.${status}`)}
+                        </Badge>
+                        {isDeployed ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={blocked || applyDeployments.isPending}
+                            onClick={() =>
+                              void applyGlobalDeployment(skill, "undeploy")
+                            }
+                          >
+                            <Unlink className="mr-1.5 h-3.5 w-3.5" />
+                            {t("skills.library.undeployClaude")}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              blocked || isBlocked || applyDeployments.isPending
+                            }
+                            onClick={() =>
+                              void applyGlobalDeployment(skill, "deploy")
+                            }
+                          >
+                            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                            {t("skills.library.deployClaude")}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </article>
               ))}
             </div>

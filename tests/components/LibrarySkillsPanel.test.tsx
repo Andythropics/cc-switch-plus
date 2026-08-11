@@ -9,10 +9,18 @@ import {
 } from "@/components/skills/LibrarySkillsPanel";
 import type { LibrarySkill } from "@/lib/api/skills";
 
-const { updateMetadataMock, acquireZipMock, openZipMock } = vi.hoisted(() => ({
+const {
+  updateMetadataMock,
+  acquireZipMock,
+  openZipMock,
+  applyDeploymentsMock,
+  deploymentStateMock,
+} = vi.hoisted(() => ({
   updateMetadataMock: vi.fn(),
   acquireZipMock: vi.fn(),
   openZipMock: vi.fn(),
+  applyDeploymentsMock: vi.fn(),
+  deploymentStateMock: { items: [] as unknown[] },
 }));
 
 const librarySkill: LibrarySkill = {
@@ -47,6 +55,11 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: acquireZipMock,
     isPending: false,
   }),
+  useSkillDeployments: () => ({ data: deploymentStateMock }),
+  useApplySkillDeployments: () => ({
+    mutateAsync: applyDeploymentsMock,
+    isPending: false,
+  }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -62,6 +75,10 @@ describe("LibrarySkillsPanel", () => {
     updateMetadataMock.mockReset().mockResolvedValue(librarySkill);
     acquireZipMock.mockReset().mockResolvedValue([librarySkill]);
     openZipMock.mockReset().mockResolvedValue("/tmp/skill.zip");
+    applyDeploymentsMock.mockReset().mockResolvedValue({
+      items: [{ outcome: "applied" }],
+    });
+    deploymentStateMock.items = [];
   });
 
   it("shows immutable identity, source, compatibility, and edits display metadata", async () => {
@@ -111,6 +128,27 @@ describe("LibrarySkillsPanel", () => {
       filePath: "/tmp/skill.zip",
       directoryNames: {},
     });
+  });
+
+  it("deploys an acquired Library Skill to Claude Global through the apply seam", async () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.deployClaude" }),
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "deploy",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+          },
+        ],
+      }),
+    );
   });
 
   it("requires an explicit unique directory when ZIP acquisition collides", async () => {

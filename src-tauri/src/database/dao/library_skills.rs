@@ -38,6 +38,17 @@ const SELECT_LIBRARY_SKILL: &str = "SELECT id, directory, display_name, descript
      FROM library_skills";
 
 impl Database {
+    pub fn get_library_skill_by_id(&self, id: &str) -> Result<Option<LibrarySkill>, AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.query_row(
+            &format!("{SELECT_LIBRARY_SKILL} WHERE id = ?1"),
+            [id],
+            decode_library_skill,
+        )
+        .optional()
+        .map_err(|error| AppError::Database(error.to_string()))
+    }
+
     pub fn save_library_skill(&self, skill: &LibrarySkill) -> Result<(), AppError> {
         let source_json = serde_json::to_string(&skill.source)
             .map_err(|error| AppError::Database(error.to_string()))?;

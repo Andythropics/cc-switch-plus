@@ -21,6 +21,7 @@ pub mod session_usage_gemini;
 pub mod session_usage_grokbuild;
 pub mod session_usage_opencode;
 pub mod skill;
+pub mod skill_deployment;
 pub mod speedtest;
 pub mod sql_helpers;
 pub mod stream_check;
@@ -43,6 +44,12 @@ pub use proxy::ProxyService;
 pub use skill::{
     DiscoverableSkill, LibrarySkill, LibrarySkillAcquisitionService, LibrarySkillSource,
     LibrarySourceKind, Skill, SkillRepo, SkillService,
+};
+pub use skill_deployment::{
+    DeploymentBatch, DeploymentBatchResult, DeploymentConsumer, DeploymentInspection,
+    DeploymentInspectionResult, DeploymentIntent, DeploymentItemResult, DeploymentMutationOutcome,
+    DeploymentQuery, DeploymentStatus, DeploymentTarget, DesiredDeployment, ObservedDeployment,
+    ObservedDeploymentState, SkillDeploymentService, WorkspaceKind,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
 pub use usage_cache::UsageCache;

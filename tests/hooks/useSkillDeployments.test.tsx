@@ -1,0 +1,80 @@
+import type { PropsWithChildren } from "react";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  useApplySkillDeployments,
+  useSkillDeployments,
+} from "@/hooks/useSkills";
+
+const apiMocks = vi.hoisted(() => ({
+  inspectDeployments: vi.fn(),
+  applyDeployments: vi.fn(),
+}));
+
+vi.mock("@/lib/api/skills", () => ({
+  skillsApi: apiMocks,
+}));
+
+function wrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: PropsWithChildren) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+}
+
+describe("Skill Deployment hooks", () => {
+  beforeEach(() => {
+    apiMocks.inspectDeployments.mockReset();
+    apiMocks.applyDeployments.mockReset();
+  });
+
+  it("loads desired and observed state through the deployment query", async () => {
+    apiMocks.inspectDeployments.mockResolvedValueOnce({ items: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(
+      () => useSkillDeployments({ consumer: "claude", workspace: "global" }),
+      { wrapper: wrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiMocks.inspectDeployments).toHaveBeenCalledWith({
+      consumer: "claude",
+      workspace: "global",
+    });
+    expect(result.current.data).toEqual({ items: [] });
+  });
+
+  it("invalidates deployment observations after apply so the UI refreshes", async () => {
+    apiMocks.applyDeployments.mockResolvedValueOnce({
+      items: [{ outcome: "applied" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useApplySkillDeployments(), {
+      wrapper: wrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        intents: [
+          {
+            action: "deploy",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+          },
+        ],
+      });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "deployments"],
+    });
+  });
+});

@@ -11,6 +11,10 @@ use crate::services::skill::{
     LibrarySourceKind, MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService,
     SkillStorageLocation, SkillUninstallResult, SkillUpdateInfo, SkillsShSearchResult,
 };
+use crate::services::{
+    DeploymentBatch, DeploymentBatchResult, DeploymentInspectionResult, DeploymentQuery,
+    SkillDeploymentService,
+};
 use crate::store::AppState;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -42,6 +46,26 @@ pub fn get_library_skills(app_state: State<'_, AppState>) -> Result<Vec<LibraryS
     app_state
         .db
         .list_library_skills()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn inspect_skill_deployments(
+    query: Option<DeploymentQuery>,
+    app_state: State<'_, AppState>,
+) -> Result<DeploymentInspectionResult, String> {
+    SkillDeploymentService::new(app_state.db.clone())
+        .inspect(query.unwrap_or_default())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn apply_skill_deployments(
+    batch: DeploymentBatch,
+    app_state: State<'_, AppState>,
+) -> Result<DeploymentBatchResult, String> {
+    SkillDeploymentService::new(app_state.db.clone())
+        .apply(batch)
         .map_err(|error| error.to_string())
 }
 

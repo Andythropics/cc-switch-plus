@@ -77,6 +77,106 @@ export interface LibrarySkill {
   updatedAt: number;
 }
 
+export type DeploymentConsumer = "claude" | "codex";
+export type WorkspaceKind = "global" | "project";
+
+export interface DeploymentTarget {
+  consumer: DeploymentConsumer;
+  workspace: WorkspaceKind;
+  workspaceId?: string;
+}
+
+export interface DesiredDeployment {
+  id: string;
+  librarySkillId: string;
+  libraryDirectory: string;
+  target: DeploymentTarget;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ObservedDeploymentState =
+  | "missing"
+  | "correct_link"
+  | "redirected_link"
+  | "broken_link"
+  | "occupied_directory"
+  | "occupied_file"
+  | "unreadable"
+  | "library_missing"
+  | "unrecorded_link"
+  | "invalid_target_root"
+  | "unsupported_platform";
+
+export interface ObservedDeployment {
+  state: ObservedDeploymentState;
+  targetPath: string;
+  expectedTarget: string;
+  actualTarget?: string;
+}
+
+export type DeploymentStatus =
+  | "not_deployed"
+  | "in_sync"
+  | "drift"
+  | "conflict"
+  | "orphaned"
+  | "blocked"
+  | "unsupported";
+
+export interface DeploymentInspection {
+  librarySkillId: string;
+  libraryDirectory: string;
+  target: DeploymentTarget;
+  desired?: DesiredDeployment;
+  observed: ObservedDeployment;
+  status: DeploymentStatus;
+}
+
+export interface DeploymentQuery {
+  consumer?: DeploymentConsumer;
+  workspace?: WorkspaceKind;
+  workspaceId?: string;
+  librarySkillIds?: string[];
+}
+
+export interface DeploymentInspectionResult {
+  items: DeploymentInspection[];
+}
+
+export type DeploymentIntent =
+  | { action: "deploy"; librarySkillId: string; target: DeploymentTarget }
+  | { action: "undeploy"; librarySkillId: string; target: DeploymentTarget }
+  | { action: "repair"; librarySkillId: string; target: DeploymentTarget }
+  | { action: "forget"; librarySkillId: string; target: DeploymentTarget };
+
+export interface DeploymentBatch {
+  intents: DeploymentIntent[];
+}
+
+export type DeploymentMutationOutcome =
+  | "applied"
+  | "already_in_sync"
+  | "removed"
+  | "already_absent"
+  | "conflict"
+  | "drift"
+  | "blocked"
+  | "forgotten"
+  | "error";
+
+export interface DeploymentItemResult {
+  librarySkillId: string;
+  target: DeploymentTarget;
+  outcome: DeploymentMutationOutcome;
+  message?: string;
+  inspection?: DeploymentInspection;
+}
+
+export interface DeploymentBatchResult {
+  items: DeploymentItemResult[];
+}
+
 export interface SkillUninstallResult {
   backupPath?: string;
 }
@@ -183,6 +283,22 @@ export const skillsApi = {
   /** List snapshots in the private Library (never consumer deployments). */
   async getLibrary(): Promise<LibrarySkill[]> {
     return await invoke("get_library_skills");
+  },
+
+  /** Inspect desired and observed Claude/Codex deployment state. */
+  async inspectDeployments(
+    query?: DeploymentQuery,
+  ): Promise<DeploymentInspectionResult> {
+    return await invoke("inspect_skill_deployments", {
+      query: query ?? null,
+    });
+  },
+
+  /** Apply ordered deployment intents without selecting an app implicitly. */
+  async applyDeployments(
+    batch: DeploymentBatch,
+  ): Promise<DeploymentBatchResult> {
+    return await invoke("apply_skill_deployments", { batch });
   },
 
   /** Acquire a Git or marketplace Skill without enabling any consumer. */

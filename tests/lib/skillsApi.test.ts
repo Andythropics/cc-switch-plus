@@ -59,4 +59,35 @@ describe("Skills Library API", () => {
     });
     expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("directory");
   });
+
+  it("inspects and applies Global Claude deployments through the public seam", async () => {
+    await skillsApi.inspectDeployments({
+      consumer: "claude",
+      workspace: "global",
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("inspect_skill_deployments", {
+      query: { consumer: "claude", workspace: "global" },
+    });
+
+    await skillsApi.applyDeployments({
+      intents: [
+        {
+          action: "deploy",
+          librarySkillId: "library-id",
+          target: { consumer: "claude", workspace: "global" },
+        },
+      ],
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("apply_skill_deployments", {
+      batch: {
+        intents: [
+          {
+            action: "deploy",
+            librarySkillId: "library-id",
+            target: { consumer: "claude", workspace: "global" },
+          },
+        ],
+      },
+    });
+  });
 });
