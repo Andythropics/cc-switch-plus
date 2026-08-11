@@ -73,9 +73,15 @@ pub use services::{
 };
 #[cfg(target_os = "macos")]
 pub use services::{
-    ProjectWorkspace, ProjectWorkspaceService, WorkspaceLifecycle, WorkspaceRegistration,
-    WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
-    WorkspaceScopeKind, WorkspaceSkillScope,
+    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
+    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
+    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
+    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
+    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
+    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
+    ProjectSkillImportValidationStatus, ProjectWorkspace, ProjectWorkspaceService,
+    WorkspaceLifecycle, WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
+    WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1478,6 +1484,10 @@ pub fn run() {
             commands::get_library_skills,
             commands::inspect_skill_deployments,
             commands::apply_skill_deployments,
+            #[cfg(target_os = "macos")]
+            commands::inspectProjectSkillImports,
+            #[cfg(target_os = "macos")]
+            commands::applyProjectSkillImport,
             commands::acquire_library_skill,
             commands::acquire_library_skills_from_zip,
             commands::update_library_skill_metadata,

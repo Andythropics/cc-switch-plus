@@ -44,7 +44,7 @@ import {
 } from "@/hooks/useSkills";
 import type {
   DiscoverableSkill,
-  LibrarySourceKind,
+  RemoteLibrarySourceKind,
   SkillRepo,
   SkillsShDiscoverableSkill,
 } from "@/lib/api/skills";
@@ -259,13 +259,13 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
 
     const [collision, setCollision] = useState<{
       skill: DiscoverableSkill;
-      sourceKind: Exclude<LibrarySourceKind, "zip">;
+      sourceKind: RemoteLibrarySourceKind;
     } | null>(null);
     const [uniqueDirectory, setUniqueDirectory] = useState("");
 
     const acquireSkill = async (
       skill: DiscoverableSkill,
-      sourceKind: Exclude<LibrarySourceKind, "zip">,
+      sourceKind: RemoteLibrarySourceKind,
       directoryName?: string,
     ) => {
       await acquireMutation.mutateAsync({ skill, sourceKind, directoryName });

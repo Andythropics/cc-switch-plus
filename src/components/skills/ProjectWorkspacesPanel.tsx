@@ -39,6 +39,7 @@ import {
 } from "@/hooks/useSkills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
+import { ProjectSkillImportPanel } from "@/components/skills/ProjectSkillImportPanel";
 import { settingsApi } from "@/lib/api/settings";
 import type {
   DeploymentConsumer,
@@ -440,7 +441,12 @@ export const ProjectWorkspacesPanel = forwardRef<
           </div>
         </div>
         {selectedWorkspace && (
-          <ProjectWorkspaceDeployments workspace={workspace} />
+          <>
+            {workspace.lifecycle === "active" && (
+              <ProjectSkillImportPanel workspaceId={workspace.id} />
+            )}
+            <ProjectWorkspaceDeployments workspace={workspace} />
+          </>
         )}
       </article>
     );

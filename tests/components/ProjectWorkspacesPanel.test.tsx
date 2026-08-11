@@ -99,6 +99,20 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: forgetWorkspaceMock,
     isPending: false,
   }),
+  useInspectProjectSkillImports: () => ({
+    data: {
+      workspaceId: "workspace-1",
+      observationToken: "scan-token",
+      findings: [],
+    },
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
+  useApplyProjectSkillImport: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
   useLibrarySkills: () => ({ data: [librarySkill], isLoading: false }),
   useSkillDeployments: ({ consumer }: { consumer: "claude" | "codex" }) => ({
     data: consumer === "claude" ? claudeState : codexState,

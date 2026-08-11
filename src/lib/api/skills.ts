@@ -40,7 +40,11 @@ export interface InstalledSkill {
   updatedAt: number;
 }
 
-export type LibrarySourceKind = "git" | "zip" | "marketplace";
+export type LibrarySourceKind = "git" | "zip" | "marketplace" | "local_import";
+export type RemoteLibrarySourceKind = Exclude<
+  LibrarySourceKind,
+  "zip" | "local_import"
+>;
 
 export interface LibrarySkillSource {
   kind: LibrarySourceKind;
@@ -322,7 +326,7 @@ export const skillsApi = {
   /** Acquire a Git or marketplace Skill without enabling any consumer. */
   async acquireLibrary(
     skill: DiscoverableSkill,
-    sourceKind: Exclude<LibrarySourceKind, "zip">,
+    sourceKind: RemoteLibrarySourceKind,
     directoryName?: string,
   ): Promise<LibrarySkill> {
     return await invoke("acquire_library_skill", {

@@ -413,7 +413,9 @@ export const LibrarySkillsPanel = forwardRef<
                               ? "skills.library.sourceGit"
                               : skill.source.kind === "zip"
                                 ? "skills.library.sourceZip"
-                                : "skills.library.sourceMarketplace",
+                                : skill.source.kind === "marketplace"
+                                  ? "skills.library.sourceMarketplace"
+                                  : "skills.library.sourceLocalImport",
                           )}
                         </Badge>
                         {sourceSummary(skill) && (

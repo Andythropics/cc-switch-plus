@@ -571,7 +571,7 @@ pub(crate) fn project_workspace_lifecycle(
     Ok(workspace.lifecycle)
 }
 
-fn workspace_root_matches_identity(workspace: &ProjectWorkspace) -> Result<bool> {
+pub(crate) fn workspace_root_matches_identity(workspace: &ProjectWorkspace) -> Result<bool> {
     let root = fs::canonicalize(&workspace.root_path).ok();
     let Some(root) = root else {
         return Ok(false);

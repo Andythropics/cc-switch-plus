@@ -13,7 +13,8 @@ use crate::services::skill::{
 };
 use crate::services::{
     DeploymentBatch, DeploymentBatchResult, DeploymentInspectionResult, DeploymentQuery,
-    SkillDeploymentService,
+    ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
+    ProjectSkillImportService, SkillDeploymentService,
 };
 use crate::store::AppState;
 use std::collections::HashMap;
@@ -66,6 +67,30 @@ pub fn apply_skill_deployments(
 ) -> Result<DeploymentBatchResult, String> {
     SkillDeploymentService::new(app_state.db.clone())
         .apply(batch)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn inspectProjectSkillImports(
+    workspaceId: String,
+    app_state: State<'_, AppState>,
+) -> Result<ProjectSkillImportInspection, String> {
+    ProjectSkillImportService::new(app_state.db.clone())
+        .inspect(&workspaceId)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn applyProjectSkillImport(
+    intent: ProjectSkillImportIntent,
+    app_state: State<'_, AppState>,
+) -> Result<ProjectSkillImportResult, String> {
+    ProjectSkillImportService::new(app_state.db.clone())
+        .apply(intent)
         .map_err(|error| error.to_string())
 }
 

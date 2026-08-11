@@ -10,8 +10,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
 
@@ -301,6 +303,9 @@ pub enum LibrarySourceKind {
     Git,
     Zip,
     Marketplace,
+    /// A local Skill imported as a Library-owned snapshot. It deliberately
+    /// carries no path or update origin after admission.
+    LocalImport,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -3503,7 +3508,28 @@ impl SkillService {
 /// so acquisition cannot accidentally become deployment.
 pub struct LibrarySkillAcquisitionService;
 
+/// Serializes all Library directory/metadata mutations, including local
+/// imports. Composite project imports acquire this same lock before taking
+/// the Deployment lock so acquisition and import cannot race a directory or
+/// database admission decision.
+static LIBRARY_MUTATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[derive(Debug, Clone)]
+pub(crate) struct LibrarySkillSourceInspection {
+    pub display_name: String,
+    pub description: Option<String>,
+    pub compatibility: LibrarySkillCompatibility,
+    pub content_hash: String,
+}
+
 impl LibrarySkillAcquisitionService {
+    pub(crate) fn lock_for_composite() -> Result<MutexGuard<'static, ()>> {
+        LIBRARY_MUTATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|error| anyhow!(error.to_string()))
+    }
+
     pub(crate) fn ensure_supported_platform() -> Result<()> {
         if !cfg!(target_os = "macos") {
             return Err(anyhow!(
@@ -3514,9 +3540,39 @@ impl LibrarySkillAcquisitionService {
     }
 
     fn library_dir() -> Result<PathBuf> {
-        let dir = get_app_config_dir().join("skills");
+        let dir = Self::library_directory_path();
         fs::create_dir_all(&dir)?;
         Ok(dir)
+    }
+
+    /// Return the private Library directory without creating it. Read-only
+    /// import inspection uses this path helper so a preview never mutates
+    /// application or project state.
+    pub(crate) fn library_directory_path() -> PathBuf {
+        get_app_config_dir().join("skills")
+    }
+
+    /// Validate a local source and compute the same canonical content hash
+    /// used by Library acquisition, without writing anything.
+    pub(crate) fn inspect_source_directory(source: &Path) -> Result<LibrarySkillSourceInspection> {
+        Self::ensure_supported_platform()?;
+        let metadata = fs::symlink_metadata(source)
+            .with_context(|| format!("failed to access Skill source {}", source.display()))?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(anyhow!(
+                "Skill source must be a real directory: {}",
+                source.display()
+            ));
+        }
+        Self::validate_internal_symlinks(source)?;
+        let (display_name, description, compatibility) = Self::read_manifest(source)?;
+        let content_hash = Self::compute_library_hash(source)?;
+        Ok(LibrarySkillSourceInspection {
+            display_name,
+            description,
+            compatibility,
+            content_hash,
+        })
     }
 
     fn compatibility_issue(message: impl Into<String>) -> ConsumerCompatibility {
@@ -3574,7 +3630,9 @@ impl LibrarySkillAcquisitionService {
         }
     }
 
-    fn read_manifest(source: &Path) -> Result<(String, Option<String>, LibrarySkillCompatibility)> {
+    pub(crate) fn read_manifest(
+        source: &Path,
+    ) -> Result<(String, Option<String>, LibrarySkillCompatibility)> {
         let manifest = source.join("SKILL.md");
         if !manifest.is_file() {
             let compatibility = LibrarySkillCompatibility {
@@ -3651,7 +3709,7 @@ impl LibrarySkillAcquisitionService {
         Ok((name, description, compatibility))
     }
 
-    fn validate_internal_symlinks(root: &Path) -> Result<()> {
+    pub(crate) fn validate_internal_symlinks(root: &Path) -> Result<()> {
         let canonical_root = root
             .canonicalize()
             .with_context(|| format!("failed to resolve Skill root {}", root.display()))?;
@@ -3704,7 +3762,7 @@ impl LibrarySkillAcquisitionService {
         walk(root, &canonical_root)
     }
 
-    fn copy_tree_preserving_links(source: &Path, destination: &Path) -> Result<()> {
+    pub(crate) fn copy_tree_preserving_links(source: &Path, destination: &Path) -> Result<()> {
         fs::create_dir_all(destination)?;
         for entry in fs::read_dir(source)? {
             let entry = entry?;
@@ -3727,8 +3785,18 @@ impl LibrarySkillAcquisitionService {
                 ));
             } else if metadata.is_dir() {
                 Self::copy_tree_preserving_links(&source_path, &destination_path)?;
+                #[cfg(unix)]
+                fs::set_permissions(
+                    &destination_path,
+                    fs::Permissions::from_mode(metadata.permissions().mode()),
+                )?;
             } else if metadata.is_file() {
                 fs::copy(&source_path, &destination_path)?;
+                #[cfg(unix)]
+                fs::set_permissions(
+                    &destination_path,
+                    fs::Permissions::from_mode(metadata.permissions().mode()),
+                )?;
             } else {
                 return Err(anyhow!(
                     "unsupported file type in Skill source: {}",
@@ -3736,10 +3804,17 @@ impl LibrarySkillAcquisitionService {
                 ));
             }
         }
+        #[cfg(unix)]
+        if let Ok(metadata) = fs::symlink_metadata(source) {
+            fs::set_permissions(
+                destination,
+                fs::Permissions::from_mode(metadata.permissions().mode()),
+            )?;
+        }
         Ok(())
     }
 
-    fn compute_library_hash(root: &Path) -> Result<String> {
+    pub(crate) fn compute_library_hash(root: &Path) -> Result<String> {
         use sha2::{Digest, Sha256};
 
         fn collect(root: &Path, current: &Path, entries: &mut Vec<PathBuf>) -> Result<()> {
@@ -3986,9 +4061,12 @@ impl LibrarySkillAcquisitionService {
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
         Self::ensure_supported_platform()?;
-        if source_kind == LibrarySourceKind::Zip {
+        if !matches!(
+            source_kind,
+            LibrarySourceKind::Git | LibrarySourceKind::Marketplace
+        ) {
             return Err(anyhow!(
-                "ZIP acquisition must use the archive acquisition endpoint"
+                "this source kind must use the local Skill Import endpoint"
             ));
         }
         let repo = SkillRepo {
@@ -4021,9 +4099,12 @@ impl LibrarySkillAcquisitionService {
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
         Self::ensure_supported_platform()?;
-        if source_kind == LibrarySourceKind::Zip {
+        if !matches!(
+            source_kind,
+            LibrarySourceKind::Git | LibrarySourceKind::Marketplace
+        ) {
             return Err(anyhow!(
-                "ZIP acquisition must use the archive acquisition endpoint"
+                "this source kind must use the local Skill Import endpoint"
             ));
         }
         SkillService::validate_repo_ref(&skill.repo_owner, &skill.repo_name, resolved_branch)?;
@@ -4089,6 +4170,7 @@ impl LibrarySkillAcquisitionService {
         if skill_dirs.is_empty() {
             return Err(anyhow!("Skill ZIP does not contain a canonical SKILL.md"));
         }
+        let _guard = Self::lock_for_composite()?;
 
         let mut candidates = Vec::with_capacity(skill_dirs.len());
         for source in skill_dirs {
@@ -4119,9 +4201,12 @@ impl LibrarySkillAcquisitionService {
         // a retry cannot collide with an earlier partial success.
         let mut batch_directories = HashSet::new();
         for (source, _relative, requested) in &candidates {
-            if !source.is_dir() {
+            let metadata = fs::symlink_metadata(source).map_err(|error| {
+                anyhow!("read Skill source metadata {}: {error}", source.display())
+            })?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
                 return Err(anyhow!(
-                    "Skill source is not a directory: {}",
+                    "Skill source is not a real directory: {}",
                     source.display()
                 ));
             }
@@ -4135,9 +4220,13 @@ impl LibrarySkillAcquisitionService {
             }
         }
 
-        let mut acquired = Vec::with_capacity(candidates.len());
+        let mut acquired: Vec<(LibrarySkill, bool)> = Vec::with_capacity(candidates.len());
         for (source, relative, requested) in candidates {
-            acquired.push(Self::acquire_from_directory(
+            let source_hash = Self::compute_library_hash(&source)?;
+            let already_admitted = db
+                .get_library_skill_by_content_hash(&source_hash)?
+                .is_some();
+            let result = Self::acquire_from_directory_locked(
                 db,
                 &source,
                 LibrarySkillSource {
@@ -4154,9 +4243,47 @@ impl LibrarySkillAcquisitionService {
                     marketplace: None,
                 },
                 Some(&requested),
-            )?);
+            );
+            match result {
+                Ok(skill) => acquired.push((skill, !already_admitted)),
+                Err(error) => {
+                    let mut compensation_errors = Vec::new();
+                    for (skill, created) in &acquired {
+                        if !created {
+                            continue;
+                        }
+                        let path = Self::library_directory_path().join(&skill.directory);
+                        let rollback = Self::library_directory_path()
+                            .join(format!(".zip-rollback-{}", uuid::Uuid::new_v4()));
+                        if let Err(compensation) = fs::rename(&path, &rollback) {
+                            if compensation.kind() != std::io::ErrorKind::NotFound {
+                                compensation_errors.push(compensation.to_string());
+                            }
+                            continue;
+                        }
+                        if let Err(compensation) = db.delete_library_skill(&skill.id) {
+                            let restore = fs::rename(&rollback, &path).err();
+                            compensation_errors.push(match restore {
+                                Some(restore) => {
+                                    format!("{compensation}; restore failed: {restore}")
+                                }
+                                None => compensation.to_string(),
+                            });
+                        } else if let Err(compensation) = fs::remove_dir_all(&rollback) {
+                            compensation_errors.push(compensation.to_string());
+                        }
+                    }
+                    if compensation_errors.is_empty() {
+                        return Err(error);
+                    }
+                    return Err(anyhow!(
+                        "ZIP Library admission failed ({error}); batch compensation failed: {}",
+                        compensation_errors.join("; ")
+                    ));
+                }
+            }
         }
-        Ok(acquired)
+        Ok(acquired.into_iter().map(|(skill, _)| skill).collect())
     }
 
     fn require_available_directory(db: &Arc<Database>, raw_directory: &str) -> Result<String> {
@@ -4185,10 +4312,26 @@ impl LibrarySkillAcquisitionService {
         upstream: LibrarySkillSource,
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
+        let _guard = Self::lock_for_composite()?;
+        Self::acquire_from_directory_locked(db, source, upstream, requested_directory)
+    }
+
+    /// Admission primitive for a caller already holding the shared Library
+    /// mutation lock (for example project import-and-replace). Keeping this
+    /// separate avoids recursively locking the non-reentrant mutex while the
+    /// caller coordinates a Deployment transaction.
+    pub(crate) fn acquire_from_directory_locked(
+        db: &Arc<Database>,
+        source: &Path,
+        upstream: LibrarySkillSource,
+        requested_directory: Option<&str>,
+    ) -> Result<LibrarySkill> {
         Self::ensure_supported_platform()?;
-        if !source.is_dir() {
+        let source_metadata = fs::symlink_metadata(source)
+            .with_context(|| format!("read Skill source metadata: {}", source.display()))?;
+        if !source_metadata.is_dir() || source_metadata.file_type().is_symlink() {
             return Err(anyhow!(
-                "Skill source is not a directory: {}",
+                "Skill source must be a real directory: {}",
                 source.display()
             ));
         }
@@ -4269,6 +4412,7 @@ impl LibrarySkillAcquisitionService {
         display_name: &str,
         description: Option<&str>,
     ) -> Result<LibrarySkill> {
+        let _guard = Self::lock_for_composite()?;
         Self::ensure_supported_platform()?;
         let display_name = display_name.trim();
         if display_name.is_empty() {

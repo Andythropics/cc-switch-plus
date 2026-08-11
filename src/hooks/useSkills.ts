@@ -12,7 +12,7 @@ import {
   type ImportSkillSelection,
   type InstalledSkill,
   type LibrarySkill,
-  type LibrarySourceKind,
+  type RemoteLibrarySourceKind,
   type DeploymentBatch,
   type DeploymentBatchResult,
   type DeploymentInspectionResult,
@@ -28,6 +28,9 @@ import {
   type ProjectWorkspace,
   type WorkspaceRegistration,
   type WorkspaceRegistrationScan,
+  type ProjectSkillImportInspection,
+  type ProjectSkillImportIntent,
+  type ProjectSkillImportResult,
 } from "@/lib/api/projectWorkspaces";
 
 /**
@@ -109,6 +112,35 @@ export function useProjectWorkspaces() {
     staleTime: 0,
     placeholderData: keepPreviousData,
   });
+}
+
+export function useInspectProjectSkillImports(workspaceId?: string | null) {
+  return useQuery<ProjectSkillImportInspection>({
+    queryKey: ["skills", "projectSkillImports", workspaceId],
+    queryFn: () => projectWorkspacesApi.inspectSkillImports(workspaceId!),
+    enabled: Boolean(workspaceId),
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useApplyProjectSkillImport() {
+  const queryClient = useQueryClient();
+  return useMutation<ProjectSkillImportResult, Error, ProjectSkillImportIntent>(
+    {
+      mutationFn: (intent) => projectWorkspacesApi.applySkillImport(intent),
+      onSettled: (_data, _error, intent) =>
+        Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["skills", "projectSkillImports", intent?.workspaceId],
+          }),
+          queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+          queryClient.invalidateQueries({
+            queryKey: ["skills", "deployments"],
+          }),
+        ]),
+    },
+  );
 }
 
 export function useInspectProjectWorkspace() {
@@ -197,7 +229,7 @@ export function useAcquireLibrarySkill() {
       directoryName,
     }: {
       skill: DiscoverableSkill;
-      sourceKind: Exclude<LibrarySourceKind, "zip">;
+      sourceKind: RemoteLibrarySourceKind;
       directoryName?: string;
     }) => skillsApi.acquireLibrary(skill, sourceKind, directoryName),
     onSuccess: (acquired) => {

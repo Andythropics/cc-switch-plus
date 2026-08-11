@@ -24,6 +24,8 @@ pub mod session_usage_grokbuild;
 pub mod session_usage_opencode;
 pub mod skill;
 pub mod skill_deployment;
+#[cfg(target_os = "macos")]
+pub mod skill_import;
 pub mod speedtest;
 pub mod sql_helpers;
 pub mod stream_check;
@@ -59,6 +61,16 @@ pub use skill_deployment::{
     DeploymentInspectionResult, DeploymentIntent, DeploymentItemResult, DeploymentMutationOutcome,
     DeploymentQuery, DeploymentStatus, DeploymentTarget, DesiredDeployment, ObservedDeployment,
     ObservedDeploymentState, SkillDeploymentService, WorkspaceKind,
+};
+#[cfg(target_os = "macos")]
+pub use skill_import::{
+    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
+    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
+    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
+    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
+    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
+    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
+    ProjectSkillImportValidationStatus,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
 pub use usage_cache::UsageCache;

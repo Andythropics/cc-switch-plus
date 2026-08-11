@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(debug_assertions)]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::config::get_home_dir;
 use crate::database::Database;
@@ -282,6 +282,23 @@ pub struct SkillDeploymentService {
 impl SkillDeploymentService {
     pub fn new(db: Arc<Database>) -> Self {
         Self { db }
+    }
+
+    /// Acquire the shared mutation lock for a composite workflow such as
+    /// Project Skill Import. Callers must hold this guard while invoking
+    /// `apply_one_for_composite`; normal callers continue to use `apply`.
+    pub(crate) fn lock_for_composite() -> Result<MutexGuard<'static, ()>> {
+        DEPLOYMENT_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|error| anyhow!(error.to_string()))
+    }
+
+    pub(crate) fn apply_one_for_composite(
+        &self,
+        intent: &DeploymentIntent,
+    ) -> Result<DeploymentItemResult> {
+        self.apply_one(intent)
     }
 
     #[cfg(debug_assertions)]

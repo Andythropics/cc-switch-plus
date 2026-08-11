@@ -86,6 +86,14 @@ describe("LibrarySkillsPanel", () => {
     refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
     toastErrorMock.mockReset();
     deploymentStateMock.items = [];
+    librarySkill.source = {
+      kind: "marketplace",
+      repoOwner: "owner",
+      repoName: "repo",
+      repoBranch: "main",
+      skillPath: "skills/review",
+      marketplace: "skills.sh",
+    };
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
     librarySkill.compatibility.codex = { compatible: true, issues: [] };
   });
@@ -123,6 +131,19 @@ describe("LibrarySkillsPanel", () => {
       }),
     );
     expect(updateMetadataMock.mock.calls[0][0]).not.toHaveProperty("directory");
+  });
+
+  it("labels local imports without implying a live source origin", () => {
+    librarySkill.source = { kind: "local_import" };
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(
+      screen.getByText("skills.library.sourceLocalImport"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/owner\/repo/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("skills.library.sourceMarketplace"),
+    ).not.toBeInTheDocument();
   });
 
   it("acquires a ZIP through the Library-only imperative action", async () => {

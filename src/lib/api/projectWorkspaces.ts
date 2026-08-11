@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DeploymentConsumer } from "./skills";
+import type { DeploymentConsumer, LibrarySkillCompatibility } from "./skills";
 
 export type WorkspaceRootKind = "git_repository" | "git_worktree" | "non_git";
 export type WorkspaceLifecycle = "active" | "archived" | "unavailable";
@@ -33,6 +33,108 @@ export interface WorkspaceRegistrationScan {
 export interface WorkspaceRegistration {
   workspace: ProjectWorkspace;
   scan: WorkspaceRegistrationScan;
+}
+
+export type ProjectSkillImportFindingScope =
+  | "root_level"
+  | "nested_unsupported";
+
+export type ProjectSkillImportValidationStatus = "valid" | "invalid";
+
+export interface ProjectSkillImportValidation {
+  status: ProjectSkillImportValidationStatus;
+  issues: string[];
+  displayName?: string;
+  description?: string;
+}
+
+export interface ProjectSkillImportLibraryMatch {
+  kind: "none" | "identical" | "different";
+  librarySkillId?: string;
+  displayName?: string;
+  directory?: string;
+}
+
+export interface ProjectSkillImportGitState {
+  tracked: boolean;
+  paths: string[];
+}
+
+export type ProjectSkillImportReplaceBlockReason =
+  | "directory_identity_mismatch"
+  | "git_tracked_content"
+  | "nested_unsupported"
+  | "invalid_source";
+
+export interface ProjectSkillImportReplaceEligibility {
+  eligible: boolean;
+  reason?: ProjectSkillImportReplaceBlockReason;
+}
+
+export interface ProjectSkillImportDirectoryCollision {
+  kind: "none" | "library" | "invalid" | "reserved";
+  requested: string;
+  suggestions: string[];
+}
+
+export interface ProjectSkillImportFinding {
+  id: string;
+  consumer: DeploymentConsumer;
+  scope: ProjectSkillImportFindingScope;
+  /** Display-only source location; apply binds by workspace, finding, token. */
+  sourcePath: string;
+  directory: string;
+  validation: ProjectSkillImportValidation;
+  compatibility: LibrarySkillCompatibility;
+  libraryMatch: ProjectSkillImportLibraryMatch;
+  git: ProjectSkillImportGitState;
+  directoryCollision: ProjectSkillImportDirectoryCollision;
+  replaceEligibility: ProjectSkillImportReplaceEligibility;
+}
+
+export interface ProjectSkillImportInspection {
+  workspaceId: string;
+  observationToken: string;
+  findings: ProjectSkillImportFinding[];
+}
+
+export type ProjectSkillImportMode = "import_only" | "import_and_replace";
+
+export type ProjectSkillImportResolution =
+  | { kind: "reuse"; librarySkillId: string }
+  | { kind: "create_new"; directory: string; displayName?: string }
+  | {
+      kind: "replace_library";
+      librarySkillId: string;
+      confirmed: true;
+    };
+
+export interface ProjectSkillImportIntent {
+  workspaceId: string;
+  findingId: string;
+  observationToken: string;
+  mode: ProjectSkillImportMode;
+  resolution: ProjectSkillImportResolution;
+}
+
+export type ProjectSkillImportOutcome =
+  | "reused"
+  | "created"
+  | "library_replaced"
+  | "deployed"
+  | "blocked"
+  | "stale"
+  | "rolled_back"
+  | "recovery_required";
+
+export interface ProjectSkillImportResult {
+  findingId: string;
+  outcome: ProjectSkillImportOutcome;
+  librarySkillId?: string;
+  directory?: string;
+  reason?: ProjectSkillImportReplaceBlockReason;
+  message?: string;
+  backupPath?: string;
 }
 
 export type WorkspaceRelocationOutcome = "relocated" | "registered_distinct";
@@ -88,5 +190,17 @@ export const projectWorkspacesApi = {
 
   async forget(workspaceId: string): Promise<boolean> {
     return await invoke("forget_project_workspace", { workspaceId });
+  },
+
+  async inspectSkillImports(
+    workspaceId: string,
+  ): Promise<ProjectSkillImportInspection> {
+    return await invoke("inspectProjectSkillImports", { workspaceId });
+  },
+
+  async applySkillImport(
+    intent: ProjectSkillImportIntent,
+  ): Promise<ProjectSkillImportResult> {
+    return await invoke("applyProjectSkillImport", { intent });
   },
 };
