@@ -132,6 +132,8 @@ export interface DeploymentInspection {
   target: DeploymentTarget;
   desired?: DesiredDeployment;
   observed: ObservedDeployment;
+  /** Hash of the inspection facts required for safe resolution mutations. */
+  observationToken: string;
   status: DeploymentStatus;
 }
 
@@ -149,7 +151,19 @@ export interface DeploymentInspectionResult {
 export type DeploymentIntent =
   | { action: "deploy"; librarySkillId: string; target: DeploymentTarget }
   | { action: "undeploy"; librarySkillId: string; target: DeploymentTarget }
-  | { action: "repair"; librarySkillId: string; target: DeploymentTarget }
+  | {
+      action: "repair";
+      librarySkillId: string;
+      target: DeploymentTarget;
+      observationToken: string;
+    }
+  | {
+      action: "replaceForeignLink";
+      librarySkillId: string;
+      target: DeploymentTarget;
+      observationToken: string;
+      confirmed: true;
+    }
   | { action: "forget"; librarySkillId: string; target: DeploymentTarget };
 
 export interface DeploymentBatch {
@@ -158,12 +172,14 @@ export interface DeploymentBatch {
 
 export type DeploymentMutationOutcome =
   | "applied"
+  | "replaced"
   | "already_in_sync"
   | "removed"
   | "already_absent"
   | "conflict"
   | "drift"
   | "blocked"
+  | "stale_observation"
   | "forgotten"
   | "error";
 

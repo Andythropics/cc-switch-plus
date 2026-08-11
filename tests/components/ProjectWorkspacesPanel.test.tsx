@@ -149,6 +149,41 @@ describe("ProjectWorkspacesPanel", () => {
     expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
   });
 
+  it("repairs a project drift with the inspection token through the shared resolution controls", async () => {
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-1" },
+        observed: { state: "missing" },
+        observationToken: "project-observation-1",
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", { name: "skills.library.repair" })[0],
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "repair",
+            librarySkillId: "library-1",
+            target: {
+              consumer: "claude",
+              workspace: "project",
+              workspaceId: "workspace-1",
+            },
+            observationToken: "project-observation-1",
+          },
+        ],
+      }),
+    );
+  });
+
   it("disables only an incompatible consumer while leaving the other deployable", () => {
     librarySkill.compatibility.codex = {
       compatible: false,

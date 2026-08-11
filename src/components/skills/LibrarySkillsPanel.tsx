@@ -11,11 +11,9 @@ import {
   FileArchive,
   Library,
   Loader2,
-  Link2,
   Pencil,
   RefreshCw,
   Search,
-  Unlink,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -50,6 +48,7 @@ import type {
   LibrarySkill,
 } from "@/lib/api/skills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
+import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
@@ -199,45 +198,54 @@ export const LibrarySkillsPanel = forwardRef<
       if (filePath) await acquireZipFile(filePath);
     };
 
-    const applyGlobalDeployment = async (
-      skill: LibrarySkill,
-      consumer: DeploymentConsumer,
-      action: Extract<
-        DeploymentIntent,
-        { action: "deploy" | "undeploy" }
-      >["action"],
-    ) => {
+    const applyGlobalDeployment = async (intent: DeploymentIntent) => {
       try {
         const result = await applyDeployments.mutateAsync({
-          intents: [
-            {
-              action,
-              librarySkillId: skill.id,
-              target: { consumer, workspace: "global" },
-            },
-          ],
+          intents: [intent],
         });
         const item = result.items[0];
-        if (item?.outcome === "error") {
-          throw new Error(item.message || t("skills.library.deploymentFailed"));
+        if (!item) {
+          throw new Error(t("skills.library.deploymentFailed"));
         }
-        if (item?.outcome === "conflict") {
-          toast.error(t("skills.library.deploymentConflict"));
+        const safeOutcomes = new Set([
+          "applied",
+          "replaced",
+          "already_in_sync",
+          "removed",
+          "already_absent",
+          "forgotten",
+        ]);
+        if (!safeOutcomes.has(item.outcome)) {
+          toast.error(
+            item.message
+              ? `${item.outcome}: ${item.message}`
+              : t("skills.library.deploymentOutcomeBlocked", {
+                  outcome: item.outcome,
+                }),
+          );
           return;
         }
-        toast.success(
+        if (item.message) {
+          toast.success(`${item.outcome}: ${item.message}`);
+          return;
+        }
+        const consumer = intent.target.consumer;
+        const action = intent.action;
+        const successKey =
           action === "deploy"
-            ? t(
-                consumer === "claude"
-                  ? "skills.library.deploySuccess"
-                  : "skills.library.deployCodexSuccess",
-              )
-            : t(
-                consumer === "claude"
-                  ? "skills.library.undeploySuccess"
-                  : "skills.library.undeployCodexSuccess",
-              ),
-        );
+            ? consumer === "claude"
+              ? "skills.library.deploySuccess"
+              : "skills.library.deployCodexSuccess"
+            : action === "undeploy"
+              ? consumer === "claude"
+                ? "skills.library.undeploySuccess"
+                : "skills.library.undeployCodexSuccess"
+              : action === "repair"
+                ? "skills.library.repairSuccess"
+                : action === "replaceForeignLink"
+                  ? "skills.library.replaceForeignLinkSuccess"
+                  : "skills.library.forgetSuccess";
+        toast.success(t(successKey));
       } catch (error) {
         toast.error(String(error));
       }
@@ -253,14 +261,6 @@ export const LibrarySkillsPanel = forwardRef<
       );
       const compatibility = skill.compatibility[consumer];
       const status = deployment?.status ?? "not_deployed";
-      const isDeployed = status === "in_sync";
-      const isBlocked =
-        !compatibility.compatible ||
-        status === "conflict" ||
-        status === "orphaned" ||
-        status === "archived" ||
-        status === "unsupported" ||
-        status === "blocked";
       const consumerLabel =
         consumer === "claude"
           ? t("skills.library.consumerClaude")
@@ -289,36 +289,17 @@ export const LibrarySkillsPanel = forwardRef<
             desired={Boolean(deployment?.desired)}
             className="flex-1"
           />
-          {isDeployed ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={blocked || applyDeployments.isPending}
-              onClick={() =>
-                void applyGlobalDeployment(skill, consumer, "undeploy")
-              }
-            >
-              <Unlink className="mr-1.5 h-3.5 w-3.5" />
-              {undeployLabel}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              title={
-                isBlocked && !compatibility.compatible
-                  ? incompatibilityMessage
-                  : undefined
-              }
-              disabled={blocked || isBlocked || applyDeployments.isPending}
-              onClick={() =>
-                void applyGlobalDeployment(skill, consumer, "deploy")
-              }
-            >
-              <Link2 className="mr-1.5 h-3.5 w-3.5" />
-              {deployLabel}
-            </Button>
-          )}
+          <DeploymentResolutionActions
+            skill={skill}
+            target={{ consumer, workspace: "global" }}
+            deployment={deployment}
+            compatible={compatibility.compatible}
+            disabled={blocked}
+            isPending={applyDeployments.isPending}
+            deployLabel={deployLabel}
+            undeployLabel={undeployLabel}
+            onApply={applyGlobalDeployment}
+          />
           {!compatibility.compatible && (
             <span className="basis-full text-xs text-destructive">
               {incompatibilityMessage}

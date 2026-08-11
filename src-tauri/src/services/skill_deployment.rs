@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::config::get_home_dir;
@@ -21,6 +23,7 @@ use crate::services::project_workspace::{
     project_workspace_lifecycle, remove_git_exclude, WorkspaceLifecycle,
 };
 use crate::services::skill::{ConsumerCompatibility, LibrarySkill};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -123,6 +126,7 @@ pub struct DeploymentInspection {
     pub target: DeploymentTarget,
     pub desired: Option<DesiredDeployment>,
     pub observed: ObservedDeployment,
+    pub observation_token: String,
     pub status: DeploymentStatus,
 }
 
@@ -178,6 +182,13 @@ pub enum DeploymentIntent {
     Repair {
         library_skill_id: String,
         target: DeploymentTarget,
+        observation_token: String,
+    },
+    ReplaceForeignLink {
+        library_skill_id: String,
+        target: DeploymentTarget,
+        observation_token: String,
+        confirmed: bool,
     },
     Forget {
         library_skill_id: String,
@@ -199,6 +210,12 @@ impl DeploymentIntent {
             | Self::Repair {
                 library_skill_id,
                 target,
+                ..
+            }
+            | Self::ReplaceForeignLink {
+                library_skill_id,
+                target,
+                ..
             }
             | Self::Forget {
                 library_skill_id,
@@ -226,12 +243,14 @@ impl DeploymentBatch {
 #[serde(rename_all = "snake_case")]
 pub enum DeploymentMutationOutcome {
     Applied,
+    Replaced,
     AlreadyInSync,
     Removed,
     AlreadyAbsent,
     Conflict,
     Drift,
     Blocked,
+    StaleObservation,
     Forgotten,
     Error,
 }
@@ -253,6 +272,8 @@ pub struct DeploymentBatchResult {
 }
 
 static DEPLOYMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+#[cfg(debug_assertions)]
+static FORCE_COMPENSATION_FAILURE: AtomicBool = AtomicBool::new(false);
 
 pub struct SkillDeploymentService {
     db: Arc<Database>,
@@ -261,6 +282,12 @@ pub struct SkillDeploymentService {
 impl SkillDeploymentService {
     pub fn new(db: Arc<Database>) -> Self {
         Self { db }
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn force_compensation_failure_for_test(enabled: bool) {
+        FORCE_COMPENSATION_FAILURE.store(enabled, Ordering::SeqCst);
     }
 
     pub fn inspect(&self, query: DeploymentQuery) -> Result<DeploymentInspectionResult> {
@@ -337,6 +364,7 @@ impl SkillDeploymentService {
                 target: target.clone(),
                 desired: desired_item,
                 observed: unsupported(),
+                observation_token: "unsupported-platform".to_string(),
                 status: DeploymentStatus::Unsupported,
             });
         }
@@ -354,6 +382,7 @@ impl SkillDeploymentService {
                     target: target.clone(),
                     desired: Some(row.clone()),
                     observed: unsupported(),
+                    observation_token: "unsupported-platform".to_string(),
                     status: DeploymentStatus::Unsupported,
                 });
             }
@@ -415,11 +444,18 @@ impl SkillDeploymentService {
             DeploymentIntent::Deploy {
                 library_skill_id,
                 target,
-            } => self.deploy(library_skill_id, target, false),
+            } => self.deploy(library_skill_id, target),
             DeploymentIntent::Repair {
                 library_skill_id,
                 target,
-            } => self.deploy(library_skill_id, target, true),
+                observation_token,
+            } => self.repair(library_skill_id, target, observation_token),
+            DeploymentIntent::ReplaceForeignLink {
+                library_skill_id,
+                target,
+                observation_token,
+                confirmed,
+            } => self.replace_foreign_link(library_skill_id, target, observation_token, *confirmed),
             DeploymentIntent::Undeploy {
                 library_skill_id,
                 target,
@@ -435,7 +471,6 @@ impl SkillDeploymentService {
         &self,
         library_skill_id: &str,
         target: &DeploymentTarget,
-        repair: bool,
     ) -> Result<DeploymentItemResult> {
         let skill = self
             .db
@@ -449,15 +484,10 @@ impl SkillDeploymentService {
                 Some(error.to_string()),
             ));
         }
-        let desired = self.db.get_skill_deployment(library_skill_id, target)?;
-        if repair && desired.is_none() {
-            return Ok(self.result(
-                &skill,
-                target,
-                DeploymentMutationOutcome::Blocked,
-                Some("Repair requires an existing desired Deployment".to_string()),
-            ));
+        if let Some(blocked) = self.workspace_blocked(&skill, target)? {
+            return Ok(blocked);
         }
+        let desired = self.db.get_skill_deployment(library_skill_id, target)?;
         let observed = self.observe(&skill, target)?;
         match observed.state {
             ObservedDeploymentState::CorrectLink => {
@@ -528,8 +558,12 @@ impl SkillDeploymentService {
             match add_git_exclude(project_root, target.consumer, &skill.directory) {
                 Ok(path) => path,
                 Err(error) => {
-                    let _ = fs::remove_file(&target_path);
-                    return Err(error);
+                    return match Self::compensate_remove_file(&target_path) {
+                        Ok(()) => Err(error),
+                        Err(compensation_error) => Err(anyhow!(
+                            "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
+                        )),
+                    };
                 }
             }
         } else {
@@ -551,7 +585,7 @@ impl SkillDeploymentService {
                 let exclude_rollback = git_exclude_path
                     .as_ref()
                     .map(|path| remove_git_exclude(path, target.consumer, &skill.directory));
-                let rollback = fs::remove_file(&target_path);
+                let rollback = Self::compensate_remove_file(&target_path);
                 if let Err(rollback_error) = rollback {
                     return Err(anyhow!(
                         "database save failed ({error}); filesystem compensation failed ({rollback_error})"
@@ -567,6 +601,225 @@ impl SkillDeploymentService {
             }
         }
         Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
+    }
+
+    fn repair(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+        observation_token: &str,
+    ) -> Result<DeploymentItemResult> {
+        let skill = self
+            .db
+            .get_library_skill_by_id(library_skill_id)?
+            .ok_or_else(|| anyhow!("Library Skill not found: {library_skill_id}"))?;
+        if let Err(error) = Self::validate_compatibility(&skill, target.consumer) {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some(error.to_string()),
+            ));
+        }
+        let Some(_desired) = self.db.get_skill_deployment(library_skill_id, target)? else {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some("Repair requires an existing desired Deployment".to_string()),
+            ));
+        };
+        if let Some(blocked) = self.workspace_blocked(&skill, target)? {
+            return Ok(blocked);
+        }
+        let fresh = self.inspect_one(library_skill_id, target)?;
+        if fresh.observation_token != observation_token {
+            return Ok(self.stale_observation(&skill, target, fresh));
+        }
+        match fresh.observed.state {
+            ObservedDeploymentState::Missing => {}
+            ObservedDeploymentState::CorrectLink => {
+                return Ok(self.result(
+                    &skill,
+                    target,
+                    DeploymentMutationOutcome::AlreadyInSync,
+                    None,
+                ));
+            }
+            ObservedDeploymentState::LibraryMissing => {
+                return Ok(self.result_with_inspection(
+                    &skill,
+                    target,
+                    DeploymentMutationOutcome::Blocked,
+                    Some("Library source is missing".to_string()),
+                    Some(fresh),
+                ));
+            }
+            ObservedDeploymentState::OccupiedDirectory
+            | ObservedDeploymentState::OccupiedFile
+            | ObservedDeploymentState::RedirectedLink
+            | ObservedDeploymentState::BrokenLink
+            | ObservedDeploymentState::InvalidLink
+            | ObservedDeploymentState::Unreadable
+            | ObservedDeploymentState::InvalidTargetRoot
+            | ObservedDeploymentState::UnrecordedLink
+            | ObservedDeploymentState::UnsupportedPlatform => {
+                return Ok(self.result_with_inspection(
+                    &skill,
+                    target,
+                    DeploymentMutationOutcome::Conflict,
+                    Some(format!("target is {:?}", fresh.observed.state)),
+                    Some(fresh),
+                ));
+            }
+        }
+
+        let target_path = self.target_path(target, &skill.directory)?;
+        self.ensure_target_root(&target_path)?;
+        let source_path = self.library_path(&skill.directory)?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&source_path, &target_path).with_context(|| {
+            format!(
+                "failed to create Deployment repair link {} -> {}",
+                target_path.display(),
+                source_path.display()
+            )
+        })?;
+        #[cfg(not(unix))]
+        return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
+
+        #[cfg(target_os = "macos")]
+        if target.workspace == WorkspaceKind::Project {
+            let project_root = target_path
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
+            if let Err(error) = add_git_exclude(project_root, target.consumer, &skill.directory) {
+                return match Self::compensate_remove_file(&target_path) {
+                    Ok(()) => Err(error),
+                    Err(compensation_error) => Err(anyhow!(
+                        "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
+                    )),
+                };
+            }
+        }
+        Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
+    }
+
+    fn replace_foreign_link(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+        observation_token: &str,
+        confirmed: bool,
+    ) -> Result<DeploymentItemResult> {
+        let skill = self
+            .db
+            .get_library_skill_by_id(library_skill_id)?
+            .ok_or_else(|| anyhow!("Library Skill not found: {library_skill_id}"))?;
+        if !confirmed {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some("foreign-link replacement requires explicit confirmation".to_string()),
+            ));
+        }
+        if let Err(error) = Self::validate_compatibility(&skill, target.consumer) {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some(error.to_string()),
+            ));
+        }
+        if self
+            .db
+            .get_skill_deployment(library_skill_id, target)?
+            .is_none()
+        {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some("ReplaceForeignLink requires an existing desired Deployment".to_string()),
+            ));
+        }
+        if let Some(blocked) = self.workspace_blocked(&skill, target)? {
+            return Ok(blocked);
+        }
+        let fresh = self.inspect_one(library_skill_id, target)?;
+        if fresh.observation_token != observation_token {
+            return Ok(self.stale_observation(&skill, target, fresh));
+        }
+        if !matches!(
+            fresh.observed.state,
+            ObservedDeploymentState::RedirectedLink
+                | ObservedDeploymentState::BrokenLink
+                | ObservedDeploymentState::InvalidLink
+        ) {
+            return Ok(self.result_with_inspection(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Conflict,
+                Some("target is not a replaceable foreign symbolic link".to_string()),
+                Some(fresh),
+            ));
+        }
+        let old_target = fresh
+            .observed
+            .actual_target
+            .clone()
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow!("foreign symbolic link has no recorded target"))?;
+        let target_path = self.target_path(target, &skill.directory)?;
+        let metadata = fs::symlink_metadata(&target_path)?;
+        if !metadata.file_type().is_symlink() {
+            let current = self.inspect_one(library_skill_id, target)?;
+            return Ok(self.stale_observation(&skill, target, current));
+        }
+        let current_target = fs::read_link(&target_path)?;
+        if current_target != old_target {
+            let current = self.inspect_one(library_skill_id, target)?;
+            return Ok(self.stale_observation(&skill, target, current));
+        }
+        let expected = self.library_path(&skill.directory)?;
+        fs::remove_file(&target_path).with_context(|| {
+            format!(
+                "failed to remove confirmed foreign Deployment link {}",
+                target_path.display()
+            )
+        })?;
+        #[cfg(unix)]
+        if let Err(error) = std::os::unix::fs::symlink(&expected, &target_path) {
+            return match Self::compensate_symlink(&old_target, &target_path) {
+                Ok(()) => Err(error.into()),
+                Err(compensation_error) => Err(anyhow!(
+                    "replacement link creation failed ({error}); foreign-link compensation failed ({compensation_error})"
+                )),
+            };
+        }
+        #[cfg(not(unix))]
+        return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
+
+        #[cfg(target_os = "macos")]
+        if target.workspace == WorkspaceKind::Project {
+            let project_root = target_path
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
+            if let Err(error) = add_git_exclude(project_root, target.consumer, &skill.directory) {
+                let rollback = Self::compensate_remove_file(&target_path)
+                    .and_then(|()| Self::compensate_symlink(&old_target, &target_path));
+                return match rollback {
+                    Ok(()) => Err(error),
+                    Err(compensation_error) => Err(anyhow!(
+                        "Git exclude update failed ({error}); foreign-link compensation failed ({compensation_error})"
+                    )),
+                };
+            }
+        }
+        Ok(self.result(&skill, target, DeploymentMutationOutcome::Replaced, None))
     }
 
     fn undeploy(
@@ -594,6 +847,16 @@ impl SkillDeploymentService {
                 }
             });
         };
+
+        if let Some(message) = self.workspace_block_message(target)? {
+            return Ok(DeploymentItemResult {
+                library_skill_id: library_skill_id.to_string(),
+                target: target.clone(),
+                outcome: DeploymentMutationOutcome::Blocked,
+                message: Some(message),
+                inspection: None,
+            });
+        }
 
         let target_path = self.target_path(target, &desired.library_directory)?;
         let expected = self.library_path(&desired.library_directory)?;
@@ -648,7 +911,13 @@ impl SkillDeploymentService {
                         remove_git_exclude(&path, target.consumer, &desired.library_directory)
                     {
                         #[cfg(unix)]
-                        let _ = std::os::unix::fs::symlink(&expected, &target_path);
+                        return match Self::compensate_symlink(&expected, &target_path) {
+                            Ok(()) => Err(error),
+                            Err(compensation_error) => Err(anyhow!(
+                                "Git exclude removal failed ({error}); filesystem compensation failed ({compensation_error})"
+                            )),
+                        };
+                        #[cfg(not(unix))]
                         return Err(error);
                     }
                     Some(path)
@@ -660,7 +929,7 @@ impl SkillDeploymentService {
         };
         if let Err(error) = self.db.delete_skill_deployment(&desired.id) {
             #[cfg(unix)]
-            let compensation = std::os::unix::fs::symlink(&expected, &target_path);
+            let compensation = Self::compensate_symlink(&expected, &target_path);
             #[cfg(not(unix))]
             let compensation: std::io::Result<()> =
                 Err(std::io::Error::other("symbolic links unsupported"));
@@ -715,6 +984,15 @@ impl SkillDeploymentService {
                 inspection: None,
             });
         };
+        if let Some(message) = self.workspace_block_message(target)? {
+            return Ok(DeploymentItemResult {
+                library_skill_id: library_skill_id.to_string(),
+                target: target.clone(),
+                outcome: DeploymentMutationOutcome::Blocked,
+                message: Some(message),
+                inspection: None,
+            });
+        }
         self.db.delete_skill_deployment(&desired.id)?;
         Ok(DeploymentItemResult {
             library_skill_id: library_skill_id.to_string(),
@@ -739,6 +1017,106 @@ impl SkillDeploymentService {
             message,
             inspection: None,
         }
+    }
+
+    fn compensate_remove_file(path: &Path) -> std::io::Result<()> {
+        #[cfg(debug_assertions)]
+        if FORCE_COMPENSATION_FAILURE.swap(false, Ordering::SeqCst) {
+            return Err(std::io::Error::other("injected compensation failure"));
+        }
+        fs::remove_file(path)
+    }
+
+    #[cfg(unix)]
+    fn compensate_symlink(source: &Path, target: &Path) -> std::io::Result<()> {
+        #[cfg(debug_assertions)]
+        if FORCE_COMPENSATION_FAILURE.swap(false, Ordering::SeqCst) {
+            return Err(std::io::Error::other("injected compensation failure"));
+        }
+        std::os::unix::fs::symlink(source, target)
+    }
+
+    fn result_with_inspection(
+        &self,
+        skill: &LibrarySkill,
+        target: &DeploymentTarget,
+        outcome: DeploymentMutationOutcome,
+        message: Option<String>,
+        inspection: Option<DeploymentInspection>,
+    ) -> DeploymentItemResult {
+        DeploymentItemResult {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+            outcome,
+            message,
+            inspection,
+        }
+    }
+
+    fn stale_observation(
+        &self,
+        skill: &LibrarySkill,
+        target: &DeploymentTarget,
+        inspection: DeploymentInspection,
+    ) -> DeploymentItemResult {
+        self.result_with_inspection(
+            skill,
+            target,
+            DeploymentMutationOutcome::StaleObservation,
+            Some("filesystem observation is stale; inspect again before retrying".to_string()),
+            Some(inspection),
+        )
+    }
+
+    fn inspect_one(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+    ) -> Result<DeploymentInspection> {
+        self.inspect(DeploymentQuery {
+            consumer: Some(target.consumer),
+            workspace: Some(target.workspace),
+            workspace_id: Some(target.workspace_id.clone()),
+            library_skill_ids: Some(vec![library_skill_id.to_string()]),
+        })?
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == library_skill_id)
+        .ok_or_else(|| anyhow!("Deployment inspection item not found: {library_skill_id}"))
+    }
+
+    fn workspace_blocked(
+        &self,
+        skill: &LibrarySkill,
+        target: &DeploymentTarget,
+    ) -> Result<Option<DeploymentItemResult>> {
+        if let Some(message) = self.workspace_block_message(target)? {
+            return Ok(Some(self.result(
+                skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some(message),
+            )));
+        }
+        Ok(None)
+    }
+
+    fn workspace_block_message(&self, target: &DeploymentTarget) -> Result<Option<String>> {
+        #[cfg(target_os = "macos")]
+        if target.workspace == WorkspaceKind::Project {
+            return Ok(
+                match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
+                    WorkspaceLifecycle::Active => None,
+                    WorkspaceLifecycle::Archived => {
+                        Some("Project Workspace is archived".to_string())
+                    }
+                    WorkspaceLifecycle::Unavailable => {
+                        Some("Project Workspace is unavailable".to_string())
+                    }
+                },
+            );
+        }
+        Ok(None)
     }
 
     fn inspect_skill(
@@ -769,12 +1147,14 @@ impl SkillDeploymentService {
             lifecycle.as_ref(),
             Self::is_compatible(skill, target.consumer),
         );
+        let observation_token = Self::observation_token(&skill.id, target, &observed);
         Ok(DeploymentInspection {
             library_skill_id: skill.id.clone(),
             library_directory: skill.directory.clone(),
             target: target.clone(),
             desired,
             observed,
+            observation_token,
             status,
         })
     }
@@ -798,17 +1178,21 @@ impl SkillDeploymentService {
         };
         #[cfg(not(target_os = "macos"))]
         let lifecycle: Option<ReconciliationLifecycle> = None;
+        let observed = ObservedDeployment {
+            state: ObservedDeploymentState::LibraryMissing,
+            target_path: target_path.display().to_string(),
+            expected_target: expected.display().to_string(),
+            actual_target: None,
+        };
+        let observation_token =
+            Self::observation_token(&desired.library_skill_id, target, &observed);
         Ok(DeploymentInspection {
             library_skill_id: desired.library_skill_id.clone(),
             library_directory: desired.library_directory.clone(),
             target: target.clone(),
             desired: Some(desired.clone()),
-            observed: ObservedDeployment {
-                state: ObservedDeploymentState::LibraryMissing,
-                target_path: target_path.display().to_string(),
-                expected_target: expected.display().to_string(),
-                actual_target: None,
-            },
+            observed,
+            observation_token,
             status: Self::status_for(
                 true,
                 &ObservedDeploymentState::LibraryMissing,
@@ -939,6 +1323,20 @@ impl SkillDeploymentService {
             | (true, ObservedDeploymentState::Missing) => DeploymentStatus::Drift,
             (_, ObservedDeploymentState::UnsupportedPlatform) => DeploymentStatus::Unsupported,
         }
+    }
+
+    fn observation_token(
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+        observed: &ObservedDeployment,
+    ) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(library_skill_id.as_bytes());
+        hasher.update([0]);
+        hasher.update(serde_json::to_vec(target).unwrap_or_default());
+        hasher.update([0]);
+        hasher.update(serde_json::to_vec(observed).unwrap_or_default());
+        format!("{:x}", hasher.finalize())
     }
 
     fn library_path(&self, directory: &str) -> Result<PathBuf> {

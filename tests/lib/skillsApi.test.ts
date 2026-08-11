@@ -122,4 +122,67 @@ describe("Skills Library API", () => {
     });
     expect(invokeMock.mock.calls[1][1]).not.toHaveProperty("path");
   });
+
+  it("carries inspection tokens for repair and confirmed foreign-link replacement", async () => {
+    invokeMock.mockResolvedValue({
+      items: [
+        {
+          librarySkillId: "library-id",
+          target: { consumer: "claude", workspace: "global" },
+          observed: {
+            state: "redirected_link",
+            targetPath: "/home/me/.claude/skills/review",
+            expectedTarget: "/library/review",
+            actualTarget: "/other/review",
+          },
+          observationToken: "observation-123",
+          status: "conflict",
+        },
+      ],
+    });
+
+    const inspection = await skillsApi.inspectDeployments({
+      consumer: "claude",
+      workspace: "global",
+    });
+    expect(inspection.items[0].observationToken).toBe("observation-123");
+
+    await skillsApi.applyDeployments({
+      intents: [
+        {
+          action: "repair",
+          librarySkillId: "library-id",
+          target: { consumer: "claude", workspace: "global" },
+          observationToken: "observation-123",
+        },
+        {
+          action: "replaceForeignLink",
+          librarySkillId: "library-id",
+          target: { consumer: "claude", workspace: "global" },
+          observationToken: "observation-123",
+          confirmed: true,
+        },
+      ],
+    });
+
+    expect(invokeMock).toHaveBeenLastCalledWith("apply_skill_deployments", {
+      batch: {
+        intents: [
+          {
+            action: "repair",
+            librarySkillId: "library-id",
+            target: { consumer: "claude", workspace: "global" },
+            observationToken: "observation-123",
+          },
+          {
+            action: "replaceForeignLink",
+            librarySkillId: "library-id",
+            target: { consumer: "claude", workspace: "global" },
+            observationToken: "observation-123",
+            confirmed: true,
+          },
+        ],
+      },
+    });
+  });
 });

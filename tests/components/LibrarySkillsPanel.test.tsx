@@ -16,6 +16,7 @@ const {
   applyDeploymentsMock,
   refreshDeploymentsMock,
   deploymentStateMock,
+  toastErrorMock,
 } = vi.hoisted(() => ({
   updateMetadataMock: vi.fn(),
   acquireZipMock: vi.fn(),
@@ -23,6 +24,7 @@ const {
   applyDeploymentsMock: vi.fn(),
   refreshDeploymentsMock: vi.fn(),
   deploymentStateMock: { items: [] as unknown[] },
+  toastErrorMock: vi.fn(),
 }));
 
 const librarySkill: LibrarySkill = {
@@ -70,7 +72,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: toastErrorMock },
 }));
 
 describe("LibrarySkillsPanel", () => {
@@ -82,6 +84,7 @@ describe("LibrarySkillsPanel", () => {
       items: [{ outcome: "applied" }],
     });
     refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
+    toastErrorMock.mockReset();
     deploymentStateMock.items = [];
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
     librarySkill.compatibility.codex = { compatible: true, issues: [] };
@@ -185,6 +188,253 @@ describe("LibrarySkillsPanel", () => {
         ],
       }),
     );
+  });
+
+  it("repairs drift using the current inspection observation token", async () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-1" },
+        observed: {
+          state: "missing",
+          targetPath: "/home/me/.claude/skills/review-skill",
+          expectedTarget: "/library/review-skill",
+        },
+        observationToken: "observation-1",
+      },
+    ];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", { name: "skills.library.repair" })[0],
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "repair",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+            observationToken: "observation-1",
+          },
+        ],
+      }),
+    );
+  });
+
+  it("requires a distinct confirmation before replacing a foreign link", async () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "conflict",
+        desired: { id: "desired-1" },
+        observed: {
+          state: "redirected_link",
+          targetPath: "/home/me/.claude/skills/review-skill",
+          expectedTarget: "/library/review-skill",
+          actualTarget: "/other/source",
+        },
+        observationToken: "observation-foreign",
+      },
+    ];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", {
+        name: "skills.library.replaceForeignLink",
+      })[0],
+    );
+
+    expect(applyDeploymentsMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("skills.library.replaceForeignLinkDescription"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.replaceForeignLinkConfirm",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "replaceForeignLink",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+            observationToken: "observation-foreign",
+            confirmed: true,
+          },
+        ],
+      }),
+    );
+  });
+
+  it("offers the same confirmed replacement flow for a broken foreign symlink", async () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-1" },
+        observed: {
+          state: "broken_link",
+          targetPath: "/home/me/.claude/skills/review-skill",
+          expectedTarget: "/library/review-skill",
+          actualTarget: "/removed/source",
+        },
+        observationToken: "observation-broken",
+      },
+    ];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", {
+        name: "skills.library.replaceForeignLink",
+      })[0],
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.replaceForeignLinkConfirm",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "replaceForeignLink",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+            observationToken: "observation-broken",
+            confirmed: true,
+          },
+        ],
+      }),
+    );
+  });
+
+  it("keeps drift Undeploy safe and surfaces the structured outcome", async () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-1" },
+        observed: {
+          state: "missing",
+          targetPath: "/home/me/.claude/skills/review-skill",
+          expectedTarget: "/library/review-skill",
+        },
+        observationToken: "observation-1",
+      },
+    ];
+    applyDeploymentsMock.mockResolvedValueOnce({
+      items: [
+        {
+          outcome: "drift",
+          message: "managed link is missing",
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", {
+        name: "skills.library.undeployClaude",
+      })[0],
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "undeploy",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+          },
+        ],
+      }),
+    );
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("managed link is missing"),
+    );
+  });
+
+  it("labels Forget as database accounting only and confirms before sending it", async () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-1" },
+        observed: {
+          state: "missing",
+          targetPath: "/home/me/.claude/skills/review-skill",
+          expectedTarget: "/library/review-skill",
+        },
+        observationToken: "observation-1",
+      },
+    ];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", { name: "skills.library.forget" })[0],
+    );
+
+    expect(
+      screen.getByText("skills.library.forgetDescription"),
+    ).toBeInTheDocument();
+    expect(applyDeploymentsMock).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.forgetConfirm" }),
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "forget",
+            librarySkillId: "library-1",
+            target: { consumer: "claude", workspace: "global" },
+          },
+        ],
+      }),
+    );
+  });
+
+  it("does not expose resolution actions for archived or unavailable deployments", () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "archived",
+        desired: { id: "desired-1" },
+        observed: { state: "missing" },
+        observationToken: "observation-archived",
+      },
+    ];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(
+      screen.queryByRole("button", { name: "skills.library.repair" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "skills.library.replaceForeignLink",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.forget" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", {
+        name: "skills.library.undeployClaude",
+      })[0],
+    ).toBeDisabled();
   });
 
   it("disables an incompatible consumer while leaving Claude usable", () => {

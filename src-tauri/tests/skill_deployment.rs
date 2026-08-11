@@ -3,6 +3,7 @@
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
 
 use cc_switch_lib::{
     ConsumerCompatibility, DeploymentBatch, DeploymentConsumer, DeploymentIntent,
@@ -23,6 +24,20 @@ fn write_skill(dir: &std::path::Path) {
         "---\nname: deploy-review\ndescription: Deploy review workflow\n---\n\nReview carefully.\n",
     )
     .expect("write manifest");
+}
+
+fn run_git(root: &std::path::Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(["-C", &root.display().to_string()])
+        .args(args)
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn source() -> LibrarySkillSource {
@@ -427,6 +442,100 @@ fn database_insert_failure_compensates_the_new_filesystem_link() {
 }
 
 #[test]
+fn filesystem_link_creation_failure_preserves_absent_desired_state() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("filesystem-failure");
+    write_skill(&source_dir);
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    let target_root = home.join(".claude/skills");
+    fs::create_dir_all(&target_root).expect("create target root");
+    let original_mode = fs::metadata(&target_root)
+        .expect("read target-root permissions")
+        .permissions()
+        .mode();
+    fs::set_permissions(&target_root, fs::Permissions::from_mode(0o555))
+        .expect("make target root read-only");
+
+    let result = SkillDeploymentService::new(state.db.clone()).apply(DeploymentBatch::single(
+        DeploymentIntent::Deploy {
+            library_skill_id: skill.id,
+            target: target(),
+        },
+    ));
+
+    fs::set_permissions(&target_root, fs::Permissions::from_mode(original_mode))
+        .expect("restore target-root permissions");
+    let result = result.expect("filesystem failure must be an item result");
+    assert_eq!(result.items[0].outcome, DeploymentMutationOutcome::Error);
+    assert!(result.items[0]
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("failed to create Deployment link"));
+    assert!(!target_root.join("filesystem-failure").exists());
+    assert!(state.db.list_skill_deployments().unwrap().is_empty());
+}
+
+#[test]
+fn compensation_failure_is_reported_alongside_the_primary_database_failure() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("compensation-failure");
+    write_skill(&source_dir);
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    state
+        .db
+        .fail_skill_deployment_inserts_for_test()
+        .expect("install insert failure trigger");
+    SkillDeploymentService::force_compensation_failure_for_test(true);
+    let result = SkillDeploymentService::new(state.db.clone())
+        .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
+            library_skill_id: skill.id,
+            target: target(),
+        }))
+        .expect("compensation failure must be an item result");
+    SkillDeploymentService::force_compensation_failure_for_test(false);
+    assert_eq!(result.items[0].outcome, DeploymentMutationOutcome::Error);
+    let message = result.items[0].message.as_deref().unwrap_or_default();
+    assert!(message.contains("database save failed"));
+    assert!(message.contains("filesystem compensation failed"));
+    assert!(
+        home.join(".claude/skills/compensation-failure")
+            .is_symlink(),
+        "unresolved compensation must remain observable"
+    );
+    assert!(state.db.list_skill_deployments().unwrap().is_empty());
+    let inspection = result.items[0]
+        .inspection
+        .as_ref()
+        .expect("failed compensation must include a fresh inspection");
+    assert_eq!(inspection.status, DeploymentStatus::Orphaned);
+    assert_eq!(
+        inspection.observed.state,
+        cc_switch_lib::ObservedDeploymentState::UnrecordedLink
+    );
+}
+
+#[test]
 fn database_delete_failure_recreates_the_removed_filesystem_link() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -731,6 +840,652 @@ fn inspect_classifies_an_inaccessible_consumer_root_as_unreadable() {
         item.observed.state,
         cc_switch_lib::ObservedDeploymentState::Unreadable
     );
+}
+
+#[test]
+fn repair_requires_a_fresh_token_and_never_replaces_occupied_content() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("repair-review");
+    write_skill(&source_dir);
+    let foreign_root = tempfile::tempdir().expect("create foreign root");
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    let deployment = SkillDeploymentService::new(state.db.clone());
+    let target = target();
+    deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+        }))
+        .expect("deploy repair fixture");
+    let link = home.join(".claude/skills/repair-review");
+    fs::remove_file(&link).expect("remove managed link");
+    let missing = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect missing repair target")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("missing repair item");
+    std::os::unix::fs::symlink(foreign_root.path(), &link).expect("redirect target");
+    let stale = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+            observation_token: missing.observation_token,
+        }))
+        .expect("stale repair result");
+    assert_eq!(
+        stale.items[0].outcome,
+        DeploymentMutationOutcome::StaleObservation
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("read foreign link"),
+        foreign_root.path()
+    );
+
+    let redirected = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect redirected repair target")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("redirected repair item");
+    let blocked = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+            observation_token: redirected.observation_token,
+        }))
+        .expect("foreign repair result");
+    assert_eq!(
+        blocked.items[0].outcome,
+        DeploymentMutationOutcome::Conflict
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("foreign link remains"),
+        foreign_root.path()
+    );
+
+    fs::remove_file(&link).expect("remove foreign link");
+    fs::create_dir(&link).expect("occupy repair target with directory");
+    let occupied_directory = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect occupied repair directory")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("occupied repair directory item");
+    let directory_result = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+            observation_token: occupied_directory.observation_token,
+        }))
+        .expect("occupied directory repair result");
+    assert_eq!(
+        directory_result.items[0].outcome,
+        DeploymentMutationOutcome::Conflict
+    );
+    assert!(link.is_dir());
+    fs::remove_dir(&link).expect("remove occupied repair directory");
+    fs::write(&link, "user-owned").expect("occupy repair target with file");
+    let occupied_file = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect occupied repair file")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("occupied repair file item");
+    let file_result = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+            observation_token: occupied_file.observation_token,
+        }))
+        .expect("occupied file repair result");
+    assert_eq!(
+        file_result.items[0].outcome,
+        DeploymentMutationOutcome::Conflict
+    );
+    assert_eq!(
+        fs::read_to_string(&link).expect("read occupied repair file"),
+        "user-owned"
+    );
+    fs::remove_file(&link).expect("remove occupied repair file");
+    let missing_again = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect missing target again")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("missing item again");
+    let repaired = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id,
+            target,
+            observation_token: missing_again.observation_token,
+        }))
+        .expect("repair missing link");
+    assert_eq!(
+        repaired.items[0].outcome,
+        DeploymentMutationOutcome::Applied
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("read repaired link"),
+        home.join(".cc-switch/skills/repair-review")
+    );
+}
+
+#[test]
+fn replace_foreign_link_requires_confirmation_and_rechecks_token() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("replace-review");
+    write_skill(&source_dir);
+    let foreign_root = tempfile::tempdir().expect("create foreign root");
+    let newer_foreign_root = tempfile::tempdir().expect("create newer foreign root");
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    let deployment = SkillDeploymentService::new(state.db.clone());
+    let target = target();
+    deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+        }))
+        .expect("deploy replacement fixture");
+    let link = home.join(".claude/skills/replace-review");
+    fs::remove_file(&link).expect("remove managed link");
+    std::os::unix::fs::symlink(foreign_root.path(), &link).expect("create foreign link");
+    let foreign = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect foreign link")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("foreign item");
+    let unconfirmed = deployment
+        .apply(DeploymentBatch::single(
+            DeploymentIntent::ReplaceForeignLink {
+                library_skill_id: skill.id.clone(),
+                target: target.clone(),
+                observation_token: foreign.observation_token.clone(),
+                confirmed: false,
+            },
+        ))
+        .expect("unconfirmed replacement result");
+    assert_eq!(
+        unconfirmed.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("foreign link preserved"),
+        foreign_root.path()
+    );
+
+    fs::remove_file(&link).expect("remove old foreign link");
+    std::os::unix::fs::symlink(newer_foreign_root.path(), &link)
+        .expect("change foreign link before replacement");
+    let stale = deployment
+        .apply(DeploymentBatch::single(
+            DeploymentIntent::ReplaceForeignLink {
+                library_skill_id: skill.id.clone(),
+                target: target.clone(),
+                observation_token: foreign.observation_token,
+                confirmed: true,
+            },
+        ))
+        .expect("stale replacement result");
+    assert_eq!(
+        stale.items[0].outcome,
+        DeploymentMutationOutcome::StaleObservation
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("new foreign link preserved"),
+        newer_foreign_root.path()
+    );
+
+    fs::remove_file(&link).expect("remove newer foreign link");
+    fs::create_dir(&link).expect("occupy replacement target with directory");
+    let occupied_directory = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect replacement directory")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("replacement directory item");
+    let directory_result = deployment
+        .apply(DeploymentBatch::single(
+            DeploymentIntent::ReplaceForeignLink {
+                library_skill_id: skill.id.clone(),
+                target: target.clone(),
+                observation_token: occupied_directory.observation_token,
+                confirmed: true,
+            },
+        ))
+        .expect("replacement directory result");
+    assert_eq!(
+        directory_result.items[0].outcome,
+        DeploymentMutationOutcome::Conflict
+    );
+    assert!(link.is_dir());
+    fs::remove_dir(&link).expect("remove replacement directory");
+    fs::write(&link, "user-owned").expect("occupy replacement target with file");
+    let occupied_file = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect replacement file")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("replacement file item");
+    let file_result = deployment
+        .apply(DeploymentBatch::single(
+            DeploymentIntent::ReplaceForeignLink {
+                library_skill_id: skill.id.clone(),
+                target: target.clone(),
+                observation_token: occupied_file.observation_token,
+                confirmed: true,
+            },
+        ))
+        .expect("replacement file result");
+    assert_eq!(
+        file_result.items[0].outcome,
+        DeploymentMutationOutcome::Conflict
+    );
+    assert_eq!(
+        fs::read_to_string(&link).expect("replacement file preserved"),
+        "user-owned"
+    );
+    fs::remove_file(&link).expect("remove replacement file");
+    std::os::unix::fs::symlink(newer_foreign_root.path(), &link)
+        .expect("restore current foreign link");
+
+    let fresh = deployment
+        .inspect(DeploymentQuery::for_target(target.clone()))
+        .expect("inspect current foreign link")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("current foreign item");
+    let replaced = deployment
+        .apply(DeploymentBatch::single(
+            DeploymentIntent::ReplaceForeignLink {
+                library_skill_id: skill.id,
+                target,
+                observation_token: fresh.observation_token,
+                confirmed: true,
+            },
+        ))
+        .expect("replace foreign link");
+    assert_eq!(
+        replaced.items[0].outcome,
+        DeploymentMutationOutcome::Replaced
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("read replaced link"),
+        home.join(".cc-switch/skills/replace-review")
+    );
+}
+
+#[test]
+fn undeploy_blocks_drift_and_forget_only_removes_desired_accounting() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("undeploy-drift");
+    write_skill(&source_dir);
+    let foreign_root = tempfile::tempdir().expect("create foreign root");
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    let deployment = SkillDeploymentService::new(state.db.clone());
+    let target = target();
+    deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+        }))
+        .expect("deploy drift fixture");
+    let link = home.join(".claude/skills/undeploy-drift");
+    fs::remove_file(&link).expect("remove managed link");
+    std::os::unix::fs::symlink(foreign_root.path(), &link).expect("create foreign link");
+
+    let blocked = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Undeploy {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+        }))
+        .expect("undeploy drift result");
+    assert_eq!(blocked.items[0].outcome, DeploymentMutationOutcome::Drift);
+    assert_eq!(
+        fs::read_link(&link).expect("foreign link preserved"),
+        foreign_root.path()
+    );
+    assert_eq!(state.db.list_skill_deployments().unwrap().len(), 1);
+
+    let forgotten = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Forget {
+            library_skill_id: skill.id,
+            target,
+        }))
+        .expect("forget drift result");
+    assert_eq!(
+        forgotten.items[0].outcome,
+        DeploymentMutationOutcome::Forgotten
+    );
+    assert_eq!(state.db.list_skill_deployments().unwrap().len(), 0);
+    assert_eq!(
+        fs::read_link(&link).expect("forget preserves foreign link"),
+        foreign_root.path()
+    );
+}
+
+#[test]
+fn archived_and_unavailable_targets_return_structured_blocked_outcomes() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("lifecycle-review");
+    write_skill(&source_dir);
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    let archived_root = tempfile::tempdir().expect("create archived root");
+    let archived_id = uuid::Uuid::new_v4().to_string();
+    state
+        .db
+        .save_project_workspace(&ProjectWorkspace {
+            id: archived_id.clone(),
+            display_name: "Archived lifecycle".to_string(),
+            root_path: archived_root.path().to_path_buf(),
+            root_kind: WorkspaceRootKind::NonGit,
+            lifecycle: WorkspaceLifecycle::Archived,
+            created_at: 1,
+            updated_at: 1,
+        })
+        .expect("save archived workspace");
+    let archived_target = DeploymentTarget {
+        consumer: DeploymentConsumer::Claude,
+        workspace: WorkspaceKind::Project,
+        workspace_id: archived_id,
+    };
+    let archived_desired = DesiredDeployment {
+        id: uuid::Uuid::new_v4().to_string(),
+        library_skill_id: skill.id.clone(),
+        library_directory: skill.directory.clone(),
+        target: archived_target.clone(),
+        created_at: 1,
+        updated_at: 1,
+    };
+    state
+        .db
+        .save_skill_deployment(&archived_desired)
+        .expect("save archived deployment");
+    let deployment = SkillDeploymentService::new(state.db.clone());
+    let archived_inspection = deployment
+        .inspect(DeploymentQuery::for_target(archived_target.clone()))
+        .expect("inspect archived deployment")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("archived item");
+    assert_eq!(archived_inspection.status, DeploymentStatus::Archived);
+    let archived_repair = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id.clone(),
+            target: archived_target.clone(),
+            observation_token: archived_inspection.observation_token,
+        }))
+        .expect("archived repair result");
+    assert_eq!(
+        archived_repair.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+    let archived_undeploy = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Undeploy {
+            library_skill_id: skill.id.clone(),
+            target: archived_target,
+        }))
+        .expect("archived undeploy result");
+    assert_eq!(
+        archived_undeploy.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+    let archived_forget = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Forget {
+            library_skill_id: skill.id.clone(),
+            target: archived_undeploy.items[0].target.clone(),
+        }))
+        .expect("archived forget result");
+    assert_eq!(
+        archived_forget.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+
+    let unavailable_root = tempfile::tempdir().expect("create unavailable root");
+    let unavailable_path = unavailable_root.path().to_path_buf();
+    let unavailable_id = uuid::Uuid::new_v4().to_string();
+    state
+        .db
+        .save_project_workspace(&ProjectWorkspace {
+            id: unavailable_id.clone(),
+            display_name: "Unavailable lifecycle".to_string(),
+            root_path: unavailable_path,
+            root_kind: WorkspaceRootKind::NonGit,
+            lifecycle: WorkspaceLifecycle::Active,
+            created_at: 1,
+            updated_at: 1,
+        })
+        .expect("save unavailable workspace");
+    drop(unavailable_root);
+    let unavailable_target = DeploymentTarget {
+        consumer: DeploymentConsumer::Codex,
+        workspace: WorkspaceKind::Project,
+        workspace_id: unavailable_id,
+    };
+    state
+        .db
+        .save_skill_deployment(&DesiredDeployment {
+            id: uuid::Uuid::new_v4().to_string(),
+            library_skill_id: skill.id.clone(),
+            library_directory: skill.directory,
+            target: unavailable_target.clone(),
+            created_at: 1,
+            updated_at: 1,
+        })
+        .expect("save unavailable deployment");
+    let unavailable_inspection = deployment
+        .inspect(DeploymentQuery::for_target(unavailable_target.clone()))
+        .expect("inspect unavailable deployment")
+        .items
+        .into_iter()
+        .find(|item| item.library_skill_id == skill.id)
+        .expect("unavailable item");
+    assert_eq!(unavailable_inspection.status, DeploymentStatus::Blocked);
+    let unavailable_repair = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Repair {
+            library_skill_id: skill.id.clone(),
+            target: unavailable_target.clone(),
+            observation_token: unavailable_inspection.observation_token,
+        }))
+        .expect("unavailable repair result");
+    assert_eq!(
+        unavailable_repair.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+    let unavailable_undeploy = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Undeploy {
+            library_skill_id: skill.id.clone(),
+            target: unavailable_target,
+        }))
+        .expect("unavailable undeploy result");
+    assert_eq!(
+        unavailable_undeploy.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+    let unavailable_forget = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Forget {
+            library_skill_id: skill.id,
+            target: unavailable_undeploy.items[0].target.clone(),
+        }))
+        .expect("unavailable forget result");
+    assert_eq!(
+        unavailable_forget.items[0].outcome,
+        DeploymentMutationOutcome::Blocked
+    );
+}
+
+#[test]
+fn project_git_exclude_failure_rolls_back_the_new_link_and_desired_state() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let source_dir = source_root.path().join("git-failure-review");
+    write_skill(&source_dir);
+    let repository = tempfile::tempdir().expect("create repository");
+    run_git(repository.path(), &["init", "--quiet"]);
+    let state = create_test_state().expect("create test state");
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source_dir,
+        source(),
+        None,
+    )
+    .expect("acquire skill");
+    let workspace = ProjectWorkspaceService::new(state.db.clone())
+        .register(repository.path(), Some("Git failure".to_string()))
+        .expect("register repository")
+        .workspace;
+    let exclude = repository.path().join(".git/info/exclude");
+    fs::remove_file(&exclude).expect("remove Git exclude file");
+    fs::create_dir(&exclude).expect("occupy Git exclude path");
+    let target = DeploymentTarget {
+        consumer: DeploymentConsumer::Claude,
+        workspace: WorkspaceKind::Project,
+        workspace_id: workspace.id,
+    };
+    let deployment = SkillDeploymentService::new(state.db.clone());
+    let result = deployment
+        .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
+            library_skill_id: skill.id,
+            target,
+        }))
+        .expect("Git exclude failure as item result");
+    assert_eq!(result.items[0].outcome, DeploymentMutationOutcome::Error);
+    assert!(!repository
+        .path()
+        .join(".claude/skills/git-failure-review")
+        .exists());
+    assert!(state.db.list_skill_deployments().unwrap().is_empty());
+    assert!(
+        exclude.is_dir(),
+        "Git failure fixture must remain untouched"
+    );
+}
+
+#[test]
+fn batches_reject_duplicate_keys_and_continue_after_independent_conflicts() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source_root = tempfile::tempdir().expect("create source root");
+    let conflict_source = source_root.path().join("batch-conflict");
+    let success_source = source_root.path().join("batch-success");
+    write_skill(&conflict_source);
+    write_skill(&success_source);
+    fs::OpenOptions::new()
+        .append(true)
+        .open(success_source.join("SKILL.md"))
+        .expect("open distinct batch manifest")
+        .write_all(b"\nBatch success fixture.\n")
+        .expect("differentiate batch fixture");
+    let state = create_test_state().expect("create test state");
+    let conflict_skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &conflict_source,
+        source(),
+        None,
+    )
+    .expect("acquire conflict skill");
+    let success_skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &success_source,
+        source(),
+        None,
+    )
+    .expect("acquire success skill");
+    let target = target();
+    let deployment = SkillDeploymentService::new(state.db.clone());
+    let duplicate = deployment.apply(DeploymentBatch {
+        intents: vec![
+            DeploymentIntent::Deploy {
+                library_skill_id: conflict_skill.id.clone(),
+                target: target.clone(),
+            },
+            DeploymentIntent::Repair {
+                library_skill_id: conflict_skill.id.clone(),
+                target: target.clone(),
+                observation_token: "not-used".to_string(),
+            },
+        ],
+    });
+    assert!(
+        duplicate.is_err(),
+        "duplicate Deployment keys must be rejected"
+    );
+
+    fs::create_dir_all(home.join(".claude/skills")).expect("create batch target root");
+    fs::write(home.join(".claude/skills/batch-conflict"), "user-owned")
+        .expect("occupy first batch target");
+    let result = deployment
+        .apply(DeploymentBatch {
+            intents: vec![
+                DeploymentIntent::Deploy {
+                    library_skill_id: conflict_skill.id,
+                    target: target.clone(),
+                },
+                DeploymentIntent::Deploy {
+                    library_skill_id: success_skill.id,
+                    target,
+                },
+            ],
+        })
+        .expect("batch result");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.items[0].outcome, DeploymentMutationOutcome::Conflict);
+    assert_eq!(result.items[1].outcome, DeploymentMutationOutcome::Applied);
+    assert!(home.join(".claude/skills/batch-conflict").is_file());
+    assert!(home.join(".claude/skills/batch-success").is_symlink());
+    assert_eq!(state.db.list_skill_deployments().unwrap().len(), 1);
 }
 
 #[test]

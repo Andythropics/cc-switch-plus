@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpen, Link2, Loader2, RefreshCw, Unlink } from "lucide-react";
+import { FolderOpen, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import {
   useSkillDeployments,
 } from "@/hooks/useSkills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
+import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import { settingsApi } from "@/lib/api/settings";
 import type {
   DeploymentConsumer,
@@ -49,40 +50,44 @@ function ProjectWorkspaceDeployments({
   });
   const apply = useApplySkillDeployments();
 
-  const applyDeployment = async (
-    skill: LibrarySkill,
-    consumer: DeploymentConsumer,
-    action: Extract<
-      DeploymentIntent,
-      { action: "deploy" | "undeploy" }
-    >["action"],
-  ) => {
+  const applyDeployment = async (intent: DeploymentIntent) => {
     try {
-      const result = await apply.mutateAsync({
-        intents: [
-          {
-            action,
-            librarySkillId: skill.id,
-            target: {
-              consumer,
-              workspace: "project",
-              workspaceId: workspace.id,
-            },
-          },
-        ],
-      });
+      const result = await apply.mutateAsync({ intents: [intent] });
       const item = result.items[0];
-      if (item?.outcome === "error")
-        throw new Error(item.message || t("skills.projects.deploymentFailed"));
-      if (item?.outcome === "conflict") {
-        toast.error(t("skills.projects.deploymentConflict"));
+      if (!item) throw new Error(t("skills.projects.deploymentFailed"));
+      const safeOutcomes = new Set([
+        "applied",
+        "replaced",
+        "already_in_sync",
+        "removed",
+        "already_absent",
+        "forgotten",
+      ]);
+      if (!safeOutcomes.has(item.outcome)) {
+        toast.error(
+          item.message
+            ? `${item.outcome}: ${item.message}`
+            : t("skills.library.deploymentOutcomeBlocked", {
+                outcome: item.outcome,
+              }),
+        );
+        return;
+      }
+      if (item.message) {
+        toast.success(`${item.outcome}: ${item.message}`);
         return;
       }
       toast.success(
         t(
-          action === "deploy"
+          intent.action === "deploy"
             ? "skills.projects.deploySuccess"
-            : "skills.projects.undeploySuccess",
+            : intent.action === "undeploy"
+              ? "skills.projects.undeploySuccess"
+              : intent.action === "repair"
+                ? "skills.library.repairSuccess"
+                : intent.action === "replaceForeignLink"
+                  ? "skills.library.replaceForeignLinkSuccess"
+                  : "skills.library.forgetSuccess",
         ),
       );
     } catch (error) {
@@ -97,12 +102,6 @@ function ProjectWorkspaceDeployments({
     );
     const status = deployment?.status ?? "not_deployed";
     const compatible = skill.compatibility[consumer].compatible;
-    const blocked =
-      !compatible ||
-      ["conflict", "orphaned", "archived", "unsupported", "blocked"].includes(
-        status,
-      );
-    const deployed = status === "in_sync";
     const label =
       consumer === "claude"
         ? t("skills.library.consumerClaude")
@@ -122,32 +121,20 @@ function ProjectWorkspaceDeployments({
             desired={Boolean(deployment?.desired)}
           />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={apply.isPending || (deployed ? false : blocked)}
-          onClick={() =>
-            void applyDeployment(
-              skill,
-              consumer,
-              deployed ? "undeploy" : "deploy",
-            )
-          }
-          title={
-            !compatible
-              ? skill.compatibility[consumer].issues.join("; ")
-              : undefined
-          }
-        >
-          {deployed ? (
-            <Unlink className="mr-1 h-3.5 w-3.5" />
-          ) : (
-            <Link2 className="mr-1 h-3.5 w-3.5" />
-          )}
-          {deployed
-            ? t("skills.projects.undeploy")
-            : t("skills.projects.deploy")}
-        </Button>
+        <DeploymentResolutionActions
+          skill={skill}
+          target={{
+            consumer,
+            workspace: "project",
+            workspaceId: workspace.id,
+          }}
+          deployment={deployment}
+          compatible={compatible}
+          isPending={apply.isPending}
+          deployLabel={t("skills.projects.deploy")}
+          undeployLabel={t("skills.projects.undeploy")}
+          onApply={applyDeployment}
+        />
         {!compatible && (
           <span className="basis-full text-xs text-destructive">
             {incompatibilityMessage}
