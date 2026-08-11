@@ -15,7 +15,7 @@ import type {
   SkillsShSearchResult,
 } from "@/lib/api/skills";
 
-const installMutateAsyncMock = vi.fn();
+const acquireMutateAsyncMock = vi.fn();
 let discoverableSkillsMock: DiscoverableSkill[] = [];
 let skillReposMock: SkillRepo[] = [];
 const refetchDiscoverableMock = vi.fn();
@@ -66,12 +66,13 @@ vi.mock("@/hooks/useSkills", () => ({
     isFetching: false,
     refetch: refetchDiscoverableMock,
   }),
-  useInstalledSkills: () => ({
+  useLibrarySkills: () => ({
     data: [],
     isLoading: false,
   }),
-  useInstallSkill: () => ({
-    mutateAsync: installMutateAsyncMock,
+  useAcquireLibrarySkill: () => ({
+    mutateAsync: acquireMutateAsyncMock,
+    isPending: false,
   }),
   useSkillRepos: () => ({
     data: skillReposMock,
@@ -126,17 +127,17 @@ const makeSkillRepo = (overrides: Partial<SkillRepo> = {}): SkillRepo => ({
   ...overrides,
 });
 
-describe("SkillsPage - skills.sh install (regression)", () => {
+describe("SkillsPage - skills.sh acquisition (regression)", () => {
   beforeEach(() => {
-    installMutateAsyncMock.mockReset();
-    installMutateAsyncMock.mockResolvedValue({});
+    acquireMutateAsyncMock.mockReset();
+    acquireMutateAsyncMock.mockResolvedValue({});
     discoverableSkillsMock = [];
     skillReposMock = [];
     refetchDiscoverableMock.mockReset();
     searchCache.clear();
   });
 
-  it("installs the second skill when two results share the same directory", async () => {
+  it("acquires the second skill when two results share the same directory", async () => {
     const first = makeSkillsShSkill({
       key: "agent-browser:owner-a:repo-a",
       name: "Agent Browser A",
@@ -157,14 +158,12 @@ describe("SkillsPage - skills.sh install (regression)", () => {
     });
 
     const ref = createRef<SkillsPageHandle>();
-    render(<SkillsPage ref={ref} initialApp="claude" />);
+    render(<SkillsPage ref={ref} />);
 
     const user = userEvent.setup();
 
-    // Switch to skills.sh source
-    await user.click(screen.getByRole("button", { name: /skills\.sh/i }));
-
-    // Type a query and submit
+    // No repository is configured, so skills.sh is the effective source on
+    // first render without requiring the user to toggle it again.
     const input = screen.getByPlaceholderText(
       "skills.skillssh.searchPlaceholder",
     );
@@ -177,25 +176,27 @@ describe("SkillsPage - skills.sh install (regression)", () => {
       expect(screen.getByText("Agent Browser B")).toBeInTheDocument();
     });
 
-    // Click install on the SECOND card (Agent Browser B)
+    // Acquire the SECOND card (Agent Browser B)
     const secondCard = screen
       .getByText("Agent Browser B")
       .closest("div.glass-card");
     expect(secondCard).not.toBeNull();
-    const installButton = secondCard!.querySelector(
+    const acquireButton = secondCard!.querySelector(
       "button:last-of-type",
     ) as HTMLButtonElement;
-    expect(installButton).not.toBeNull();
-    await user.click(installButton);
+    expect(acquireButton).not.toBeNull();
+    await user.click(acquireButton);
 
-    // Verify the SECOND skill was passed to the install mutation, not the first
+    // Verify the SECOND skill was passed to acquisition, not the first
     await waitFor(() => {
-      expect(installMutateAsyncMock).toHaveBeenCalledTimes(1);
+      expect(acquireMutateAsyncMock).toHaveBeenCalledTimes(1);
     });
-    const callArgs = installMutateAsyncMock.mock.calls[0][0];
+    const callArgs = acquireMutateAsyncMock.mock.calls[0][0];
     expect(callArgs.skill.repoOwner).toBe("owner-b");
     expect(callArgs.skill.repoName).toBe("repo-b");
     expect(callArgs.skill.name).toBe("Agent Browser B");
+    expect(callArgs.sourceKind).toBe("marketplace");
+    expect(callArgs).not.toHaveProperty("currentApp");
   });
 
   it("keeps skills.sh results when submitting the same query again", async () => {
@@ -213,7 +214,7 @@ describe("SkillsPage - skills.sh install (regression)", () => {
       query: "figma",
     });
 
-    render(<SkillsPage initialApp="claude" />);
+    render(<SkillsPage />);
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: /skills\.sh/i }));
@@ -252,7 +253,7 @@ describe("SkillsPage - skills.sh install (regression)", () => {
     });
     setSearchResult("react", 0, undefined, { isFetching: true });
 
-    render(<SkillsPage initialApp="claude" />);
+    render(<SkillsPage />);
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: /skills\.sh/i }));
@@ -280,7 +281,7 @@ describe("SkillsPage - skills.sh install (regression)", () => {
   it("reports the effective skills.sh source to parent chrome", async () => {
     const onSourceChange = vi.fn();
 
-    render(<SkillsPage initialApp="claude" onSourceChange={onSourceChange} />);
+    render(<SkillsPage onSourceChange={onSourceChange} />);
 
     await waitFor(() => {
       expect(onSourceChange).toHaveBeenCalledWith("skillssh");
@@ -291,7 +292,7 @@ describe("SkillsPage - skills.sh install (regression)", () => {
     skillReposMock = [makeSkillRepo()];
     const onSourceChange = vi.fn();
 
-    render(<SkillsPage initialApp="claude" onSourceChange={onSourceChange} />);
+    render(<SkillsPage onSourceChange={onSourceChange} />);
 
     await waitFor(() => {
       expect(onSourceChange).toHaveBeenCalledWith("repos");
@@ -304,9 +305,7 @@ describe("SkillsPage - skills.sh install (regression)", () => {
   it("can switch back to repository results after discoverable skills refresh", async () => {
     const onSourceChange = vi.fn();
     const user = userEvent.setup();
-    const { rerender } = render(
-      <SkillsPage initialApp="claude" onSourceChange={onSourceChange} />,
-    );
+    const { rerender } = render(<SkillsPage onSourceChange={onSourceChange} />);
 
     await waitFor(() => {
       expect(onSourceChange).toHaveBeenCalledWith("skillssh");
@@ -316,9 +315,7 @@ describe("SkillsPage - skills.sh install (regression)", () => {
 
     discoverableSkillsMock = [makeDiscoverableSkill()];
     skillReposMock = [makeSkillRepo()];
-    rerender(
-      <SkillsPage initialApp="claude" onSourceChange={onSourceChange} />,
-    );
+    rerender(<SkillsPage onSourceChange={onSourceChange} />);
 
     await user.click(
       screen.getByRole("button", { name: "skills.searchSource.repos" }),

@@ -293,6 +293,58 @@ pub struct SkillMetadata {
     pub description: Option<String>,
 }
 
+/// Origin retained for a Library Skill. Local ZIP acquisition deliberately has
+/// no live path: after admission the private Library owns the snapshot.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibrarySourceKind {
+    Git,
+    Zip,
+    Marketplace,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrarySkillSource {
+    pub kind: LibrarySourceKind,
+    pub url: Option<String>,
+    pub repo_owner: Option<String>,
+    pub repo_name: Option<String>,
+    pub repo_branch: Option<String>,
+    pub skill_path: Option<String>,
+    pub marketplace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumerCompatibility {
+    pub compatible: bool,
+    pub issues: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrarySkillCompatibility {
+    pub claude: ConsumerCompatibility,
+    pub codex: ConsumerCompatibility,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrarySkill {
+    pub id: String,
+    /// Immutable direct-child directory identity in ~/.cc-switch/skills.
+    pub directory: String,
+    /// User-editable presentation metadata; independent from `directory`.
+    pub display_name: String,
+    pub description: Option<String>,
+    pub source: LibrarySkillSource,
+    pub compatibility: LibrarySkillCompatibility,
+    pub content_hash: String,
+    pub acquired_at: i64,
+    pub updated_at: i64,
+}
+
 /// 导入已有 Skill 时，前端显式提交的启用应用选择
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -3441,6 +3493,798 @@ impl SkillService {
             total_count: resp.count,
             query: resp.query,
         })
+    }
+}
+
+/// Admission boundary for the redesigned, macOS-only Skill Library.
+///
+/// This service owns Library validation and writes. It intentionally has no
+/// dependency on application discovery paths or the legacy `enabled_*` flags,
+/// so acquisition cannot accidentally become deployment.
+pub struct LibrarySkillAcquisitionService;
+
+impl LibrarySkillAcquisitionService {
+    pub(crate) fn ensure_supported_platform() -> Result<()> {
+        if !cfg!(target_os = "macos") {
+            return Err(anyhow!(
+                "The redesigned Skill Library is supported on macOS only"
+            ));
+        }
+        Ok(())
+    }
+
+    fn library_dir() -> Result<PathBuf> {
+        let dir = get_app_config_dir().join("skills");
+        fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
+    fn compatibility_issue(message: impl Into<String>) -> ConsumerCompatibility {
+        ConsumerCompatibility {
+            compatible: false,
+            issues: vec![message.into()],
+        }
+    }
+
+    fn validate_consumer_metadata(
+        metadata: Option<&serde_yaml::Mapping>,
+        parse_issue: Option<&str>,
+    ) -> ConsumerCompatibility {
+        if let Some(issue) = parse_issue {
+            return Self::compatibility_issue(issue);
+        }
+        let Some(metadata) = metadata else {
+            return Self::compatibility_issue("SKILL.md must start with YAML front matter");
+        };
+
+        let string_value = |key: &str| {
+            metadata
+                .get(serde_yaml::Value::String(key.to_string()))
+                .and_then(serde_yaml::Value::as_str)
+                .map(str::trim)
+        };
+
+        let Some(name) = string_value("name").filter(|value| !value.is_empty()) else {
+            return Self::compatibility_issue("front matter must contain a non-empty name");
+        };
+        if name.len() > 64
+            || name.starts_with('-')
+            || name.ends_with('-')
+            || name.contains("--")
+            || !name
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+        {
+            return Self::compatibility_issue(
+                "name must be 1-64 lowercase letters, digits, or single hyphens",
+            );
+        }
+
+        let Some(description) = string_value("description").filter(|value| !value.is_empty())
+        else {
+            return Self::compatibility_issue("front matter must contain a non-empty description");
+        };
+        if description.chars().count() > 1024 {
+            return Self::compatibility_issue("description must be at most 1024 characters");
+        }
+
+        ConsumerCompatibility {
+            compatible: true,
+            issues: Vec::new(),
+        }
+    }
+
+    fn read_manifest(source: &Path) -> Result<(String, Option<String>, LibrarySkillCompatibility)> {
+        let manifest = source.join("SKILL.md");
+        if !manifest.is_file() {
+            let compatibility = LibrarySkillCompatibility {
+                claude: Self::compatibility_issue("canonical SKILL.md is missing"),
+                codex: Self::compatibility_issue("canonical SKILL.md is missing"),
+            };
+            return Err(anyhow!(
+                "Skill is incompatible with Claude and Codex: {:?}",
+                compatibility
+            ));
+        }
+
+        let content = fs::read_to_string(&manifest)
+            .with_context(|| format!("failed to read {}", manifest.display()))?;
+        let normalized = content.trim_start_matches('\u{feff}');
+        let front_matter = (|| -> std::result::Result<&str, String> {
+            let first_end = normalized
+                .find('\n')
+                .ok_or_else(|| "SKILL.md front matter is not closed".to_string())?;
+            if normalized[..first_end].trim_end_matches('\r') != "---" {
+                return Err("SKILL.md must start with YAML front matter".to_string());
+            }
+            let body_start = first_end + 1;
+            let mut cursor = body_start;
+            for line in normalized[body_start..].split_inclusive('\n') {
+                let delimiter = line.strip_suffix('\n').unwrap_or(line);
+                let delimiter = delimiter.strip_suffix('\r').unwrap_or(delimiter);
+                if delimiter == "---" {
+                    return Ok(&normalized[body_start..cursor]);
+                }
+                cursor += line.len();
+            }
+            Err("SKILL.md front matter is not closed".to_string())
+        })();
+        let (metadata, parse_issue) = match front_matter {
+            Ok(front_matter) => match serde_yaml::from_str::<serde_yaml::Value>(front_matter) {
+                Ok(serde_yaml::Value::Mapping(mapping)) => (Some(mapping), None),
+                Ok(_) => (
+                    None,
+                    Some("YAML front matter must be a mapping".to_string()),
+                ),
+                Err(error) => (None, Some(format!("invalid YAML front matter: {error}"))),
+            },
+            Err(issue) => (None, Some(issue)),
+        };
+
+        // Claude Code and Codex currently share the canonical Agent Skills
+        // name/description contract. They remain separate adapter results so a
+        // future consumer-specific rule does not require rewriting source.
+        let claude = Self::validate_consumer_metadata(metadata.as_ref(), parse_issue.as_deref());
+        let codex = Self::validate_consumer_metadata(metadata.as_ref(), parse_issue.as_deref());
+        let compatibility = LibrarySkillCompatibility { claude, codex };
+        if !compatibility.claude.compatible && !compatibility.codex.compatible {
+            return Err(anyhow!(
+                "Skill is incompatible with Claude and Codex: {:?}",
+                compatibility
+            ));
+        }
+
+        let metadata = metadata.expect("compatible metadata must be a mapping");
+        let name = metadata
+            .get(serde_yaml::Value::String("name".to_string()))
+            .and_then(serde_yaml::Value::as_str)
+            .expect("compatible metadata must contain name")
+            .trim()
+            .to_string();
+        let description = metadata
+            .get(serde_yaml::Value::String("description".to_string()))
+            .and_then(serde_yaml::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+
+        Ok((name, description, compatibility))
+    }
+
+    fn validate_internal_symlinks(root: &Path) -> Result<()> {
+        let canonical_root = root
+            .canonicalize()
+            .with_context(|| format!("failed to resolve Skill root {}", root.display()))?;
+
+        fn walk(current: &Path, canonical_root: &Path) -> Result<()> {
+            for entry in fs::read_dir(current)? {
+                let entry = entry?;
+                let path = entry.path();
+                let metadata = fs::symlink_metadata(&path)?;
+                if metadata.file_type().is_symlink() {
+                    let target = fs::read_link(&path)?;
+                    if target.is_absolute() {
+                        return Err(anyhow!(
+                            "absolute internal symlink is not allowed: {} -> {}",
+                            path.display(),
+                            target.display()
+                        ));
+                    }
+                    let resolved = path
+                        .parent()
+                        .unwrap_or(current)
+                        .join(&target)
+                        .canonicalize()
+                        .with_context(|| {
+                            format!(
+                                "broken internal symlink is not allowed: {} -> {}",
+                                path.display(),
+                                target.display()
+                            )
+                        })?;
+                    if !resolved.starts_with(canonical_root) {
+                        return Err(anyhow!(
+                            "escaping internal symlink is not allowed: {} -> {}",
+                            path.display(),
+                            target.display()
+                        ));
+                    }
+                } else if metadata.is_dir() {
+                    walk(&path, canonical_root)?;
+                } else if !metadata.is_file() {
+                    return Err(anyhow!(
+                        "unsupported file type in Skill source: {}",
+                        path.display()
+                    ));
+                }
+            }
+            Ok(())
+        }
+
+        walk(root, &canonical_root)
+    }
+
+    fn copy_tree_preserving_links(source: &Path, destination: &Path) -> Result<()> {
+        fs::create_dir_all(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let source_path = entry.path();
+            let destination_path = destination.join(entry.file_name());
+            let metadata = fs::symlink_metadata(&source_path)?;
+            if metadata.file_type().is_symlink() {
+                let target = fs::read_link(&source_path)?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&target, &destination_path).with_context(|| {
+                    format!(
+                        "failed to preserve symlink {} -> {}",
+                        destination_path.display(),
+                        target.display()
+                    )
+                })?;
+                #[cfg(not(unix))]
+                return Err(anyhow!(
+                    "preserving Skill symlinks is unsupported on this platform"
+                ));
+            } else if metadata.is_dir() {
+                Self::copy_tree_preserving_links(&source_path, &destination_path)?;
+            } else if metadata.is_file() {
+                fs::copy(&source_path, &destination_path)?;
+            } else {
+                return Err(anyhow!(
+                    "unsupported file type in Skill source: {}",
+                    source_path.display()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn compute_library_hash(root: &Path) -> Result<String> {
+        use sha2::{Digest, Sha256};
+
+        fn collect(root: &Path, current: &Path, entries: &mut Vec<PathBuf>) -> Result<()> {
+            for entry in fs::read_dir(current)? {
+                let entry = entry?;
+                let path = entry.path();
+                let metadata = fs::symlink_metadata(&path)?;
+                if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                    collect(root, &path, entries)?;
+                } else {
+                    entries.push(path.strip_prefix(root)?.to_path_buf());
+                }
+            }
+            Ok(())
+        }
+
+        let mut entries = Vec::new();
+        collect(root, root, &mut entries)?;
+        entries.sort();
+        let mut hasher = Sha256::new();
+        for relative in entries {
+            let path = root.join(&relative);
+            hasher.update(relative.to_string_lossy().replace('\\', "/").as_bytes());
+            hasher.update(b"\0");
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() {
+                hasher.update(b"link\0");
+                hasher.update(fs::read_link(&path)?.to_string_lossy().as_bytes());
+            } else {
+                hasher.update(b"file\0");
+                hasher.update(fs::read(&path)?);
+            }
+            hasher.update(b"\0");
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    fn read_library_symlink_target<R: std::io::Read>(
+        reader: &mut R,
+        total_bytes: &mut u64,
+    ) -> Result<PathBuf> {
+        let mut raw = Vec::new();
+        let mut limited = std::io::Read::take(reader, MAX_SYMLINK_TARGET_BYTES + 1);
+        std::io::Read::read_to_end(&mut limited, &mut raw)?;
+        if raw.len() as u64 > MAX_SYMLINK_TARGET_BYTES {
+            return Err(anyhow!("symlink target in Skill ZIP is too long"));
+        }
+        SkillService::charge_archive_budget(total_bytes, raw.len() as u64)?;
+        let target = String::from_utf8(raw)
+            .map_err(|_| anyhow!("symlink target in Skill ZIP is not UTF-8"))?;
+        if target.is_empty() || target.contains('\0') {
+            return Err(anyhow!("symlink target in Skill ZIP is invalid"));
+        }
+        Ok(PathBuf::from(target))
+    }
+
+    /// Extract a user-selected archive without dereferencing its symlinks.
+    /// Admission validates every link after extraction and before any Library
+    /// destination is created.
+    fn extract_zip_preserving_links(zip_path: &Path) -> Result<tempfile::TempDir> {
+        let file = fs::File::open(zip_path)
+            .with_context(|| format!("failed to open ZIP file: {}", zip_path.display()))?;
+        let archive = zip::ZipArchive::new(file)
+            .with_context(|| format!("failed to read ZIP file: {}", zip_path.display()))?;
+        Self::extract_archive_preserving_links(archive)
+    }
+
+    fn extract_archive_preserving_links<R: std::io::Read + std::io::Seek>(
+        mut archive: zip::ZipArchive<R>,
+    ) -> Result<tempfile::TempDir> {
+        if archive.is_empty() {
+            return Err(anyhow!("Skill ZIP is empty"));
+        }
+        if archive.len() > MAX_ARCHIVE_ENTRIES {
+            return Err(anyhow!(
+                "Skill ZIP has too many entries ({}; limit {})",
+                archive.len(),
+                MAX_ARCHIVE_ENTRIES
+            ));
+        }
+
+        let temp_dir = tempfile::tempdir()?;
+        let root = temp_dir.path();
+        let mut total_bytes = 0;
+        let mut symlinks = Vec::new();
+
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            let relative = entry
+                .enclosed_name()
+                .ok_or_else(|| anyhow!("unsafe path in Skill ZIP: {}", entry.name()))?;
+            if relative
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+            {
+                return Err(anyhow!("unsafe path in Skill ZIP: {}", entry.name()));
+            }
+            let output = root.join(relative);
+            if entry.is_symlink() {
+                let target = Self::read_library_symlink_target(&mut entry, &mut total_bytes)?;
+                if target.is_absolute() {
+                    return Err(anyhow!(
+                        "absolute internal symlink is not allowed: {} -> {}",
+                        output.display(),
+                        target.display()
+                    ));
+                }
+                symlinks.push((output, target));
+            } else if entry.is_dir() {
+                SkillService::create_dir_all_within_budget(&output, &mut total_bytes)?;
+            } else {
+                if let Some(parent) = output.parent() {
+                    SkillService::create_dir_all_within_budget(parent, &mut total_bytes)?;
+                }
+                let mut file = fs::File::create(&output)?;
+                SkillService::copy_entry_within_budget(&mut entry, &mut file, &mut total_bytes)?;
+                #[cfg(unix)]
+                if let Some(mode) = entry.unix_mode() {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(&output, fs::Permissions::from_mode(mode & 0o777))?;
+                }
+            }
+        }
+
+        for (link, target) in symlinks {
+            if let Some(parent) = link.parent() {
+                SkillService::create_dir_all_within_budget(parent, &mut total_bytes)?;
+            }
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, &link).with_context(|| {
+                format!(
+                    "failed to preserve symlink {} -> {}",
+                    link.display(),
+                    target.display()
+                )
+            })?;
+            #[cfg(not(unix))]
+            return Err(anyhow!(
+                "preserving Skill symlinks is unsupported on this platform"
+            ));
+        }
+        Self::validate_internal_symlinks(root)?;
+        Ok(temp_dir)
+    }
+
+    fn scan_library_skills(root: &Path) -> Result<Vec<PathBuf>> {
+        fn walk(current: &Path, results: &mut Vec<PathBuf>) -> Result<()> {
+            if current.join("SKILL.md").is_file() {
+                results.push(current.to_path_buf());
+                return Ok(());
+            }
+            for entry in fs::read_dir(current)? {
+                let entry = entry?;
+                let metadata = fs::symlink_metadata(entry.path())?;
+                if metadata.is_dir()
+                    && !metadata.file_type().is_symlink()
+                    && !entry.file_name().to_string_lossy().starts_with('.')
+                {
+                    walk(&entry.path(), results)?;
+                }
+            }
+            Ok(())
+        }
+
+        let mut results = Vec::new();
+        walk(root, &mut results)?;
+        results.sort();
+        Ok(results)
+    }
+
+    async fn download_repo_preserving_links(
+        repo: &SkillRepo,
+    ) -> Result<(tempfile::TempDir, PathBuf, String)> {
+        SkillService::validate_repo_ref(&repo.owner, &repo.name, &repo.branch)?;
+        let mut branches = Vec::new();
+        if !repo.branch.is_empty() && !repo.branch.eq_ignore_ascii_case("HEAD") {
+            branches.push(repo.branch.as_str());
+        }
+        if !branches.contains(&"main") {
+            branches.push("main");
+        }
+        if !branches.contains(&"master") {
+            branches.push("master");
+        }
+
+        let client = crate::proxy::http_client::get();
+        let mut last_error = None;
+        for branch in branches {
+            let url = format!(
+                "https://github.com/{}/{}/archive/refs/heads/{}.zip",
+                repo.owner, repo.name, branch
+            );
+            SkillService::assert_github_archive_url(&url, &repo.owner, &repo.name)?;
+            let result = async {
+                let mut response = client.get(&url).send().await?;
+                if !response.status().is_success() {
+                    return Err(anyhow!(
+                        "GitHub archive download failed with status {}",
+                        response.status()
+                    ));
+                }
+                let mut body = Vec::new();
+                while let Some(chunk) = response.chunk().await? {
+                    if body.len().saturating_add(chunk.len()) as u64 > MAX_ARCHIVE_DOWNLOAD_BYTES {
+                        return Err(anyhow!("GitHub archive exceeds the download limit"));
+                    }
+                    body.extend_from_slice(&chunk);
+                }
+                let archive = zip::ZipArchive::new(std::io::Cursor::new(body))?;
+                let extracted = Self::extract_archive_preserving_links(archive)?;
+                let mut entries = fs::read_dir(extracted.path())?
+                    .filter_map(std::result::Result::ok)
+                    .collect::<Vec<_>>();
+                entries.sort_by_key(fs::DirEntry::file_name);
+                let repo_root = if entries.len() == 1 {
+                    let entry = &entries[0];
+                    let metadata = fs::symlink_metadata(entry.path())?;
+                    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                        entry.path()
+                    } else {
+                        extracted.path().to_path_buf()
+                    }
+                } else {
+                    extracted.path().to_path_buf()
+                };
+                Ok::<_, anyhow::Error>((extracted, repo_root))
+            }
+            .await;
+
+            match result {
+                Ok((extracted, repo_root)) => {
+                    return Ok((extracted, repo_root, branch.to_string()));
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow!("all GitHub branch downloads failed")))
+    }
+
+    pub async fn acquire_discoverable(
+        db: &Arc<Database>,
+        skill: &DiscoverableSkill,
+        source_kind: LibrarySourceKind,
+        requested_directory: Option<&str>,
+    ) -> Result<LibrarySkill> {
+        Self::ensure_supported_platform()?;
+        if source_kind == LibrarySourceKind::Zip {
+            return Err(anyhow!(
+                "ZIP acquisition must use the archive acquisition endpoint"
+            ));
+        }
+        let repo = SkillRepo {
+            owner: skill.repo_owner.clone(),
+            name: skill.repo_name.clone(),
+            branch: skill.repo_branch.clone(),
+            enabled: true,
+        };
+        let (_extracted, repo_root, resolved_branch) =
+            Self::download_repo_preserving_links(&repo).await?;
+        Self::acquire_from_repository_snapshot(
+            db,
+            &repo_root,
+            skill,
+            source_kind,
+            &resolved_branch,
+            requested_directory,
+        )
+    }
+
+    /// Admit a downloaded repository snapshot. Keeping network transfer above
+    /// this seam lets Git and marketplace acquisition share real-filesystem
+    /// validation tests without mocking HTTP.
+    pub fn acquire_from_repository_snapshot(
+        db: &Arc<Database>,
+        repo_root: &Path,
+        skill: &DiscoverableSkill,
+        source_kind: LibrarySourceKind,
+        resolved_branch: &str,
+        requested_directory: Option<&str>,
+    ) -> Result<LibrarySkill> {
+        Self::ensure_supported_platform()?;
+        if source_kind == LibrarySourceKind::Zip {
+            return Err(anyhow!(
+                "ZIP acquisition must use the archive acquisition endpoint"
+            ));
+        }
+        SkillService::validate_repo_ref(&skill.repo_owner, &skill.repo_name, resolved_branch)?;
+        let source = SkillService::resolve_skill_source_dir(repo_root, &skill.directory)
+            .ok_or_else(|| {
+                anyhow!(
+                    "canonical SKILL.md was not found for '{}' in {}/{}",
+                    skill.directory,
+                    skill.repo_owner,
+                    skill.repo_name
+                )
+            })?;
+        let canonical_root = repo_root.canonicalize()?;
+        let canonical_source = source.canonicalize()?;
+        if !canonical_source.starts_with(&canonical_root) {
+            return Err(anyhow!("resolved Skill source escapes its Git repository"));
+        }
+        let doc_path = SkillService::doc_path_for_source(&canonical_root, &canonical_source);
+        let skill_path = doc_path
+            .as_deref()
+            .and_then(|path| path.strip_suffix("/SKILL.md"))
+            .filter(|path| !path.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| (doc_path.as_deref() == Some("SKILL.md")).then(|| ".".to_string()));
+        // Discovery metadata may name a branch that was unavailable and fell
+        // back during download. Persist the source URL from the snapshot that
+        // was actually admitted, not the stale requested URL.
+        let url = SkillService::build_skill_doc_url(
+            &skill.repo_owner,
+            &skill.repo_name,
+            resolved_branch,
+            doc_path.as_deref().unwrap_or("SKILL.md"),
+        );
+        let default_directory = source
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .ok_or_else(|| anyhow!("Skill needs a readable Library directory name"))?;
+        Self::acquire_from_directory(
+            db,
+            &source,
+            LibrarySkillSource {
+                kind: source_kind,
+                url,
+                repo_owner: Some(skill.repo_owner.clone()),
+                repo_name: Some(skill.repo_name.clone()),
+                repo_branch: Some(resolved_branch.to_string()),
+                skill_path,
+                marketplace: (source_kind == LibrarySourceKind::Marketplace)
+                    .then(|| "skills.sh".to_string()),
+            },
+            requested_directory.or(Some(default_directory.as_str())),
+        )
+    }
+
+    pub fn acquire_from_zip(
+        db: &Arc<Database>,
+        zip_path: &Path,
+        requested_directories: &HashMap<String, String>,
+    ) -> Result<Vec<LibrarySkill>> {
+        Self::ensure_supported_platform()?;
+        let extracted = Self::extract_zip_preserving_links(zip_path)?;
+        let skill_dirs = Self::scan_library_skills(extracted.path())?;
+        if skill_dirs.is_empty() {
+            return Err(anyhow!("Skill ZIP does not contain a canonical SKILL.md"));
+        }
+
+        let mut candidates = Vec::with_capacity(skill_dirs.len());
+        for source in skill_dirs {
+            let relative = source
+                .strip_prefix(extracted.path())?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let default_directory = if source == extracted.path() {
+                zip_path
+                    .file_stem()
+                    .map(|name| name.to_string_lossy().to_string())
+            } else {
+                source
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            }
+            .ok_or_else(|| anyhow!("Skill needs a readable Library directory name"))?;
+            let requested = requested_directories
+                .get(&relative)
+                .or_else(|| requested_directories.get(&default_directory))
+                .cloned()
+                .unwrap_or(default_directory);
+            candidates.push((source, relative, requested));
+        }
+
+        // A multi-Skill ZIP is admitted as one request. Validate every source
+        // and every directory collision before writing the first snapshot so
+        // a retry cannot collide with an earlier partial success.
+        let mut batch_directories = HashSet::new();
+        for (source, _relative, requested) in &candidates {
+            if !source.is_dir() {
+                return Err(anyhow!(
+                    "Skill source is not a directory: {}",
+                    source.display()
+                ));
+            }
+            Self::validate_internal_symlinks(source)?;
+            Self::read_manifest(source)?;
+            let directory = Self::require_available_directory(db, requested)?;
+            if !batch_directories.insert(directory.to_lowercase()) {
+                return Err(anyhow!(
+                    "LIBRARY_DIRECTORY_CONFLICT: '{directory}' is repeated in this ZIP; choose readable unique names"
+                ));
+            }
+        }
+
+        let mut acquired = Vec::with_capacity(candidates.len());
+        for (source, relative, requested) in candidates {
+            acquired.push(Self::acquire_from_directory(
+                db,
+                &source,
+                LibrarySkillSource {
+                    kind: LibrarySourceKind::Zip,
+                    url: None,
+                    repo_owner: None,
+                    repo_name: None,
+                    repo_branch: None,
+                    skill_path: if relative.is_empty() {
+                        None
+                    } else {
+                        Some(relative)
+                    },
+                    marketplace: None,
+                },
+                Some(&requested),
+            )?);
+        }
+        Ok(acquired)
+    }
+
+    fn require_available_directory(db: &Arc<Database>, raw_directory: &str) -> Result<String> {
+        let directory = SkillService::sanitize_install_name(raw_directory).ok_or_else(|| {
+            anyhow!("Library directory name must be one readable path segment: {raw_directory:?}")
+        })?;
+        if directory != raw_directory.trim() {
+            return Err(anyhow!(
+                "Library directory name must be supplied in canonical form: {raw_directory:?}"
+            ));
+        }
+        let destination = Self::library_dir()?.join(&directory);
+        if db.get_library_skill_by_directory(&directory)?.is_some()
+            || fs::symlink_metadata(&destination).is_ok()
+        {
+            return Err(anyhow!(
+                "LIBRARY_DIRECTORY_CONFLICT: '{directory}' is already in use; choose a readable unique name"
+            ));
+        }
+        Ok(directory)
+    }
+
+    pub fn acquire_from_directory(
+        db: &Arc<Database>,
+        source: &Path,
+        upstream: LibrarySkillSource,
+        requested_directory: Option<&str>,
+    ) -> Result<LibrarySkill> {
+        Self::ensure_supported_platform()?;
+        if !source.is_dir() {
+            return Err(anyhow!(
+                "Skill source is not a directory: {}",
+                source.display()
+            ));
+        }
+        Self::validate_internal_symlinks(source)?;
+        let (display_name, description, compatibility) = Self::read_manifest(source)?;
+        let source_content_hash = Self::compute_library_hash(source)?;
+        if let Some(existing) = db.get_library_skill_by_content_hash(&source_content_hash)? {
+            return Ok(existing);
+        }
+
+        let raw_directory = requested_directory
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                source
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            })
+            .ok_or_else(|| anyhow!("Skill needs a readable Library directory name"))?;
+        let directory = Self::require_available_directory(db, &raw_directory)?;
+
+        let library_dir = Self::library_dir()?;
+        let destination = library_dir.join(&directory);
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let staging = library_dir.join(format!(".acquiring-{id}"));
+        let copy_result = (|| -> Result<()> {
+            Self::copy_tree_preserving_links(source, &staging)?;
+            Self::validate_internal_symlinks(&staging)?;
+            fs::rename(&staging, &destination).with_context(|| {
+                format!(
+                    "failed to admit Skill into Library: {} -> {}",
+                    staging.display(),
+                    destination.display()
+                )
+            })?;
+            Ok(())
+        })();
+        if let Err(error) = copy_result {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+
+        let content_hash = match Self::compute_library_hash(&destination) {
+            Ok(hash) => hash,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&destination);
+                return Err(error);
+            }
+        };
+        if content_hash != source_content_hash {
+            let _ = fs::remove_dir_all(&destination);
+            return Err(anyhow!(
+                "admitted Skill content changed while copying into the Library"
+            ));
+        }
+        let acquired_at = Utc::now().timestamp();
+        let skill = LibrarySkill {
+            id,
+            directory,
+            display_name,
+            description,
+            source: upstream,
+            compatibility,
+            content_hash,
+            acquired_at,
+            updated_at: acquired_at,
+        };
+        if let Err(error) = db.save_library_skill(&skill) {
+            let _ = fs::remove_dir_all(&destination);
+            return Err(error.into());
+        }
+        Ok(skill)
+    }
+
+    pub fn update_display_metadata(
+        db: &Arc<Database>,
+        id: &str,
+        display_name: &str,
+        description: Option<&str>,
+    ) -> Result<LibrarySkill> {
+        Self::ensure_supported_platform()?;
+        let display_name = display_name.trim();
+        if display_name.is_empty() {
+            return Err(anyhow!("Library Skill display name cannot be empty"));
+        }
+        let description = description
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        db.update_library_skill_display_metadata(
+            id,
+            display_name,
+            description.as_deref(),
+            Utc::now().timestamp(),
+        )?
+        .ok_or_else(|| anyhow!("Library Skill not found: {id}"))
     }
 }
 

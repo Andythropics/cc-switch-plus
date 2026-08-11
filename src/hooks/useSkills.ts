@@ -10,6 +10,8 @@ import {
   type DiscoverableSkill,
   type ImportSkillSelection,
   type InstalledSkill,
+  type LibrarySkill,
+  type LibrarySourceKind,
   type SkillUpdateInfo,
   type SkillsShSearchResult,
 } from "@/lib/api/skills";
@@ -28,6 +30,81 @@ export function useInstalledSkills() {
     queryFn: () => skillsApi.getInstalled(),
     staleTime: Infinity,
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Private Library snapshots; no consumer deployment state is mixed in. */
+export function useLibrarySkills() {
+  return useQuery({
+    queryKey: ["skills", "library"],
+    queryFn: () => skillsApi.getLibrary(),
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAcquireLibrarySkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      skill,
+      sourceKind,
+      directoryName,
+    }: {
+      skill: DiscoverableSkill;
+      sourceKind: Exclude<LibrarySourceKind, "zip">;
+      directoryName?: string;
+    }) => skillsApi.acquireLibrary(skill, sourceKind, directoryName),
+    onSuccess: (acquired) => {
+      queryClient.setQueryData<LibrarySkill[]>(
+        ["skills", "library"],
+        (current) =>
+          current
+            ? [...current.filter((item) => item.id !== acquired.id), acquired]
+            : [acquired],
+      );
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+  });
+}
+
+export function useAcquireLibrarySkillsFromZip() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      filePath,
+      directoryNames = {},
+    }: {
+      filePath: string;
+      directoryNames?: Record<string, string>;
+    }) => skillsApi.acquireLibraryFromZip(filePath, directoryNames),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+  });
+}
+
+export function useUpdateLibrarySkillMetadata() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      displayName,
+      description,
+    }: {
+      id: string;
+      displayName: string;
+      description?: string;
+    }) => skillsApi.updateLibraryMetadata(id, displayName, description),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<LibrarySkill[]>(
+        ["skills", "library"],
+        (current) =>
+          current?.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
   });
 }
 

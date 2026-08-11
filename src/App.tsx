@@ -25,8 +25,6 @@ import {
   Shield,
   Cpu,
   LayoutDashboard,
-  Loader2,
-  RefreshCw,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -47,7 +45,6 @@ import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
-import { useScanUnmanagedSkills } from "@/hooks/useSkills";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isTextEditableTarget } from "@/utils/domUtils";
 import { deepClone } from "@/utils/deepClone";
@@ -55,6 +52,7 @@ import { cn } from "@/lib/utils";
 import {
   isWindows,
   isLinux,
+  isMac,
   DRAG_REGION_ATTR,
   DRAG_REGION_STYLE,
 } from "@/lib/platform";
@@ -76,11 +74,13 @@ import PromptPanel from "@/components/prompts/PromptPanel";
 import {
   SkillsPage,
   getSkillsPageHeaderActions,
+  type SkillsPageHandle,
   type SkillsPageSource,
 } from "@/components/skills/SkillsPage";
-import UnifiedSkillsPanel, {
-  type SkillsCheckUpdatesState,
-} from "@/components/skills/UnifiedSkillsPanel";
+import {
+  LibrarySkillsPanel,
+  type LibrarySkillsPanelHandle,
+} from "@/components/skills/LibrarySkillsPanel";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
@@ -114,6 +114,23 @@ type View =
   | "openclawTools"
   | "openclawAgents"
   | "hermesMemory";
+
+function UnsupportedSkillsLibrary() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-full items-center justify-center px-8 text-center">
+      <div className="max-w-lg rounded-xl border bg-card p-8 shadow-sm">
+        <Wrench className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">
+          {t("skills.library.macOnlyTitle")}
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {t("skills.library.macOnlyDescription")}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 interface SyncStatusUpdatedPayload {
   source?: string;
@@ -188,11 +205,6 @@ function App() {
   const [skillsNavigationBusy, setSkillsNavigationBusy] = useState(false);
   const [promptManagementBusy, setPromptManagementBusy] = useState(false);
   const [promptNavigationBusy, setPromptNavigationBusy] = useState(false);
-  const [skillsCheckUpdatesState, setSkillsCheckUpdatesState] =
-    useState<SkillsCheckUpdatesState>({
-      isChecking: false,
-      hasSkills: false,
-    });
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, currentView);
@@ -264,12 +276,8 @@ function App() {
 
   const promptPanelRef = useRef<any>(null);
   const mcpPanelRef = useRef<any>(null);
-  const skillsPageRef = useRef<any>(null);
-  const unifiedSkillsPanelRef = useRef<any>(null);
-  // 订阅未管理 Skill 的共享缓存（实际扫描由 UnifiedSkillsPanel 进入页面时触发）。
-  // 这里 enabled 默认 false，仅用于「导入」按钮的绿点提示，不主动发起扫描。
-  const { data: unmanagedSkills } = useScanUnmanagedSkills();
-  const hasUnmanagedSkills = (unmanagedSkills?.length ?? 0) > 0;
+  const skillsPageRef = useRef<SkillsPageHandle>(null);
+  const librarySkillsPanelRef = useRef<LibrarySkillsPanelHandle>(null);
   const addActionButtonClass =
     "bg-orange-500 hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30 dark:shadow-orange-500/40 rounded-full w-8 h-8";
 
@@ -301,7 +309,6 @@ function App() {
       currentView === "openclawAgents");
   const { data: openclawHealthWarnings = [] } =
     useOpenClawHealth(isOpenClawView);
-  const hasSkillsSupport = sharedFeatureApp !== "openclaw";
   const hasSessionSupport =
     sharedFeatureApp === "claude" ||
     sharedFeatureApp === "codex" ||
@@ -938,27 +945,24 @@ function App() {
         case "hermesMemory":
           return <HermesMemoryPanel />;
         case "skills":
-          return (
-            <UnifiedSkillsPanel
-              ref={unifiedSkillsPanelRef}
+          return isMac() ? (
+            <LibrarySkillsPanel
+              ref={librarySkillsPanelRef}
               onOpenDiscovery={handleOpenSkillsDiscovery}
               onInteractionBlockedChange={setSkillsManagementBusy}
               onNavigationBlockedChange={setSkillsNavigationBusy}
-              onCheckUpdatesStateChange={setSkillsCheckUpdatesState}
-              currentApp={
-                sharedFeatureApp === "openclaw" ? "claude" : sharedFeatureApp
-              }
             />
+          ) : (
+            <UnsupportedSkillsLibrary />
           );
         case "skillsDiscovery":
-          return (
+          return isMac() ? (
             <SkillsPage
               ref={skillsPageRef}
-              initialApp={
-                sharedFeatureApp === "openclaw" ? "claude" : sharedFeatureApp
-              }
               onSourceChange={setSkillsDiscoverySource}
             />
+          ) : (
+            <UnsupportedSkillsLibrary />
           );
         case "mcp":
           return (
@@ -1205,8 +1209,9 @@ function App() {
                     t("prompts.title", {
                       appName: t(`apps.${sharedFeatureApp}`),
                     })}
-                  {currentView === "skills" && t("skills.title")}
-                  {currentView === "skillsDiscovery" && t("skills.title")}
+                  {currentView === "skills" && t("skills.library.title")}
+                  {currentView === "skillsDiscovery" &&
+                    t("skills.library.discoveryTitle")}
                   {currentView === "mcp" && t("mcp.unifiedPanel.title")}
                   {currentView === "agents" && t("agents.title")}
                   {currentView === "universal" &&
@@ -1361,86 +1366,26 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skills" && (
+                {currentView === "skills" && isMac() && (
                   <>
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={
-                        skillsManagementBusy ||
-                        skillsCheckUpdatesState.isChecking ||
-                        !skillsCheckUpdatesState.hasSkills
-                      }
-                      onClick={() =>
-                        unifiedSkillsPanelRef.current?.checkUpdates()
-                      }
-                      className={cn(
-                        "hover:bg-black/5 dark:hover:bg-white/5",
-                        skillsManagementBusy && "disabled:opacity-100",
-                      )}
-                    >
-                      {skillsCheckUpdatesState.isChecking ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                      )}
-                      {skillsCheckUpdatesState.isChecking
-                        ? t("skills.checkingUpdates")
-                        : t("skills.checkUpdates")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
                       disabled={skillsManagementBusy}
                       onClick={() =>
-                        unifiedSkillsPanelRef.current?.openRestoreFromBackup()
-                      }
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <History className="w-4 h-4 mr-2" />
-                      {t("skills.restoreFromBackup.button")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={() =>
-                        unifiedSkillsPanelRef.current?.openInstallFromZip()
+                        void librarySkillsPanelRef.current?.openAcquireFromZip()
                       }
                       className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
                     >
                       <FolderArchive className="w-4 h-4 mr-2" />
-                      {t("skills.installFromZip.button")}
+                      {t("skills.library.acquireZip")}
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
                       disabled={skillsManagementBusy}
                       onClick={() =>
-                        unifiedSkillsPanelRef.current?.openImport()
-                      }
-                      className="relative hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                      title={
-                        hasUnmanagedSkills
-                          ? t("skills.unmanagedAvailable")
-                          : undefined
-                      }
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      {t("skills.import")}
-                      {hasUnmanagedSkills && (
-                        <span
-                          className="absolute top-1 right-1 h-2 w-2 rounded-full bg-green-500"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={() =>
-                        unifiedSkillsPanelRef.current?.openDiscovery()
+                        librarySkillsPanelRef.current?.openDiscovery()
                       }
                       className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
                     >
@@ -1449,7 +1394,7 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skillsDiscovery" && (
+                {currentView === "skillsDiscovery" && isMac() && (
                   <>
                     {getSkillsPageHeaderActions(skillsDiscoverySource).map(
                       ({ key, labelKey, Icon, execute }) => (
@@ -1531,6 +1476,15 @@ function App() {
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                onClick={() => setCurrentView("skills")}
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                title={t("skills.manage")}
+                              >
+                                <Wrench className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => setCurrentView("workspace")}
                                 className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("workspace.manage")}
@@ -1580,13 +1534,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("skills")}
-                                className={cn(
-                                  "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5",
-                                  "transition-all duration-200 ease-in-out overflow-hidden",
-                                  hasSkillsSupport
-                                    ? "opacity-100 w-8 scale-100 px-2"
-                                    : "opacity-0 w-0 scale-75 pointer-events-none px-0 -ml-1",
-                                )}
+                                className="w-8 px-2 text-muted-foreground transition-all duration-200 ease-in-out hover:bg-black/5 hover:text-foreground dark:hover:bg-white/5"
                                 title={t("skills.manage")}
                               >
                                 <Wrench className="flex-shrink-0 w-4 h-4" />

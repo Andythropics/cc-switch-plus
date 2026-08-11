@@ -40,6 +40,43 @@ export interface InstalledSkill {
   updatedAt: number;
 }
 
+export type LibrarySourceKind = "git" | "zip" | "marketplace";
+
+export interface LibrarySkillSource {
+  kind: LibrarySourceKind;
+  url?: string;
+  repoOwner?: string;
+  repoName?: string;
+  repoBranch?: string;
+  skillPath?: string;
+  marketplace?: string;
+}
+
+export interface ConsumerCompatibility {
+  compatible: boolean;
+  issues: string[];
+}
+
+export interface LibrarySkillCompatibility {
+  claude: ConsumerCompatibility;
+  codex: ConsumerCompatibility;
+}
+
+/** Private, undeployed Skill snapshot owned by the Library. */
+export interface LibrarySkill {
+  id: string;
+  /** Immutable direct-child directory identity. */
+  directory: string;
+  /** User-editable presentation metadata. */
+  displayName: string;
+  description?: string;
+  source: LibrarySkillSource;
+  compatibility: LibrarySkillCompatibility;
+  contentHash: string;
+  acquiredAt: number;
+  updatedAt: number;
+}
+
 export interface SkillUninstallResult {
   backupPath?: string;
 }
@@ -141,6 +178,48 @@ export const skillsApi = {
   /** 获取所有已安装的 Skills */
   async getInstalled(): Promise<InstalledSkill[]> {
     return await invoke("get_installed_skills");
+  },
+
+  /** List snapshots in the private Library (never consumer deployments). */
+  async getLibrary(): Promise<LibrarySkill[]> {
+    return await invoke("get_library_skills");
+  },
+
+  /** Acquire a Git or marketplace Skill without enabling any consumer. */
+  async acquireLibrary(
+    skill: DiscoverableSkill,
+    sourceKind: Exclude<LibrarySourceKind, "zip">,
+    directoryName?: string,
+  ): Promise<LibrarySkill> {
+    return await invoke("acquire_library_skill", {
+      skill,
+      sourceKind,
+      directoryName,
+    });
+  },
+
+  /** Acquire all valid snapshots in a local ZIP into the private Library. */
+  async acquireLibraryFromZip(
+    filePath: string,
+    directoryNames: Record<string, string> = {},
+  ): Promise<LibrarySkill[]> {
+    return await invoke("acquire_library_skills_from_zip", {
+      filePath,
+      directoryNames,
+    });
+  },
+
+  /** Update display metadata; directory identity is deliberately absent. */
+  async updateLibraryMetadata(
+    id: string,
+    displayName: string,
+    description?: string,
+  ): Promise<LibrarySkill> {
+    return await invoke("update_library_skill_metadata", {
+      id,
+      displayName,
+      description,
+    });
   },
 
   /** 获取可恢复的 Skill 备份列表 */

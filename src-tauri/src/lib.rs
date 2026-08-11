@@ -62,8 +62,9 @@ pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::reapply_current_codex_official_live,
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
-    SkillService, SpeedtestService,
+    ConfigService, DiscoverableSkill, EndpointLatency, LibrarySkill,
+    LibrarySkillAcquisitionService, LibrarySkillSource, LibrarySourceKind, McpService,
+    PromptService, ProviderService, ProxyService, SkillService, SpeedtestService,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1463,6 +1464,10 @@ pub fn run() {
             commands::restore_env_backup,
             // Skill management (v3.10.0+ unified)
             commands::get_installed_skills,
+            commands::get_library_skills,
+            commands::acquire_library_skill,
+            commands::acquire_library_skills_from_zip,
+            commands::update_library_skill_metadata,
             commands::get_skill_backups,
             commands::delete_skill_backup,
             commands::install_skill_unified,

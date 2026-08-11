@@ -10,41 +10,26 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ExternalLink, Download, Trash2, Loader2 } from "lucide-react";
+import { Check, ExternalLink, Download, Loader2 } from "lucide-react";
 import { settingsApi } from "@/lib/api";
 import type { DiscoverableSkill } from "@/lib/api/skills";
 
-type SkillCardSkill = DiscoverableSkill & { installed: boolean };
+type SkillCardSkill = DiscoverableSkill & { acquired: boolean };
 
 interface SkillCardProps {
   skill: SkillCardSkill;
-  onInstall: (key: string) => Promise<void>;
-  onUninstall: (key: string) => Promise<void>;
+  onAcquire: (key: string) => Promise<void>;
   installs?: number;
 }
 
-export function SkillCard({
-  skill,
-  onInstall,
-  onUninstall,
-  installs,
-}: SkillCardProps) {
+export function SkillCard({ skill, onAcquire, installs }: SkillCardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
 
-  const handleInstall = async () => {
+  const handleAcquire = async () => {
     setLoading(true);
     try {
-      await onInstall(skill.key);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUninstall = async () => {
-    setLoading(true);
-    try {
-      await onUninstall(skill.key);
+      await onAcquire(skill.key);
     } finally {
       setLoading(false);
     }
@@ -98,12 +83,12 @@ export function SkillCard({
               )}
             </div>
           </div>
-          {skill.installed && (
+          {skill.acquired && (
             <Badge
               variant="default"
               className="shrink-0 bg-green-600/90 hover:bg-green-600 dark:bg-green-700/90 dark:hover:bg-green-700 text-white border-0"
             >
-              {t("skills.installed")}
+              {t("skills.library.acquired")}
             </Badge>
           )}
         </div>
@@ -130,26 +115,16 @@ export function SkillCard({
             {t("skills.view")}
           </Button>
         )}
-        {skill.installed ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleUninstall}
-            disabled={loading}
-            className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/50 dark:hover:text-red-300"
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-            )}
-            {loading ? t("skills.uninstalling") : t("skills.uninstall")}
+        {skill.acquired ? (
+          <Button variant="outline" size="sm" disabled className="flex-1">
+            <Check className="h-3.5 w-3.5 mr-1.5" />
+            {t("skills.library.acquired")}
           </Button>
         ) : (
           <Button
             variant="mcp"
             size="sm"
-            onClick={handleInstall}
+            onClick={handleAcquire}
             disabled={loading || !skill.repoOwner}
             className="flex-1"
           >
@@ -158,7 +133,9 @@ export function SkillCard({
             ) : (
               <Download className="h-3.5 w-3.5 mr-1.5" />
             )}
-            {loading ? t("skills.installing") : t("skills.install")}
+            {loading
+              ? t("skills.library.acquiring")
+              : t("skills.library.acquire")}
           </Button>
         )}
       </CardFooter>

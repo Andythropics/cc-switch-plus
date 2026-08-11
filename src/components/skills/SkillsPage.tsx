@@ -9,6 +9,14 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,16 +35,16 @@ import { SkillCard } from "./SkillCard";
 import { RepoManagerPanel } from "./RepoManagerPanel";
 import {
   useDiscoverableSkills,
-  useInstalledSkills,
-  useInstallSkill,
+  useLibrarySkills,
+  useAcquireLibrarySkill,
   useSkillRepos,
   useAddSkillRepo,
   useRemoveSkillRepo,
   useSearchSkillsSh,
 } from "@/hooks/useSkills";
-import type { AppId } from "@/lib/api/types";
 import type {
   DiscoverableSkill,
+  LibrarySourceKind,
   SkillRepo,
   SkillsShDiscoverableSkill,
 } from "@/lib/api/skills";
@@ -45,7 +53,6 @@ import { formatSkillError } from "@/lib/errors/skillErrorParser";
 export type SkillsPageSource = "repos" | "skillssh";
 
 interface SkillsPageProps {
-  initialApp?: AppId;
   onSourceChange?: (source: SkillsPageSource) => void;
 }
 
@@ -88,16 +95,16 @@ const SKILLSSH_PAGE_SIZE = 20;
 
 /**
  * Skills 发现面板
- * 用于浏览和安装来自仓库或 skills.sh 的 Skills
+ * 用于浏览并获取来自仓库或 skills.sh 的 Skills
  */
 export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
-  ({ initialApp = "claude", onSourceChange }, ref) => {
+  ({ onSourceChange }, ref) => {
     const { t } = useTranslation();
     const [repoManagerOpen, setRepoManagerOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [filterRepo, setFilterRepo] = useState<string>("all");
     const [filterStatus, setFilterStatus] = useState<
-      "all" | "installed" | "uninstalled"
+      "all" | "acquired" | "available"
     >("all");
 
     // skills.sh 搜索状态
@@ -109,9 +116,6 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       SkillsShDiscoverableSkill[]
     >([]);
 
-    // currentApp 用于安装时的默认应用
-    const currentApp = initialApp;
-
     // Queries
     const {
       data: discoverableSkills,
@@ -119,7 +123,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       isFetching: fetchingDiscoverable,
       refetch: refetchDiscoverable,
     } = useDiscoverableSkills();
-    const { data: installedSkills } = useInstalledSkills();
+    const { data: librarySkills } = useLibrarySkills();
     const { data: repos = [], refetch: refetchRepos } = useSkillRepos();
 
     // skills.sh 搜索
@@ -152,24 +156,29 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
     };
 
     // Mutations
-    const installMutation = useInstallSkill();
+    const acquireMutation = useAcquireLibrarySkill();
     const addRepoMutation = useAddSkillRepo();
     const removeRepoMutation = useRemoveSkillRepo();
 
-    // 已安装的 skill key 集合（使用 directory + repoOwner + repoName 组合判断）
-    const installedKeys = useMemo(() => {
-      if (!installedSkills) return new Set<string>();
-      return new Set(
-        installedSkills.map((s) => {
-          // 构建唯一 key：directory + repoOwner + repoName
-          const owner = s.repoOwner?.toLowerCase() || "";
-          const name = s.repoName?.toLowerCase() || "";
-          return `${s.directory.toLowerCase()}:${owner}:${name}`;
-        }),
-      );
-    }, [installedSkills]);
+    const acquiredKeys = useMemo(() => {
+      if (!librarySkills) return new Set<string>();
+      const keys = new Set<string>();
+      for (const skill of librarySkills) {
+        const owner = skill.source.repoOwner?.toLowerCase() || "";
+        const repo = skill.source.repoName?.toLowerCase() || "";
+        const sourcePath = skill.source.skillPath?.toLowerCase();
+        if (sourcePath) {
+          if (sourcePath === ".") keys.add(`*:${owner}:${repo}`);
+          keys.add(`${sourcePath}:${owner}:${repo}`);
+          const sourceName = sourcePath.split(/[/\\]/).pop();
+          if (sourceName) keys.add(`${sourceName}:${owner}:${repo}`);
+        }
+        keys.add(`${skill.directory.toLowerCase()}:${owner}:${repo}`);
+      }
+      return keys;
+    }, [librarySkills]);
 
-    type DiscoverableSkillItem = DiscoverableSkill & { installed: boolean };
+    type DiscoverableSkillItem = DiscoverableSkill & { acquired: boolean };
 
     // 从可发现技能中提取所有仓库选项
     const repoOptions = useMemo(() => {
@@ -183,33 +192,48 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       return Array.from(repoSet).sort();
     }, [discoverableSkills]);
 
-    // 为发现列表补齐 installed 状态，供 SkillCard 使用
+    // 为发现列表补齐已获取状态，供 SkillCard 的兼容接口使用
     const skills: DiscoverableSkillItem[] = useMemo(() => {
       if (!discoverableSkills) return [];
       return discoverableSkills.map((d) => {
         // 同时处理 / 和 \ 路径分隔符（兼容 Windows 和 Unix）
-        const installName =
+        const sourceName =
           d.directory.split(/[/\\]/).pop()?.toLowerCase() ||
           d.directory.toLowerCase();
-        // 使用 directory + repoOwner + repoName 组合判断是否已安装
-        const key = `${installName}:${d.repoOwner.toLowerCase()}:${d.repoName.toLowerCase()}`;
+        // 使用 directory + repoOwner + repoName 组合判断是否已获取
+        const key = `${sourceName}:${d.repoOwner.toLowerCase()}:${d.repoName.toLowerCase()}`;
         return {
           ...d,
-          installed: installedKeys.has(key),
+          acquired:
+            acquiredKeys.has(key) ||
+            acquiredKeys.has(
+              `*:${d.repoOwner.toLowerCase()}:${d.repoName.toLowerCase()}`,
+            ) ||
+            acquiredKeys.has(
+              `${d.directory.toLowerCase()}:${d.repoOwner.toLowerCase()}:${d.repoName.toLowerCase()}`,
+            ),
         };
       });
-    }, [discoverableSkills, installedKeys]);
+    }, [discoverableSkills, acquiredKeys]);
 
-    // 检查 skills.sh 结果的安装状态
-    const isSkillsShInstalled = (skill: SkillsShDiscoverableSkill): boolean => {
+    // 检查 skills.sh 结果的获取状态
+    const isSkillsShAcquired = (skill: SkillsShDiscoverableSkill): boolean => {
       const key = `${skill.directory.toLowerCase()}:${skill.repoOwner.toLowerCase()}:${skill.repoName.toLowerCase()}`;
-      return installedKeys.has(key);
+      return acquiredKeys.has(key);
     };
 
     const loading =
       searchSource === "repos"
         ? loadingDiscoverable || fetchingDiscoverable
         : false;
+
+    // With no configured repository, skills.sh is the real source even before
+    // the user explicitly changes the source toggle. All actions must use the
+    // same effective value that the UI renders.
+    const effectiveSource =
+      searchSource === "repos" && repos.length === 0 && !loading
+        ? "skillssh"
+        : searchSource;
 
     useImperativeHandle(ref, () => ({
       refresh: () => {
@@ -219,7 +243,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       openRepoManager: () => setRepoManagerOpen(true),
     }));
 
-    // skills.sh 结果转为 DiscoverableSkill（复用现有安装流程）
+    // skills.sh 结果转为 DiscoverableSkill（复用统一获取流程）
     const toDiscoverableSkill = (
       s: SkillsShDiscoverableSkill,
     ): DiscoverableSkill => ({
@@ -233,10 +257,27 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       readmeUrl: s.readmeUrl,
     });
 
-    const handleInstall = async (key: string) => {
+    const [collision, setCollision] = useState<{
+      skill: DiscoverableSkill;
+      sourceKind: Exclude<LibrarySourceKind, "zip">;
+    } | null>(null);
+    const [uniqueDirectory, setUniqueDirectory] = useState("");
+
+    const acquireSkill = async (
+      skill: DiscoverableSkill,
+      sourceKind: Exclude<LibrarySourceKind, "zip">,
+      directoryName?: string,
+    ) => {
+      await acquireMutation.mutateAsync({ skill, sourceKind, directoryName });
+      toast.success(t("skills.library.acquireSuccess", { name: skill.name }), {
+        closeButton: true,
+      });
+    };
+
+    const handleAcquire = async (key: string) => {
       let skill: DiscoverableSkill | undefined;
 
-      if (searchSource === "skillssh") {
+      if (effectiveSource === "skillssh") {
         const found = accumulatedResults.find((s) => s.key === key);
         if (found) {
           skill = toDiscoverableSkill(found);
@@ -251,32 +292,31 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       }
 
       try {
-        await installMutation.mutateAsync({
-          skill,
-          currentApp,
-        });
-        toast.success(t("skills.installSuccess", { name: skill.name }), {
-          closeButton: true,
-        });
+        const sourceKind =
+          effectiveSource === "skillssh" ? "marketplace" : "git";
+        await acquireSkill(skill, sourceKind);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("LIBRARY_DIRECTORY_CONFLICT")) {
+          setCollision({
+            skill,
+            sourceKind: effectiveSource === "skillssh" ? "marketplace" : "git",
+          });
+          setUniqueDirectory(`${skill.directory.split(/[/\\]/).pop()}-2`);
+          return;
+        }
         const { title, description } = formatSkillError(
           errorMessage,
           t,
-          "skills.installFailed",
+          "skills.library.acquireFailed",
         );
         toast.error(title, {
           description,
           duration: 10000,
         });
-        console.error("Install skill failed:", error);
+        console.error("Acquire Skill failed:", error);
       }
-    };
-
-    const handleUninstall = async (_directory: string) => {
-      // 在发现面板中，不支持卸载，需要在主面板中操作
-      toast.info(t("skills.uninstallInMainPanel"));
     };
 
     const handleAddRepo = async (repo: SkillRepo) => {
@@ -330,8 +370,8 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
 
       // 按安装状态筛选
       const byStatus = byRepo.filter((skill) => {
-        if (filterStatus === "installed") return skill.installed;
-        if (filterStatus === "uninstalled") return !skill.installed;
+        if (filterStatus === "acquired") return skill.acquired;
+        if (filterStatus === "available") return !skill.acquired;
         return true;
       });
 
@@ -355,12 +395,6 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       skillsShResult && accumulatedResults.length < skillsShResult.totalCount;
     const searchingSkillsSh =
       (loadingSkillsSh || fetchingSkillsSh) && accumulatedResults.length === 0;
-
-    // 无仓库配置时默认切换到 skills.sh；仓库发现结果为空时仍保留仓库视图，方便手动刷新重试。
-    const effectiveSource =
-      searchSource === "repos" && repos.length === 0 && !loading
-        ? "skillssh"
-        : searchSource;
 
     useEffect(() => {
       onSourceChange?.(effectiveSource);
@@ -447,14 +481,12 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                       </SelectContent>
                     </Select>
                   </div>
-                  {/* 安装状态筛选 */}
+                  {/* 获取状态筛选 */}
                   <div className="w-full md:w-36">
                     <Select
                       value={filterStatus}
                       onValueChange={(val) =>
-                        setFilterStatus(
-                          val as "all" | "installed" | "uninstalled",
-                        )
+                        setFilterStatus(val as "all" | "acquired" | "available")
                       }
                     >
                       <SelectTrigger className="bg-card border shadow-sm text-foreground">
@@ -471,16 +503,16 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                           {t("skills.filter.all")}
                         </SelectItem>
                         <SelectItem
-                          value="installed"
+                          value="acquired"
                           className="text-left pr-3 [&[data-state=checked]>span:first-child]:hidden"
                         >
-                          {t("skills.filter.installed")}
+                          {t("skills.library.acquired")}
                         </SelectItem>
                         <SelectItem
-                          value="uninstalled"
+                          value="available"
                           className="text-left pr-3 [&[data-state=checked]>span:first-child]:hidden"
                         >
-                          {t("skills.filter.uninstalled")}
+                          {t("skills.library.notAcquired")}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -564,8 +596,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                     <SkillCard
                       key={skill.key}
                       skill={skill}
-                      onInstall={handleInstall}
-                      onUninstall={handleUninstall}
+                      onAcquire={handleAcquire}
                     />
                   ))}
                 </div>
@@ -599,17 +630,16 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {accumulatedResults.map((skill) => {
-                        const installed = isSkillsShInstalled(skill);
+                        const acquired = isSkillsShAcquired(skill);
                         return (
                           <SkillCard
                             key={skill.key}
                             skill={{
                               ...toDiscoverableSkill(skill),
-                              installed,
+                              acquired,
                             }}
                             installs={skill.installs}
-                            onInstall={handleInstall}
-                            onUninstall={handleUninstall}
+                            onAcquire={handleAcquire}
                           />
                         );
                       })}
@@ -644,6 +674,51 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
             )}
           </div>
         </div>
+
+        <Dialog
+          open={collision !== null}
+          onOpenChange={() => setCollision(null)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("skills.library.collisionTitle")}</DialogTitle>
+              <DialogDescription>
+                {t("skills.library.collisionDescription", {
+                  directory: collision?.skill.directory,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              value={uniqueDirectory}
+              aria-label={t("skills.library.directory")}
+              onChange={(event) => setUniqueDirectory(event.target.value)}
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCollision(null)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                disabled={!uniqueDirectory.trim() || acquireMutation.isPending}
+                onClick={async () => {
+                  if (!collision) return;
+                  const pending = collision;
+                  try {
+                    await acquireSkill(
+                      pending.skill,
+                      pending.sourceKind,
+                      uniqueDirectory.trim(),
+                    );
+                    setCollision(null);
+                  } catch (error) {
+                    toast.error(String(error));
+                  }
+                }}
+              >
+                {t("skills.library.acquire")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* 仓库管理面板 */}
         {repoManagerOpen && (

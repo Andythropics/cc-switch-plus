@@ -14,8 +14,14 @@ import { emitTauriEvent } from "../msw/tauriMocks";
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
 const skillsPanelMocks = vi.hoisted(() => ({
-  checkUpdates: vi.fn(),
+  openAcquireFromZip: vi.fn(),
   openDiscovery: vi.fn(),
+}));
+const platformState = vi.hoisted(() => ({ mac: true }));
+
+vi.mock("@/lib/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/platform")>()),
+  isMac: () => platformState.mac,
 }));
 
 vi.mock("sonner", () => ({
@@ -132,30 +138,17 @@ vi.mock("@/components/AppSwitcher", () => ({
   ),
 }));
 
-vi.mock("@/components/skills/UnifiedSkillsPanel", async () => {
+vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
   const React = await import("react");
-  const MockUnifiedSkillsPanel = React.forwardRef(
-    ({ onCheckUpdatesStateChange }: any, ref) => {
-      React.useEffect(() => {
-        onCheckUpdatesStateChange?.({ isChecking: false, hasSkills: true });
-        return () =>
-          onCheckUpdatesStateChange?.({
-            isChecking: false,
-            hasSkills: false,
-          });
-      }, [onCheckUpdatesStateChange]);
-      React.useImperativeHandle(ref, () => ({
-        openDiscovery: skillsPanelMocks.openDiscovery,
-        openImport: vi.fn(),
-        openInstallFromZip: vi.fn(),
-        openRestoreFromBackup: vi.fn(),
-        checkUpdates: skillsPanelMocks.checkUpdates,
-      }));
-      return <div data-testid="unified-skills-panel" />;
-    },
-  );
-  MockUnifiedSkillsPanel.displayName = "MockUnifiedSkillsPanel";
-  return { default: MockUnifiedSkillsPanel };
+  const MockLibrarySkillsPanel = React.forwardRef((_props: any, ref) => {
+    React.useImperativeHandle(ref, () => ({
+      openDiscovery: skillsPanelMocks.openDiscovery,
+      openAcquireFromZip: skillsPanelMocks.openAcquireFromZip,
+    }));
+    return <div data-testid="library-skills-panel" />;
+  });
+  MockLibrarySkillsPanel.displayName = "MockLibrarySkillsPanel";
+  return { LibrarySkillsPanel: MockLibrarySkillsPanel };
 });
 
 vi.mock("@/components/UpdateBadge", () => ({
@@ -191,8 +184,9 @@ describe("App integration with MSW", () => {
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
-    skillsPanelMocks.checkUpdates.mockReset();
+    skillsPanelMocks.openAcquireFromZip.mockReset();
     skillsPanelMocks.openDiscovery.mockReset();
+    platformState.mac = true;
     localStorage.removeItem("cc-switch-last-view");
   });
 
@@ -386,21 +380,21 @@ describe("App integration with MSW", () => {
     liveIdsSpy.mockRestore();
   });
 
-  it("hosts the Skills check-update action in the App toolbar", async () => {
+  it("hosts the Library ZIP acquisition action in the App toolbar", async () => {
     localStorage.setItem("cc-switch-last-view", "skills");
     const { default: App } = await import("@/App");
     renderApp(App);
 
     expect(
-      await screen.findByTestId("unified-skills-panel"),
+      await screen.findByTestId("library-skills-panel"),
     ).toBeInTheDocument();
-    const checkUpdatesButton = await screen.findByRole("button", {
-      name: "skills.checkUpdates",
+    const acquireZipButton = await screen.findByRole("button", {
+      name: "skills.library.acquireZip",
     });
-    await waitFor(() => expect(checkUpdatesButton).toBeEnabled());
+    await waitFor(() => expect(acquireZipButton).toBeEnabled());
 
-    fireEvent.click(checkUpdatesButton);
-    expect(skillsPanelMocks.checkUpdates).toHaveBeenCalledTimes(1);
+    fireEvent.click(acquireZipButton);
+    expect(skillsPanelMocks.openAcquireFromZip).toHaveBeenCalledTimes(1);
   });
 
   it("routes the Skills discover toolbar action through the panel guard", async () => {
@@ -409,7 +403,7 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     expect(
-      await screen.findByTestId("unified-skills-panel"),
+      await screen.findByTestId("library-skills-panel"),
     ).toBeInTheDocument();
     fireEvent.click(
       await screen.findByRole("button", {
@@ -418,6 +412,25 @@ describe("App integration with MSW", () => {
     );
 
     expect(skillsPanelMocks.openDiscovery).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("unified-skills-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("library-skills-panel")).toBeInTheDocument();
+  });
+
+  it("keeps Skills navigation visible and explains the macOS boundary without Library operations", async () => {
+    platformState.mac = false;
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    const skillsNavigation = await screen.findByTitle("skills.manage");
+    fireEvent.click(skillsNavigation);
+
+    expect(
+      await screen.findByText("skills.library.macOnlyTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("library-skills-panel"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.acquireZip" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -7,11 +7,12 @@
 use crate::app_config::{AppType, InstalledSkill, UnmanagedSkill};
 use crate::error::format_skill_error;
 use crate::services::skill::{
-    DiscoverableSkill, ImportSkillSelection, MigrationResult, Skill, SkillBackupEntry, SkillRepo,
-    SkillService, SkillStorageLocation, SkillUninstallResult, SkillUpdateInfo,
-    SkillsShSearchResult,
+    DiscoverableSkill, ImportSkillSelection, LibrarySkill, LibrarySkillAcquisitionService,
+    LibrarySourceKind, MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService,
+    SkillStorageLocation, SkillUninstallResult, SkillUpdateInfo, SkillsShSearchResult,
 };
 use crate::store::AppState;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tauri::State;
@@ -30,6 +31,65 @@ fn parse_app_type(app: &str) -> Result<AppType, String> {
 #[tauri::command]
 pub fn get_installed_skills(app_state: State<'_, AppState>) -> Result<Vec<InstalledSkill>, String> {
     SkillService::get_all_installed(&app_state.db).map_err(|e| e.to_string())
+}
+
+/// List private Library snapshots. This is intentionally separate from the
+/// legacy installed/deployed Skill list.
+#[tauri::command]
+pub fn get_library_skills(app_state: State<'_, AppState>) -> Result<Vec<LibrarySkill>, String> {
+    LibrarySkillAcquisitionService::ensure_supported_platform()
+        .map_err(|error| error.to_string())?;
+    app_state
+        .db
+        .list_library_skills()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn acquire_library_skill(
+    skill: DiscoverableSkill,
+    source_kind: LibrarySourceKind,
+    directory_name: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkill, String> {
+    LibrarySkillAcquisitionService::acquire_discoverable(
+        &app_state.db,
+        &skill,
+        source_kind,
+        directory_name.as_deref(),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn acquire_library_skills_from_zip(
+    file_path: String,
+    directory_names: HashMap<String, String>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<LibrarySkill>, String> {
+    LibrarySkillAcquisitionService::acquire_from_zip(
+        &app_state.db,
+        std::path::Path::new(&file_path),
+        &directory_names,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn update_library_skill_metadata(
+    id: String,
+    display_name: String,
+    description: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkill, String> {
+    LibrarySkillAcquisitionService::update_display_metadata(
+        &app_state.db,
+        &id,
+        &display_name,
+        description.as_deref(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

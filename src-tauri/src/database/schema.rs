@@ -115,6 +115,11 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        // Redesigned macOS Skill Library metadata. Unsupported platforms keep
+        // their legacy schema and data untouched.
+        #[cfg(target_os = "macos")]
+        Self::create_library_skills_table(conn)?;
+
         // 7. Settings 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)",
@@ -510,6 +515,12 @@ impl Database {
                         log::info!("迁移数据库从 v15 到 v16（重建 Codex 会话用量）");
                         Self::migrate_v15_to_v16(conn)?;
                         Self::set_user_version(conn, 16)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    16 => {
+                        log::info!("迁移数据库从 v16 到 v17（添加私有 Skill Library 元数据）");
+                        Self::migrate_v16_to_v17(conn)?;
+                        Self::set_user_version(conn, 17)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1190,6 +1201,39 @@ impl Database {
             )?;
         }
         log::info!("v6 -> v7 迁移完成：已添加 content_hash 和 updated_at 列");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn create_library_skills_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS library_skills (
+                id TEXT PRIMARY KEY,
+                directory TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                display_name TEXT NOT NULL,
+                description TEXT,
+                source_json TEXT NOT NULL,
+                compatibility_json TEXT NOT NULL,
+                content_hash TEXT NOT NULL UNIQUE,
+                acquired_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 library_skills 表失败: {error}")))?;
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_library_skills_content_hash
+             ON library_skills(content_hash)",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 Library 内容索引失败: {error}")))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v16_to_v17(conn: &Connection) -> Result<(), AppError> {
+        Self::create_library_skills_table(conn)?;
+        log::info!("v16 -> v17 迁移完成：已添加私有 Skill Library 元数据");
         Ok(())
     }
 
@@ -3223,7 +3267,7 @@ mod tests {
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
-        assert_eq!(Database::get_user_version(&conn)?, 16);
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
         let counts: (i64, i64, i64, i64) = conn.query_row(
             "SELECT
                 (SELECT COUNT(*) FROM proxy_request_logs WHERE data_source = 'codex_session'),
@@ -3234,6 +3278,33 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )?;
         assert_eq!(counts, (0, 1, 0, 1));
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v16_to_v17_adds_private_library_metadata_without_touching_legacy_skills(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute("DROP TABLE library_skills", [])?;
+        conn.execute(
+            "INSERT INTO skills (id, name, directory, enabled_claude, enabled_codex)
+             VALUES ('legacy', 'Legacy', 'legacy', 1, 0)",
+            [],
+        )?;
+        Database::set_user_version(&conn, 16)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::table_exists(&conn, "library_skills")?);
+        let legacy: (String, i64, i64) = conn.query_row(
+            "SELECT directory, enabled_claude, enabled_codex FROM skills WHERE id = 'legacy'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(legacy, ("legacy".to_string(), 1, 0));
         Ok(())
     }
 }
