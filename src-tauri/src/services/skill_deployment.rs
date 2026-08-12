@@ -18,6 +18,13 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use crate::config::get_home_dir;
 use crate::database::Database;
 #[cfg(target_os = "macos")]
+use crate::error::AppError;
+#[cfg(target_os = "macos")]
+use crate::services::activity::{
+    ActivityActor, ActivityBatchContext, ActivityDetailCode, ActivityEventInput, ActivityOperation,
+    ActivityOutcome, ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
+};
+#[cfg(target_os = "macos")]
 use crate::services::project_workspace::{
     add_git_exclude, project_observation_target_root, project_removal_target_root,
     project_target_root, project_workspace_lifecycle, remove_git_exclude, WorkspaceLifecycle,
@@ -252,6 +259,7 @@ pub enum DeploymentMutationOutcome {
     Blocked,
     StaleObservation,
     Forgotten,
+    RecoveryRequired,
     Error,
 }
 
@@ -274,6 +282,16 @@ pub struct DeploymentBatchResult {
 static DEPLOYMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[cfg(debug_assertions)]
 static FORCE_COMPENSATION_FAILURE: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+struct DeploymentRecoveryRequired {
+    message: String,
+}
+
+fn recovery_required(message: String) -> anyhow::Error {
+    DeploymentRecoveryRequired { message }.into()
+}
 
 pub struct SkillDeploymentService {
     db: Arc<Database>,
@@ -418,10 +436,10 @@ impl SkillDeploymentService {
             return if compensation.is_empty() {
                 Err(error.into())
             } else {
-                Err(anyhow!(
+                Err(recovery_required(format!(
                     "Deployment compensation DB restore failed ({error}); filesystem compensation failed: {}",
                     compensation.join("; ")
-                ))
+                )))
             };
         }
         Ok(DeploymentItemResult {
@@ -546,26 +564,73 @@ impl SkillDeploymentService {
 
     pub fn apply(&self, batch: DeploymentBatch) -> Result<DeploymentBatchResult> {
         Self::ensure_supported_platform()?;
+        let item_count = u32::try_from(batch.intents.len())
+            .map_err(|_| anyhow!("Deployment batch is too large"))?;
+        let batch_id = (item_count > 1).then(|| uuid::Uuid::new_v4().to_string());
         let mut seen = HashSet::new();
-        for intent in &batch.intents {
+        for (index, intent) in batch.intents.iter().enumerate() {
             if !seen.insert(intent.key().to_owned()) {
+                #[cfg(target_os = "macos")]
+                self.record_deployment_activity(
+                    intent,
+                    ActivityOutcome::Failed,
+                    ActivityDetailCode::DuplicateKey,
+                    self.existing_deployment_id(intent),
+                    Self::batch_context(batch_id.as_deref(), index, item_count),
+                );
                 return Err(anyhow!(
                     "duplicate Deployment key in batch: {}",
                     intent.key().0
                 ));
             }
-            Self::validate_target(intent.key().1)?;
+            if let Err(error) = Self::validate_target(intent.key().1) {
+                #[cfg(target_os = "macos")]
+                self.record_deployment_activity(
+                    intent,
+                    ActivityOutcome::Failed,
+                    ActivityDetailCode::InvalidInput,
+                    self.existing_deployment_id(intent),
+                    Self::batch_context(batch_id.as_deref(), index, item_count),
+                );
+                return Err(error);
+            }
         }
 
         let lock = DEPLOYMENT_LOCK.get_or_init(|| Mutex::new(()));
         let _guard = lock.lock().map_err(|error| anyhow!(error.to_string()))?;
         let mut items = Vec::with_capacity(batch.intents.len());
-        for intent in batch.intents {
+        for (index, intent) in batch.intents.into_iter().enumerate() {
             let (library_skill_id, target) = intent.key();
+            #[cfg(target_os = "macos")]
+            let deployment_id = self.existing_deployment_id(&intent);
             let result = self.apply_one(&intent);
             match result {
-                Ok(item) => items.push(item),
+                Ok(item) => {
+                    #[cfg(target_os = "macos")]
+                    {
+                        let (outcome, detail) = self.activity_for_result(&item);
+                        let deployment_id = deployment_id.or_else(|| {
+                            self.db
+                                .get_skill_deployment(library_skill_id, target)
+                                .ok()
+                                .flatten()
+                                .map(|desired| desired.id)
+                        });
+                        self.record_deployment_activity(
+                            &intent,
+                            outcome,
+                            detail,
+                            deployment_id,
+                            Self::batch_context(batch_id.as_deref(), index, item_count),
+                        );
+                    }
+                    items.push(item);
+                }
                 Err(error) => {
+                    let recovery_required =
+                        error.downcast_ref::<DeploymentRecoveryRequired>().is_some();
+                    #[cfg(target_os = "macos")]
+                    let detail = Self::activity_detail_for_error(&error, recovery_required);
                     let inspection = self
                         .inspect(DeploymentQuery {
                             consumer: Some(target.consumer),
@@ -578,14 +643,237 @@ impl SkillDeploymentService {
                     items.push(DeploymentItemResult {
                         library_skill_id: library_skill_id.to_string(),
                         target: target.clone(),
-                        outcome: DeploymentMutationOutcome::Error,
+                        outcome: if recovery_required {
+                            DeploymentMutationOutcome::RecoveryRequired
+                        } else {
+                            DeploymentMutationOutcome::Error
+                        },
                         message: Some(error.to_string()),
                         inspection,
                     });
+                    #[cfg(target_os = "macos")]
+                    self.record_deployment_activity(
+                        &intent,
+                        if recovery_required {
+                            ActivityOutcome::CompensationFailed
+                        } else {
+                            ActivityOutcome::Failed
+                        },
+                        detail,
+                        deployment_id,
+                        Self::batch_context(batch_id.as_deref(), index, item_count),
+                    );
                 }
             }
         }
         Ok(DeploymentBatchResult { items })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn batch_context(
+        batch_id: Option<&str>,
+        index: usize,
+        item_count: u32,
+    ) -> Option<ActivityBatchContext> {
+        batch_id.map(|batch_id| ActivityBatchContext {
+            batch_id: batch_id.to_string(),
+            item_index: index as u32,
+            item_count,
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn existing_deployment_id(&self, intent: &DeploymentIntent) -> Option<String> {
+        let (library_skill_id, target) = intent.key();
+        self.db
+            .get_skill_deployment(library_skill_id, target)
+            .ok()
+            .flatten()
+            .map(|desired| desired.id)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn activity_for_result(
+        &self,
+        item: &DeploymentItemResult,
+    ) -> (ActivityOutcome, ActivityDetailCode) {
+        match item.outcome {
+            DeploymentMutationOutcome::Applied
+            | DeploymentMutationOutcome::Replaced
+            | DeploymentMutationOutcome::Removed
+            | DeploymentMutationOutcome::Forgotten => {
+                (ActivityOutcome::Success, ActivityDetailCode::None)
+            }
+            DeploymentMutationOutcome::AlreadyInSync => {
+                (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync)
+            }
+            DeploymentMutationOutcome::AlreadyAbsent => {
+                (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyAbsent)
+            }
+            DeploymentMutationOutcome::Conflict => (
+                ActivityOutcome::Conflict,
+                ActivityDetailCode::TargetConflict,
+            ),
+            DeploymentMutationOutcome::Drift => {
+                (ActivityOutcome::Blocked, ActivityDetailCode::Drift)
+            }
+            DeploymentMutationOutcome::StaleObservation => (
+                ActivityOutcome::Blocked,
+                ActivityDetailCode::StaleObservation,
+            ),
+            DeploymentMutationOutcome::Blocked => {
+                let detail = item
+                    .inspection
+                    .as_ref()
+                    .map(|inspection| match inspection.observed.state {
+                        ObservedDeploymentState::LibraryMissing => {
+                            ActivityDetailCode::MissingLibrary
+                        }
+                        ObservedDeploymentState::OccupiedDirectory
+                        | ObservedDeploymentState::OccupiedFile
+                        | ObservedDeploymentState::RedirectedLink
+                        | ObservedDeploymentState::InvalidTargetRoot => {
+                            ActivityDetailCode::TargetConflict
+                        }
+                        _ => ActivityDetailCode::ValidationFailure,
+                    })
+                    .unwrap_or_else(|| {
+                        if item.target.workspace == WorkspaceKind::Project {
+                            match project_workspace_lifecycle(&self.db, &item.target.workspace_id) {
+                                Ok(WorkspaceLifecycle::Archived) => {
+                                    ActivityDetailCode::ArchivedWorkspace
+                                }
+                                Ok(WorkspaceLifecycle::Unavailable) => {
+                                    ActivityDetailCode::UnavailableWorkspace
+                                }
+                                _ => ActivityDetailCode::ValidationFailure,
+                            }
+                        } else {
+                            ActivityDetailCode::ValidationFailure
+                        }
+                    });
+                (ActivityOutcome::Blocked, detail)
+            }
+            DeploymentMutationOutcome::RecoveryRequired => (
+                ActivityOutcome::CompensationFailed,
+                ActivityDetailCode::CompensationFailure,
+            ),
+            DeploymentMutationOutcome::Error => (
+                ActivityOutcome::Failed,
+                ActivityDetailCode::FilesystemFailure,
+            ),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn activity_detail_for_error(
+        error: &anyhow::Error,
+        recovery_required: bool,
+    ) -> ActivityDetailCode {
+        if recovery_required {
+            return ActivityDetailCode::CompensationFailure;
+        }
+        if let Some(error) = error.downcast_ref::<AppError>() {
+            return match error {
+                AppError::Database(_) => ActivityDetailCode::DatabaseFailure,
+                AppError::InvalidInput(_) | AppError::Config(_) => ActivityDetailCode::InvalidInput,
+                AppError::Io { .. } | AppError::IoContext { .. } => {
+                    ActivityDetailCode::FilesystemFailure
+                }
+                _ => ActivityDetailCode::FilesystemFailure,
+            };
+        }
+        ActivityDetailCode::FilesystemFailure
+    }
+
+    #[cfg(target_os = "macos")]
+    fn record_deployment_activity(
+        &self,
+        intent: &DeploymentIntent,
+        outcome: ActivityOutcome,
+        detail_code: ActivityDetailCode,
+        deployment_id: Option<String>,
+        batch: Option<ActivityBatchContext>,
+    ) {
+        let (operation, reason) = match intent {
+            DeploymentIntent::Deploy { .. } => {
+                (ActivityOperation::Deployment, ActivityReason::Deploy)
+            }
+            DeploymentIntent::Repair { .. } => (ActivityOperation::Repair, ActivityReason::Repair),
+            DeploymentIntent::ReplaceForeignLink { .. } => (
+                ActivityOperation::Deployment,
+                ActivityReason::ReplaceForeignLink,
+            ),
+            DeploymentIntent::Undeploy { .. } => {
+                (ActivityOperation::Removal, ActivityReason::Undeploy)
+            }
+            DeploymentIntent::Forget { .. } => {
+                (ActivityOperation::Forget, ActivityReason::DeploymentForget)
+            }
+        };
+        let (library_skill_id, target) = intent.key();
+        ActivityRecorder::new(self.db.clone()).record_best_effort(ActivityEventInput {
+            operation,
+            reason,
+            outcome,
+            actor: ActivityActor::User,
+            trigger: if batch.is_some() {
+                ActivityTrigger::Batch
+            } else {
+                ActivityTrigger::Command
+            },
+            target: ActivityTarget {
+                library_skill_id: Some(library_skill_id.to_string()),
+                workspace_id: (target.workspace == WorkspaceKind::Project)
+                    .then(|| target.workspace_id.clone()),
+                deployment_id,
+                consumer: Some(target.consumer),
+                workspace_kind: Some(target.workspace),
+            },
+            batch,
+            detail_code,
+        });
+    }
+
+    /// Composite primitives remain silent; their owning top-level workflow
+    /// calls this once with the exact typed item it received.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn record_composite_activity(
+        &self,
+        intent: &DeploymentIntent,
+        result: &Result<DeploymentItemResult>,
+    ) {
+        match result {
+            Ok(item) => {
+                let (outcome, detail_code) = self.activity_for_result(item);
+                self.record_deployment_activity(
+                    intent,
+                    outcome,
+                    detail_code,
+                    item.inspection
+                        .as_ref()
+                        .and_then(|inspection| inspection.desired.as_ref())
+                        .map(|desired| desired.id.clone())
+                        .or_else(|| self.existing_deployment_id(intent)),
+                    None,
+                );
+            }
+            Err(error) => {
+                let recovery_required =
+                    error.downcast_ref::<DeploymentRecoveryRequired>().is_some();
+                self.record_deployment_activity(
+                    intent,
+                    if recovery_required {
+                        ActivityOutcome::CompensationFailed
+                    } else {
+                        ActivityOutcome::Failed
+                    },
+                    Self::activity_detail_for_error(error, recovery_required),
+                    self.existing_deployment_id(intent),
+                    None,
+                );
+            }
+        }
     }
 
     fn apply_one(&self, intent: &DeploymentIntent) -> Result<DeploymentItemResult> {
@@ -709,9 +997,9 @@ impl SkillDeploymentService {
                 Err(error) => {
                     return match Self::compensate_remove_file(&target_path) {
                         Ok(()) => Err(error),
-                        Err(compensation_error) => Err(anyhow!(
+                        Err(compensation_error) => Err(recovery_required(format!(
                             "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
-                        )),
+                        ))),
                     };
                 }
             }
@@ -736,15 +1024,15 @@ impl SkillDeploymentService {
                     .map(|path| remove_git_exclude(path, target.consumer, &skill.directory));
                 let rollback = Self::compensate_remove_file(&target_path);
                 if let Err(rollback_error) = rollback {
-                    return Err(anyhow!(
+                    return Err(recovery_required(format!(
                         "database save failed ({error}); filesystem compensation failed ({rollback_error})"
-                    ));
+                    )));
                 }
                 #[cfg(target_os = "macos")]
                 if let Some(Err(rollback_error)) = exclude_rollback {
-                    return Err(anyhow!(
+                    return Err(recovery_required(format!(
                         "database save failed ({error}); Git exclude compensation failed ({rollback_error})"
-                    ));
+                    )));
                 }
                 return Err(error.into());
             }
@@ -846,9 +1134,9 @@ impl SkillDeploymentService {
             if let Err(error) = add_git_exclude(project_root, target.consumer, &skill.directory) {
                 return match Self::compensate_remove_file(&target_path) {
                     Ok(()) => Err(error),
-                    Err(compensation_error) => Err(anyhow!(
+                    Err(compensation_error) => Err(recovery_required(format!(
                         "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
-                    )),
+                    ))),
                 };
             }
         }
@@ -943,9 +1231,9 @@ impl SkillDeploymentService {
         if let Err(error) = std::os::unix::fs::symlink(&expected, &target_path) {
             return match Self::compensate_symlink(&old_target, &target_path) {
                 Ok(()) => Err(error.into()),
-                Err(compensation_error) => Err(anyhow!(
+                Err(compensation_error) => Err(recovery_required(format!(
                     "replacement link creation failed ({error}); foreign-link compensation failed ({compensation_error})"
-                )),
+                ))),
             };
         }
         #[cfg(not(unix))]
@@ -962,9 +1250,9 @@ impl SkillDeploymentService {
                     .and_then(|()| Self::compensate_symlink(&old_target, &target_path));
                 return match rollback {
                     Ok(()) => Err(error),
-                    Err(compensation_error) => Err(anyhow!(
+                    Err(compensation_error) => Err(recovery_required(format!(
                         "Git exclude update failed ({error}); foreign-link compensation failed ({compensation_error})"
-                    )),
+                    ))),
                 };
             }
         }
@@ -1090,9 +1378,9 @@ impl SkillDeploymentService {
                         #[cfg(unix)]
                         return match Self::compensate_symlink(&expected, &target_path) {
                             Ok(()) => Err(error),
-                            Err(compensation_error) => Err(anyhow!(
+                            Err(compensation_error) => Err(recovery_required(format!(
                                 "Git exclude removal failed ({error}); filesystem compensation failed ({compensation_error})"
-                            )),
+                            ))),
                         };
                         #[cfg(not(unix))]
                         return Err(error);
@@ -1111,9 +1399,9 @@ impl SkillDeploymentService {
             let compensation: std::io::Result<()> =
                 Err(std::io::Error::other("symbolic links unsupported"));
             if let Err(compensation_error) = compensation {
-                return Err(anyhow!(
+                return Err(recovery_required(format!(
                     "database deletion failed ({error}); filesystem compensation failed ({compensation_error})"
-                ));
+                )));
             }
             #[cfg(target_os = "macos")]
             if let Some(path) = git_exclude_path {
@@ -1124,9 +1412,9 @@ impl SkillDeploymentService {
                     target.consumer,
                     &desired.library_directory,
                 ) {
-                    return Err(anyhow!(
+                    return Err(recovery_required(format!(
                         "database deletion failed ({error}); Git exclude compensation failed ({compensation_error})"
-                    ));
+                    )));
                 }
                 let _ = path;
             }

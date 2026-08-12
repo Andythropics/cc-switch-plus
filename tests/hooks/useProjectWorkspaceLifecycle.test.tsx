@@ -93,6 +93,9 @@ describe("Project Workspace lifecycle hooks", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "deployments"],
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "activity"],
+    });
   });
 
   it("uses the archive mutation without implying project deletion", async () => {
@@ -157,6 +160,9 @@ describe("Project Workspace lifecycle hooks", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "deployments"],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "activity"],
     });
   });
 });

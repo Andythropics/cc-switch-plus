@@ -568,6 +568,43 @@ describe("LibrarySkillsPanel", () => {
     );
   });
 
+  it("surfaces recovery_required as a typed destructive single-target outcome", async () => {
+    deploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-recovery" },
+        observed: { state: "missing" },
+        observationToken: "observation-recovery",
+      },
+    ];
+    applyDeploymentsMock.mockResolvedValueOnce({
+      items: [
+        {
+          outcome: "recovery_required",
+          message: "preserve backup",
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole("button", {
+        name: "skills.library.undeployClaude",
+      })[0],
+    );
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        expect.stringContaining("skills.batch.outcome.recovery_required"),
+      ),
+    );
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("preserve backup"),
+    );
+  });
+
   it("labels Forget as database accounting only and confirms before sending it", async () => {
     deploymentStateMock.items = [
       {

@@ -15,12 +15,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::database::Database;
+use crate::error::AppError;
+use crate::services::activity::{
+    ActivityActor, ActivityBatchContext, ActivityDetailCode, ActivityEventInput, ActivityOperation,
+    ActivityOutcome, ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
+};
 use crate::services::skill::{
     LibrarySkill, LibrarySkillAcquisitionService, LibrarySkillCompatibility, LibrarySourceKind,
 };
 use crate::services::skill_deployment::{
     DeploymentInspection, DeploymentItemResult, DeploymentMutationOutcome, DeploymentQuery,
-    DesiredDeployment, SkillDeploymentService,
+    DeploymentTarget, DesiredDeployment, SkillDeploymentService,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -381,6 +386,16 @@ impl LibrarySkillUpdateService {
     /// Apply a previously staged snapshot.  The Library lock is acquired
     /// before the Deployment lock, matching acquisition/import composition.
     pub fn apply(
+        db: &Arc<Database>,
+        intent: LibrarySkillUpdateApplyIntent,
+    ) -> Result<LibrarySkillUpdateResult> {
+        let library_skill_id = intent.library_skill_id.clone();
+        let result = Self::apply_inner(db, intent);
+        Self::record_update_activity(db, &library_skill_id, &result);
+        result
+    }
+
+    fn apply_inner(
         db: &Arc<Database>,
         intent: LibrarySkillUpdateApplyIntent,
     ) -> Result<LibrarySkillUpdateResult> {
@@ -894,6 +909,16 @@ impl LibrarySkillUpdateService {
         db: &Arc<Database>,
         intent: LibrarySkillDeletionIntent,
     ) -> Result<LibrarySkillDeletionResult> {
+        let library_skill_id = intent.library_skill_id.clone();
+        let result = Self::delete_inner(db, intent);
+        Self::record_deletion_activity(db, &library_skill_id, &result);
+        result
+    }
+
+    fn delete_inner(
+        db: &Arc<Database>,
+        intent: LibrarySkillDeletionIntent,
+    ) -> Result<LibrarySkillDeletionResult> {
         LibrarySkillAcquisitionService::ensure_supported_platform()?;
         let _library_guard = LibrarySkillAcquisitionService::lock_for_composite()?;
         let _deployment_guard = SkillDeploymentService::lock_for_composite()?;
@@ -1227,6 +1252,232 @@ impl LibrarySkillUpdateService {
         }
     }
 
+    fn record_update_activity(
+        db: &Arc<Database>,
+        library_skill_id: &str,
+        result: &Result<LibrarySkillUpdateResult>,
+    ) {
+        let (outcome, detail_code) = match result {
+            Ok(result) => match result.outcome {
+                LibrarySkillUpdateApplyOutcome::Updated => {
+                    (ActivityOutcome::Success, ActivityDetailCode::None)
+                }
+                LibrarySkillUpdateApplyOutcome::UpToDate => {
+                    (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync)
+                }
+                LibrarySkillUpdateApplyOutcome::Blocked => (
+                    ActivityOutcome::Blocked,
+                    Self::update_reason_detail(result.reason.as_ref()),
+                ),
+                LibrarySkillUpdateApplyOutcome::Stale => (
+                    ActivityOutcome::Blocked,
+                    ActivityDetailCode::StaleObservation,
+                ),
+                LibrarySkillUpdateApplyOutcome::RolledBack => (
+                    ActivityOutcome::RolledBack,
+                    ActivityDetailCode::FilesystemFailure,
+                ),
+                LibrarySkillUpdateApplyOutcome::RecoveryRequired => (
+                    ActivityOutcome::CompensationFailed,
+                    ActivityDetailCode::CompensationFailure,
+                ),
+            },
+            Err(error) => (
+                ActivityOutcome::Failed,
+                Self::activity_detail_for_error(error),
+            ),
+        };
+        Self::record_activity(
+            db,
+            ActivityOperation::Library,
+            ActivityReason::Update,
+            outcome,
+            detail_code,
+            library_skill_id,
+            None,
+            None,
+            None,
+        );
+    }
+
+    fn record_deletion_activity(
+        db: &Arc<Database>,
+        library_skill_id: &str,
+        result: &Result<LibrarySkillDeletionResult>,
+    ) {
+        if let Ok(result) = result {
+            let item_count = result.items.len() as u32;
+            let batch_id = (item_count > 0).then(|| uuid::Uuid::new_v4().to_string());
+            for (index, item) in result.items.iter().enumerate() {
+                let (outcome, detail_code) = match item.outcome {
+                    DeploymentMutationOutcome::Removed => {
+                        (ActivityOutcome::Success, ActivityDetailCode::None)
+                    }
+                    DeploymentMutationOutcome::AlreadyAbsent => {
+                        (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyAbsent)
+                    }
+                    DeploymentMutationOutcome::Blocked => (
+                        ActivityOutcome::Blocked,
+                        ActivityDetailCode::ValidationFailure,
+                    ),
+                    DeploymentMutationOutcome::Conflict => (
+                        ActivityOutcome::Conflict,
+                        ActivityDetailCode::TargetConflict,
+                    ),
+                    DeploymentMutationOutcome::Drift => {
+                        (ActivityOutcome::Blocked, ActivityDetailCode::Drift)
+                    }
+                    DeploymentMutationOutcome::StaleObservation => (
+                        ActivityOutcome::Blocked,
+                        ActivityDetailCode::StaleObservation,
+                    ),
+                    DeploymentMutationOutcome::RecoveryRequired => (
+                        ActivityOutcome::CompensationFailed,
+                        ActivityDetailCode::CompensationFailure,
+                    ),
+                    DeploymentMutationOutcome::Error => (
+                        ActivityOutcome::Failed,
+                        ActivityDetailCode::FilesystemFailure,
+                    ),
+                    DeploymentMutationOutcome::Applied
+                    | DeploymentMutationOutcome::Replaced
+                    | DeploymentMutationOutcome::Forgotten => {
+                        (ActivityOutcome::Success, ActivityDetailCode::None)
+                    }
+                    DeploymentMutationOutcome::AlreadyInSync => {
+                        (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync)
+                    }
+                };
+                Self::record_activity(
+                    db,
+                    ActivityOperation::Removal,
+                    ActivityReason::DeploymentRemove,
+                    outcome,
+                    detail_code,
+                    library_skill_id,
+                    Some(&item.target),
+                    item.inspection
+                        .as_ref()
+                        .and_then(|inspection| inspection.desired.as_ref())
+                        .map(|desired| desired.id.clone()),
+                    batch_id.as_ref().map(|batch_id| ActivityBatchContext {
+                        batch_id: batch_id.clone(),
+                        item_index: index as u32,
+                        item_count,
+                    }),
+                );
+            }
+        }
+        let (outcome, detail_code) = match result {
+            Ok(result) => match result.outcome {
+                LibrarySkillDeletionOutcome::Deleted => {
+                    (ActivityOutcome::Success, ActivityDetailCode::None)
+                }
+                LibrarySkillDeletionOutcome::Blocked => {
+                    (ActivityOutcome::Blocked, ActivityDetailCode::Drift)
+                }
+                LibrarySkillDeletionOutcome::Stale => (
+                    ActivityOutcome::Blocked,
+                    ActivityDetailCode::StaleObservation,
+                ),
+                LibrarySkillDeletionOutcome::RolledBack => (
+                    ActivityOutcome::RolledBack,
+                    ActivityDetailCode::FilesystemFailure,
+                ),
+                LibrarySkillDeletionOutcome::RecoveryRequired => (
+                    ActivityOutcome::CompensationFailed,
+                    ActivityDetailCode::CompensationFailure,
+                ),
+            },
+            Err(error) => (
+                ActivityOutcome::Failed,
+                Self::activity_detail_for_error(error),
+            ),
+        };
+        Self::record_activity(
+            db,
+            ActivityOperation::Removal,
+            ActivityReason::LibraryRemove,
+            outcome,
+            detail_code,
+            library_skill_id,
+            None,
+            None,
+            None,
+        );
+    }
+
+    fn update_reason_detail(reason: Option<&LibrarySkillUpdateReason>) -> ActivityDetailCode {
+        match reason {
+            Some(LibrarySkillUpdateReason::StaleObservation) => {
+                ActivityDetailCode::StaleObservation
+            }
+            Some(LibrarySkillUpdateReason::DuplicateContent) => ActivityDetailCode::DuplicateKey,
+            Some(LibrarySkillUpdateReason::MissingStage) => ActivityDetailCode::InvalidInput,
+            Some(LibrarySkillUpdateReason::CompensationFailed) => {
+                ActivityDetailCode::CompensationFailure
+            }
+            _ => ActivityDetailCode::ValidationFailure,
+        }
+    }
+
+    fn activity_detail_for_error(error: &anyhow::Error) -> ActivityDetailCode {
+        for source in error.chain() {
+            if let Some(error) = source.downcast_ref::<AppError>() {
+                return match error {
+                    AppError::Database(_) => ActivityDetailCode::DatabaseFailure,
+                    AppError::InvalidInput(_) | AppError::Config(_) => {
+                        ActivityDetailCode::InvalidInput
+                    }
+                    AppError::Io { .. } | AppError::IoContext { .. } => {
+                        ActivityDetailCode::FilesystemFailure
+                    }
+                    _ => ActivityDetailCode::ValidationFailure,
+                };
+            }
+            if source.downcast_ref::<std::io::Error>().is_some() {
+                return ActivityDetailCode::FilesystemFailure;
+            }
+        }
+        ActivityDetailCode::ValidationFailure
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_activity(
+        db: &Arc<Database>,
+        operation: ActivityOperation,
+        reason: ActivityReason,
+        outcome: ActivityOutcome,
+        detail_code: ActivityDetailCode,
+        library_skill_id: &str,
+        deployment_target: Option<&DeploymentTarget>,
+        deployment_id: Option<String>,
+        batch: Option<ActivityBatchContext>,
+    ) {
+        ActivityRecorder::new(db.clone()).record_best_effort(ActivityEventInput {
+            operation,
+            reason,
+            outcome,
+            actor: ActivityActor::User,
+            trigger: if batch.is_some() {
+                ActivityTrigger::Batch
+            } else {
+                ActivityTrigger::Command
+            },
+            target: ActivityTarget {
+                library_skill_id: Some(library_skill_id.to_string()),
+                workspace_id: deployment_target
+                    .filter(|target| !target.workspace_id.is_empty())
+                    .map(|target| target.workspace_id.clone()),
+                deployment_id,
+                consumer: deployment_target.map(|target| target.consumer),
+                workspace_kind: deployment_target.map(|target| target.workspace),
+            },
+            batch,
+            detail_code,
+        });
+    }
+
     fn deletion_observation_token(
         skill: &LibrarySkill,
         live_hash: Option<&str>,
@@ -1486,7 +1737,19 @@ impl LibrarySkillUpdateService {
 
 #[cfg(test)]
 mod tests {
-    use super::LibrarySkillUpdateService;
+    use super::{
+        LibrarySkillDeletionOutcome, LibrarySkillDeletionResult, LibrarySkillUpdateService,
+    };
+    use crate::database::Database;
+    use crate::services::activity::{
+        ActivityDetailCode, ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason,
+        ActivityRecorder,
+    };
+    use crate::services::skill_deployment::{
+        DeploymentConsumer, DeploymentItemResult, DeploymentMutationOutcome, DeploymentTarget,
+        WorkspaceKind,
+    };
+    use std::sync::Arc;
 
     #[test]
     fn compatibility_preflight_blocks_when_any_desired_target_regresses() {
@@ -1498,5 +1761,66 @@ mod tests {
         assert!(LibrarySkillUpdateService::has_compatibility_regression(
             regressed
         ));
+    }
+
+    #[test]
+    fn deletion_children_keep_semantic_no_ops_and_project_target_identity() {
+        let db = Arc::new(Database::memory().expect("create activity database"));
+        let target = DeploymentTarget {
+            consumer: DeploymentConsumer::Codex,
+            workspace: WorkspaceKind::Project,
+            workspace_id: "workspace-a".to_string(),
+        };
+        let item = |outcome| DeploymentItemResult {
+            library_skill_id: "skill-a".to_string(),
+            target: target.clone(),
+            outcome,
+            message: None,
+            inspection: None,
+        };
+        let result: anyhow::Result<LibrarySkillDeletionResult> = Ok(LibrarySkillDeletionResult {
+            outcome: LibrarySkillDeletionOutcome::Blocked,
+            library_skill_id: "skill-a".to_string(),
+            items: vec![
+                item(DeploymentMutationOutcome::AlreadyAbsent),
+                item(DeploymentMutationOutcome::AlreadyInSync),
+                item(DeploymentMutationOutcome::Forgotten),
+            ],
+            backup_path: None,
+            message: None,
+        });
+
+        LibrarySkillUpdateService::record_deletion_activity(&db, "skill-a", &result);
+
+        let page = ActivityRecorder::new(db)
+            .list(ActivityQuery {
+                operation: Some(ActivityOperation::Removal),
+                reason: Some(ActivityReason::DeploymentRemove),
+                ..ActivityQuery::default()
+            })
+            .expect("list deletion child activity");
+        assert_eq!(page.entries.len(), 3);
+        for entry in &page.entries {
+            assert_eq!(entry.target.consumer, Some(DeploymentConsumer::Codex));
+            assert_eq!(entry.target.workspace_kind, Some(WorkspaceKind::Project));
+            assert_eq!(entry.target.workspace_id.as_deref(), Some("workspace-a"));
+        }
+        let by_index = |index| {
+            page.entries
+                .iter()
+                .find(|entry| {
+                    entry
+                        .batch
+                        .as_ref()
+                        .is_some_and(|batch| batch.item_index == index)
+                })
+                .expect("batch child by index")
+        };
+        assert_eq!(by_index(0).outcome, ActivityOutcome::NoOp);
+        assert_eq!(by_index(0).detail_code, ActivityDetailCode::AlreadyAbsent);
+        assert_eq!(by_index(1).outcome, ActivityOutcome::NoOp);
+        assert_eq!(by_index(1).detail_code, ActivityDetailCode::AlreadyInSync);
+        assert_eq!(by_index(2).outcome, ActivityOutcome::Success);
+        assert_eq!(by_index(2).detail_code, ActivityDetailCode::None);
     }
 }

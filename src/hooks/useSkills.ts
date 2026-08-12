@@ -1,9 +1,11 @@
 import { useCallback, useEffect } from "react";
 import {
   useMutation,
+  useInfiniteQuery,
   useQuery,
   useQueryClient,
   keepPreviousData,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import {
   skillsApi,
@@ -23,6 +25,9 @@ import {
   type LibrarySkillUpdateCheckResult,
   type LibrarySkillUpdateIntent,
   type LibrarySkillUpdateResult,
+  type SkillActivityCursor,
+  type SkillActivityPage,
+  type SkillActivityQuery,
   type SkillUpdateInfo,
   type SkillsShSearchResult,
 } from "@/lib/api/skills";
@@ -87,6 +92,33 @@ export function useSkillDeployments(query?: DeploymentQuery) {
   return deploymentQuery;
 }
 
+/** Redacted, device-local activity entries in backend-provided newest-first order. */
+export function useSkillActivity(query?: Omit<SkillActivityQuery, "cursor">) {
+  const activityQuery = useInfiniteQuery<
+    SkillActivityPage,
+    Error,
+    InfiniteData<SkillActivityPage>,
+    [string, string, Omit<SkillActivityQuery, "cursor">],
+    SkillActivityCursor | undefined
+  >({
+    queryKey: ["skills", "activity", query ?? {}],
+    queryFn: ({ pageParam }) =>
+      skillsApi.listActivity(
+        pageParam === undefined ? query : { ...query, cursor: pageParam },
+      ),
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore ? (lastPage.nextCursor ?? undefined) : undefined,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  return {
+    ...activityQuery,
+    entries: activityQuery.data?.pages.flatMap((page) => page.entries) ?? [],
+  };
+}
+
 /** Reconcile every mounted Global or Project Deployment observation. */
 export function useRefreshSkillDeployments() {
   const queryClient = useQueryClient();
@@ -105,7 +137,10 @@ export function useApplySkillDeployments() {
   return useMutation<DeploymentBatchResult, Error, DeploymentBatch>({
     mutationFn: (batch) => skillsApi.applyDeployments(batch),
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+      ]),
   });
 }
 
@@ -144,6 +179,7 @@ export function useApplyProjectSkillImport() {
           queryClient.invalidateQueries({
             queryKey: ["skills", "deployments"],
           }),
+          queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
         ]),
     },
   );
@@ -165,9 +201,12 @@ export function useRegisterProjectWorkspace() {
     mutationFn: ({ path, displayName }) =>
       projectWorkspacesApi.register(path, displayName),
     onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["skills", "projectWorkspaces"],
-      }),
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "projectWorkspaces"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+      ]),
   });
 }
 
@@ -185,6 +224,7 @@ function useProjectWorkspaceMutation<TVariables, TResult>(
           queryKey: ["skills", "projectWorkspaces"],
         }),
         queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
       ]),
   });
 }
@@ -248,7 +288,10 @@ export function useAcquireLibrarySkill() {
       );
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+      ]),
   });
 }
 
@@ -263,7 +306,10 @@ export function useAcquireLibrarySkillsFromZip() {
       directoryNames?: Record<string, string>;
     }) => skillsApi.acquireLibraryFromZip(filePath, directoryNames),
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+      ]),
   });
 }
 
@@ -287,7 +333,10 @@ export function useUpdateLibrarySkillMetadata() {
       );
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+      ]),
   });
 }
 
@@ -321,6 +370,7 @@ export function useApplyLibrarySkillUpdate() {
           queryClient.invalidateQueries({
             queryKey: ["skills", "libraryUpdate", intent.librarySkillId],
           }),
+          queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
         ]),
     },
   );
@@ -350,6 +400,7 @@ export function useDeleteLibrarySkill() {
         queryClient.invalidateQueries({
           queryKey: ["skills", "libraryUpdate", intent.librarySkillId],
         }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
       ]),
   });
 }

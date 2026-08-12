@@ -15,6 +15,11 @@ use std::process::Command;
 use std::sync::Arc;
 
 use crate::database::Database;
+use crate::error::AppError;
+use crate::services::activity::{
+    ActivityActor, ActivityDetailCode, ActivityEventInput, ActivityOperation, ActivityOutcome,
+    ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
+};
 use crate::services::skill_deployment::DeploymentConsumer;
 use sha2::{Digest, Sha256};
 
@@ -102,6 +107,38 @@ pub struct ProjectWorkspaceService {
     db: Arc<Database>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum WorkspaceActivityFailureKind {
+    Blocked,
+    Conflict,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+struct WorkspaceActivityFailure {
+    kind: WorkspaceActivityFailureKind,
+    detail: ActivityDetailCode,
+    message: String,
+}
+
+fn workspace_blocked(message: impl Into<String>, detail: ActivityDetailCode) -> anyhow::Error {
+    WorkspaceActivityFailure {
+        kind: WorkspaceActivityFailureKind::Blocked,
+        detail,
+        message: message.into(),
+    }
+    .into()
+}
+
+fn workspace_conflict(message: impl Into<String>, detail: ActivityDetailCode) -> anyhow::Error {
+    WorkspaceActivityFailure {
+        kind: WorkspaceActivityFailureKind::Conflict,
+        detail,
+        message: message.into(),
+    }
+    .into()
+}
+
 impl ProjectWorkspaceService {
     pub fn new(db: Arc<Database>) -> Self {
         Self { db }
@@ -119,9 +156,17 @@ impl ProjectWorkspaceService {
         selected_path: &Path,
         display_name: Option<String>,
     ) -> Result<WorkspaceRegistration> {
-        Self::ensure_supported_platform()?;
-        let scan = Self::scan_path(selected_path)?;
-        self.register_scan(scan, display_name)
+        let result = (|| {
+            Self::ensure_supported_platform()?;
+            let scan = Self::scan_path(selected_path)?;
+            self.register_scan(scan, display_name)
+        })();
+        let workspace_id = result
+            .as_ref()
+            .ok()
+            .map(|registration| registration.workspace.id.clone());
+        self.record_workspace_result(ActivityReason::Register, workspace_id, &result);
+        result
     }
 
     fn register_scan(
@@ -133,17 +178,23 @@ impl ProjectWorkspaceService {
         let registration_fingerprint = registration_fingerprint_for_root(root, scan.root_kind)?;
         for existing in self.db.list_project_workspaces()? {
             if paths_overlap(&existing.root_path, root) {
-                return Err(anyhow!(
-                    "Project Workspace overlaps registered root {}",
-                    existing.root_path.display()
+                return Err(workspace_conflict(
+                    format!(
+                        "Project Workspace overlaps registered root {}",
+                        existing.root_path.display()
+                    ),
+                    ActivityDetailCode::TargetConflict,
                 ));
             }
             if !existing.registration_fingerprint.is_empty()
                 && existing.registration_fingerprint == registration_fingerprint
             {
-                return Err(anyhow!(
-                    "Project Workspace identity is already registered at {}; use Relocate or Restore",
-                    existing.root_path.display()
+                return Err(workspace_conflict(
+                    format!(
+                        "Project Workspace identity is already registered at {}; use Relocate or Restore",
+                        existing.root_path.display()
+                    ),
+                    ActivityDetailCode::DuplicateKey,
                 ));
             }
         }
@@ -198,63 +249,79 @@ impl ProjectWorkspaceService {
     /// Rename a Workspace display label without changing its physical
     /// identity or any project content.
     pub fn rename(&self, id: &str, display_name: String) -> Result<ProjectWorkspace> {
-        Self::ensure_supported_platform()?;
-        let mut workspace = self
-            .get(id)?
-            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
-        let display_name = display_name.trim();
-        if display_name.is_empty() {
-            return Err(anyhow!("Project Workspace display name cannot be empty"));
-        }
-        workspace.display_name = display_name.to_string();
-        workspace.updated_at = Utc::now().timestamp();
-        self.db.update_project_workspace(&workspace)?;
-        Ok(workspace)
+        let result = (|| {
+            Self::ensure_supported_platform()?;
+            let mut workspace = self
+                .get(id)?
+                .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+            let display_name = display_name.trim();
+            if display_name.is_empty() {
+                return Err(anyhow!("Project Workspace display name cannot be empty"));
+            }
+            workspace.display_name = display_name.to_string();
+            workspace.updated_at = Utc::now().timestamp();
+            self.db.update_project_workspace(&workspace)?;
+            Ok(workspace)
+        })();
+        self.record_workspace_result(ActivityReason::Rename, Some(id.to_string()), &result);
+        result
     }
 
     /// Archive (unregister) an Active or Unavailable Workspace. This is
     /// metadata-only: links, project files, and local Git excludes are left
     /// exactly as they are.
     pub fn archive(&self, id: &str) -> Result<ProjectWorkspace> {
-        Self::ensure_supported_platform()?;
-        let mut workspace = self
-            .get(id)?
-            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
-        match workspace.lifecycle {
-            WorkspaceLifecycle::Active | WorkspaceLifecycle::Unavailable => {
-                workspace.lifecycle = WorkspaceLifecycle::Archived;
+        let result = (|| {
+            Self::ensure_supported_platform()?;
+            let mut workspace = self
+                .get(id)?
+                .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+            match workspace.lifecycle {
+                WorkspaceLifecycle::Active | WorkspaceLifecycle::Unavailable => {
+                    workspace.lifecycle = WorkspaceLifecycle::Archived;
+                }
+                WorkspaceLifecycle::Archived => {
+                    return Err(workspace_blocked(
+                        "Project Workspace is already archived",
+                        ActivityDetailCode::ArchivedWorkspace,
+                    ));
+                }
             }
-            WorkspaceLifecycle::Archived => {
-                return Err(anyhow!("Project Workspace is already archived"));
-            }
-        }
-        workspace.updated_at = Utc::now().timestamp();
-        self.db.update_project_workspace(&workspace)?;
-        Ok(workspace)
+            workspace.updated_at = Utc::now().timestamp();
+            self.db.update_project_workspace(&workspace)?;
+            Ok(workspace)
+        })();
+        self.record_workspace_result(ActivityReason::Archive, Some(id.to_string()), &result);
+        result
     }
 
     /// Restore an Archived Workspace. A retained root that is still reachable
     /// returns Active; if the project remains away, the identity is restored
     /// as Unavailable and can later be relocated.
     pub fn restore(&self, id: &str) -> Result<ProjectWorkspace> {
-        Self::ensure_supported_platform()?;
-        let mut workspace = self
-            .get(id)?
-            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
-        if workspace.lifecycle != WorkspaceLifecycle::Archived {
-            return Err(anyhow!(
-                "Project Workspace can only be restored from Archived"
-            ));
-        }
-        workspace.lifecycle =
-            if workspace.root_path.is_dir() && workspace_root_matches_identity(&workspace)? {
-                WorkspaceLifecycle::Active
-            } else {
-                WorkspaceLifecycle::Unavailable
-            };
-        workspace.updated_at = Utc::now().timestamp();
-        self.db.update_project_workspace(&workspace)?;
-        Ok(workspace)
+        let result = (|| {
+            Self::ensure_supported_platform()?;
+            let mut workspace = self
+                .get(id)?
+                .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+            if workspace.lifecycle != WorkspaceLifecycle::Archived {
+                return Err(workspace_blocked(
+                    "Project Workspace can only be restored from Archived",
+                    ActivityDetailCode::ValidationFailure,
+                ));
+            }
+            workspace.lifecycle =
+                if workspace.root_path.is_dir() && workspace_root_matches_identity(&workspace)? {
+                    WorkspaceLifecycle::Active
+                } else {
+                    WorkspaceLifecycle::Unavailable
+                };
+            workspace.updated_at = Utc::now().timestamp();
+            self.db.update_project_workspace(&workspace)?;
+            Ok(workspace)
+        })();
+        self.record_workspace_result(ActivityReason::Restore, Some(id.to_string()), &result);
+        result
     }
 
     /// Relocate an Unavailable Workspace after validating the replacement's
@@ -264,13 +331,20 @@ impl ProjectWorkspaceService {
     /// register the candidate as a distinct Workspace. A reappeared old root
     /// always follows the structured distinct-registration outcome.
     pub fn relocate(&self, id: &str, new_path: &Path) -> Result<WorkspaceRelocation> {
+        let result = self.relocate_inner(id, new_path);
+        self.record_workspace_result(ActivityReason::Relocate, Some(id.to_string()), &result);
+        result
+    }
+
+    fn relocate_inner(&self, id: &str, new_path: &Path) -> Result<WorkspaceRelocation> {
         Self::ensure_supported_platform()?;
         let workspace = self
             .get(id)?
             .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
         if workspace.lifecycle != WorkspaceLifecycle::Unavailable {
-            return Err(anyhow!(
-                "Project Workspace relocation requires an Unavailable workspace"
+            return Err(workspace_blocked(
+                "Project Workspace relocation requires an Unavailable workspace",
+                ActivityDetailCode::ValidationFailure,
             ));
         }
         let scan = Self::scan_path(new_path)?;
@@ -285,8 +359,9 @@ impl ProjectWorkspaceService {
         // separate Workspace through `register`.
         if old_root_exists {
             if scan.canonical_root == workspace.root_path {
-                return Err(anyhow!(
-                    "Project Workspace replacement path is already this registered root"
+                return Err(workspace_conflict(
+                    "Project Workspace replacement path is already this registered root",
+                    ActivityDetailCode::TargetConflict,
                 ));
             }
             let registration = self.register_scan(scan, None)?;
@@ -297,15 +372,17 @@ impl ProjectWorkspaceService {
         }
 
         if scan.root_kind != workspace.root_kind {
-            return Err(anyhow!(
-                "Project Workspace replacement root kind does not match the registered identity"
+            return Err(workspace_blocked(
+                "Project Workspace replacement root kind does not match the registered identity",
+                ActivityDetailCode::ValidationFailure,
             ));
         }
         if workspace.registration_fingerprint.is_empty()
             || candidate_fingerprint != workspace.registration_fingerprint
         {
-            return Err(anyhow!(
-                "Project Workspace replacement does not match the registered repository identity"
+            return Err(workspace_blocked(
+                "Project Workspace replacement does not match the registered repository identity",
+                ActivityDetailCode::ValidationFailure,
             ));
         }
 
@@ -327,27 +404,50 @@ impl ProjectWorkspaceService {
     /// performed, so project content and any surviving unmanaged/managed links
     /// remain untouched for explicit Deployment actions.
     pub fn forget(&self, id: &str) -> Result<bool> {
-        Self::ensure_supported_platform()?;
-        let workspace = self
-            .get(id)?
-            .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
-        if workspace.lifecycle != WorkspaceLifecycle::Archived {
-            return Err(anyhow!(
-                "Project Workspace can only be forgotten from Archived"
-            ));
+        let result = (|| {
+            Self::ensure_supported_platform()?;
+            let workspace = self
+                .get(id)?
+                .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
+            if workspace.lifecycle != WorkspaceLifecycle::Archived {
+                return Err(workspace_blocked(
+                    "Project Workspace can only be forgotten from Archived",
+                    ActivityDetailCode::ValidationFailure,
+                ));
+            }
+            let deployments = self.db.list_skill_deployments()?;
+            if deployments.iter().any(|deployment| {
+                deployment.target.workspace
+                    == crate::services::skill_deployment::WorkspaceKind::Project
+                    && deployment.target.workspace_id == workspace.id
+            }) {
+                return Err(workspace_blocked(
+                    "Project Workspace still has desired Deployments; remove or explicitly forget them first",
+                    ActivityDetailCode::Drift,
+                ));
+            }
+            self.db
+                .delete_project_workspace(&workspace.id)
+                .map_err(Into::into)
+        })();
+        let (outcome, detail_code) = Self::workspace_forget_activity(&result);
+        self.record_workspace_activity(
+            ActivityReason::WorkspaceForget,
+            outcome,
+            detail_code,
+            Some(id.to_string()),
+            ActivityActor::User,
+            ActivityTrigger::Command,
+        );
+        result
+    }
+
+    fn workspace_forget_activity(result: &Result<bool>) -> (ActivityOutcome, ActivityDetailCode) {
+        match result {
+            Ok(true) => (ActivityOutcome::Success, ActivityDetailCode::None),
+            Ok(false) => (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyAbsent),
+            Err(error) => Self::workspace_activity_failure(error),
         }
-        let deployments = self.db.list_skill_deployments()?;
-        if deployments.iter().any(|deployment| {
-            deployment.target.workspace == crate::services::skill_deployment::WorkspaceKind::Project
-                && deployment.target.workspace_id == workspace.id
-        }) {
-            return Err(anyhow!(
-                "Project Workspace still has desired Deployments; remove or explicitly forget them first"
-            ));
-        }
-        self.db
-            .delete_project_workspace(&workspace.id)
-            .map_err(Into::into)
     }
 
     fn refresh_unavailable(
@@ -362,10 +462,106 @@ impl ProjectWorkspaceService {
                 workspace.lifecycle = WorkspaceLifecycle::Unavailable;
                 workspace.updated_at = Utc::now().timestamp();
                 self.db.update_project_workspace(&workspace)?;
+                self.record_workspace_activity(
+                    ActivityReason::LifecycleRefresh,
+                    ActivityOutcome::Success,
+                    ActivityDetailCode::None,
+                    Some(workspace.id.clone()),
+                    ActivityActor::System,
+                    ActivityTrigger::Focus,
+                );
             }
             refreshed.push(workspace);
         }
         Ok(refreshed)
+    }
+
+    fn record_workspace_result<T>(
+        &self,
+        reason: ActivityReason,
+        workspace_id: Option<String>,
+        result: &Result<T>,
+    ) {
+        let (outcome, detail_code) = match result {
+            Ok(_) => (ActivityOutcome::Success, ActivityDetailCode::None),
+            Err(error) => Self::workspace_activity_failure(error),
+        };
+        self.record_workspace_activity(
+            reason,
+            outcome,
+            detail_code,
+            workspace_id,
+            ActivityActor::User,
+            ActivityTrigger::Command,
+        );
+    }
+
+    fn workspace_activity_failure(error: &anyhow::Error) -> (ActivityOutcome, ActivityDetailCode) {
+        if let Some(failure) = error.downcast_ref::<WorkspaceActivityFailure>() {
+            return (
+                match failure.kind {
+                    WorkspaceActivityFailureKind::Blocked => ActivityOutcome::Blocked,
+                    WorkspaceActivityFailureKind::Conflict => ActivityOutcome::Conflict,
+                },
+                failure.detail,
+            );
+        }
+        for source in error.chain() {
+            if let Some(error) = source.downcast_ref::<AppError>() {
+                return (
+                    ActivityOutcome::Failed,
+                    match error {
+                        AppError::Database(_) => ActivityDetailCode::DatabaseFailure,
+                        AppError::Io { .. } | AppError::IoContext { .. } => {
+                            ActivityDetailCode::FilesystemFailure
+                        }
+                        AppError::InvalidInput(_) | AppError::Config(_) => {
+                            ActivityDetailCode::InvalidInput
+                        }
+                        _ => ActivityDetailCode::ValidationFailure,
+                    },
+                );
+            }
+            if source.downcast_ref::<std::io::Error>().is_some() {
+                return (
+                    ActivityOutcome::Failed,
+                    ActivityDetailCode::FilesystemFailure,
+                );
+            }
+        }
+        (
+            ActivityOutcome::Failed,
+            ActivityDetailCode::ValidationFailure,
+        )
+    }
+
+    fn record_workspace_activity(
+        &self,
+        reason: ActivityReason,
+        outcome: ActivityOutcome,
+        detail_code: ActivityDetailCode,
+        workspace_id: Option<String>,
+        actor: ActivityActor,
+        trigger: ActivityTrigger,
+    ) {
+        ActivityRecorder::new(self.db.clone()).record_best_effort(ActivityEventInput {
+            operation: if reason == ActivityReason::WorkspaceForget {
+                ActivityOperation::Forget
+            } else {
+                ActivityOperation::Workspace
+            },
+            reason,
+            outcome,
+            actor,
+            trigger,
+            target: ActivityTarget {
+                workspace_id,
+                workspace_kind: Some(crate::services::skill_deployment::WorkspaceKind::Project),
+                ..ActivityTarget::default()
+            },
+            batch: None,
+            detail_code,
+        });
     }
 
     fn scan_path(selected_path: &Path) -> Result<WorkspaceRegistrationScan> {
@@ -770,4 +966,43 @@ fn child_names(path: &Path) -> Result<Vec<String>> {
         .collect::<Vec<_>>();
     names.sort();
     Ok(names)
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::ProjectWorkspaceService;
+    use crate::database::Database;
+    use crate::services::activity::{
+        ActivityDetailCode, ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason,
+        ActivityRecorder,
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn workspace_forget_false_is_recorded_as_already_absent_no_op() {
+        let db = Arc::new(Database::memory().expect("create database"));
+        let result: anyhow::Result<bool> = Ok(false);
+        let service = ProjectWorkspaceService::new(db.clone());
+        let (outcome, detail_code) = ProjectWorkspaceService::workspace_forget_activity(&result);
+        service.record_workspace_activity(
+            ActivityReason::WorkspaceForget,
+            outcome,
+            detail_code,
+            Some("workspace-a".to_string()),
+            crate::services::activity::ActivityActor::User,
+            crate::services::activity::ActivityTrigger::Command,
+        );
+        let page = ActivityRecorder::new(db)
+            .list(ActivityQuery {
+                operation: Some(ActivityOperation::Forget),
+                reason: Some(ActivityReason::WorkspaceForget),
+                ..ActivityQuery::default()
+            })
+            .expect("list forget activity");
+        assert_eq!(page.entries[0].outcome, ActivityOutcome::NoOp);
+        assert_eq!(
+            page.entries[0].detail_code,
+            ActivityDetailCode::AlreadyAbsent
+        );
+    }
 }

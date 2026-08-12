@@ -73,20 +73,23 @@ pub use services::{
 };
 #[cfg(target_os = "macos")]
 pub use services::{
-    LibrarySkillDeletionAction, LibrarySkillDeletionInspection, LibrarySkillDeletionIntent,
-    LibrarySkillDeletionOutcome, LibrarySkillDeletionResult, LibrarySkillDeletionTarget,
-    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
-    LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
-    LibrarySkillUpdateService, ProjectSkillImportDirectoryCollision,
-    ProjectSkillImportDirectoryCollisionKind, ProjectSkillImportFinding,
-    ProjectSkillImportGitState, ProjectSkillImportInspection, ProjectSkillImportIntent,
-    ProjectSkillImportLibraryMatch, ProjectSkillImportMode, ProjectSkillImportOutcome,
-    ProjectSkillImportReplaceBlockReason, ProjectSkillImportReplaceEligibility,
-    ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
-    ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
-    ProjectWorkspace, ProjectWorkspaceService, UpdateDeploymentImpact, WorkspaceLifecycle,
-    WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
-    WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+    ActivityActor, ActivityBatchContext, ActivityCursor, ActivityDetailCode, ActivityEventInput,
+    ActivityOperation, ActivityOutcome, ActivityPage, ActivityQuery, ActivityReason,
+    ActivityRecord, ActivityRecorder, ActivityTarget, ActivityTrigger, LibrarySkillDeletionAction,
+    LibrarySkillDeletionInspection, LibrarySkillDeletionIntent, LibrarySkillDeletionOutcome,
+    LibrarySkillDeletionResult, LibrarySkillDeletionTarget, LibrarySkillUpdateApplyIntent,
+    LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck, LibrarySkillUpdateCheckOutcome,
+    LibrarySkillUpdateReason, LibrarySkillUpdateResult, LibrarySkillUpdateService,
+    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
+    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
+    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
+    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
+    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
+    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
+    ProjectSkillImportValidationStatus, ProjectWorkspace, ProjectWorkspaceService,
+    UpdateDeploymentImpact, WorkspaceLifecycle, WorkspaceRegistration, WorkspaceRegistrationScan,
+    WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind,
+    WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1487,6 +1490,8 @@ pub fn run() {
             // Skill management (v3.10.0+ unified)
             commands::get_installed_skills,
             commands::getLibrarySkills,
+            #[cfg(target_os = "macos")]
+            commands::listSkillActivity,
             commands::inspectSkillDeployments,
             commands::applySkillDeployments,
             #[cfg(target_os = "macos")]

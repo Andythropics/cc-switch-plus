@@ -121,10 +121,21 @@ vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
   const React = await import("react");
   return {
     LibrarySkillsPanel: React.forwardRef(
-      ({ onOpenGlobal }: { onOpenGlobal?: () => void }, _ref) =>
+      (
+        {
+          onOpenGlobal,
+          focusLibrarySkillId,
+        }: { onOpenGlobal?: () => void; focusLibrarySkillId?: string | null },
+        _ref,
+      ) =>
         React.createElement(
           "div",
           { "data-testid": "library-view" },
+          React.createElement(
+            "span",
+            { "data-testid": "library-focus" },
+            focusLibrarySkillId ?? "none",
+          ),
           onOpenGlobal &&
             React.createElement(
               "button",
@@ -164,10 +175,21 @@ vi.mock("@/components/skills/GlobalSkillsPanel", async () => {
 vi.mock("@/components/skills/ProjectWorkspacesPanel", async () => {
   const React = await import("react");
   return {
-    ProjectWorkspacesPanel: ({ onOpenGlobal }: { onOpenGlobal?: () => void }) =>
+    ProjectWorkspacesPanel: ({
+      onOpenGlobal,
+      focusWorkspaceId,
+    }: {
+      onOpenGlobal?: () => void;
+      focusWorkspaceId?: string | null;
+    }) =>
       React.createElement(
         "div",
         { "data-testid": "projects-view" },
+        React.createElement(
+          "span",
+          { "data-testid": "project-focus" },
+          focusWorkspaceId ?? "none",
+        ),
         React.createElement(
           "button",
           { type: "button", onClick: onOpenGlobal },
@@ -179,6 +201,27 @@ vi.mock("@/components/skills/ProjectWorkspacesPanel", async () => {
 vi.mock("@/components/skills/SkillsPage", () => ({
   SkillsPage: () => <div data-testid="discovery-view" />,
   getSkillsPageHeaderActions: () => [],
+}));
+vi.mock("@/components/skills/SkillsActivityPanel", () => ({
+  SkillsActivityPanel: ({
+    onOpenLibrary,
+    onOpenProjects,
+  }: {
+    onOpenLibrary?: (librarySkillId: string) => void;
+    onOpenProjects?: (workspaceId: string) => void;
+  }) => (
+    <div data-testid="activity-view">
+      <button type="button" onClick={() => onOpenLibrary?.("library-activity")}>
+        activity-open-library
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenProjects?.("workspace-activity")}
+      >
+        activity-open-projects
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/AppSwitcher", () => ({ AppSwitcher: Empty }));
@@ -273,5 +316,56 @@ describe("App Skills navigation", () => {
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
     expect(await screen.findByTestId("library-view")).toBeInTheDocument();
+  });
+
+  it("opens the Activity view from Library and returns to Library", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.activity.title" }),
+    );
+    expect(await screen.findByTestId("activity-view")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "skills.activity.title" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.back" }));
+    expect(await screen.findByTestId("library-view")).toBeInTheDocument();
+  });
+
+  it("consumes Activity stable identities when opening Library or Projects", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.activity.title" }),
+    );
+    expect(await screen.findByTestId("activity-view")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "activity-open-library" }),
+    );
+    expect(await screen.findByTestId("library-focus")).toHaveTextContent(
+      "library-activity",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.activity.title" }),
+    );
+    expect(await screen.findByTestId("activity-view")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "activity-open-projects" }),
+    );
+    expect(await screen.findByTestId("project-focus")).toHaveTextContent(
+      "workspace-activity",
+    );
   });
 });

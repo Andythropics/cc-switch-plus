@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -48,6 +49,10 @@ import {
   useUpdateLibrarySkillMetadata,
 } from "@/hooks/useSkills";
 import { skillsApi } from "@/lib/api";
+import {
+  deploymentOutcomeLabelKeys,
+  successfulDeploymentOutcomes,
+} from "@/lib/api/skills";
 import type {
   ConsumerCompatibility,
   DeploymentBatch,
@@ -69,6 +74,8 @@ interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
   onOpenProjects?: () => void;
   onOpenGlobal?: () => void;
+  /** Stable Library identity supplied by Activity deep links. */
+  focusLibrarySkillId?: string | null;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
 }
@@ -143,6 +150,7 @@ export const LibrarySkillsPanel = forwardRef<
       onOpenDiscovery,
       onOpenProjects,
       onOpenGlobal,
+      focusLibrarySkillId,
       onInteractionBlockedChange,
       onNavigationBlockedChange,
     },
@@ -220,6 +228,8 @@ export const LibrarySkillsPanel = forwardRef<
     const deleteLibrary = useDeleteLibrarySkill();
     const refreshDeployments = useRefreshSkillDeployments();
     const [query, setQuery] = useState("");
+    const [focusedSkillId, setFocusedSkillId] = useState<string | null>(null);
+    const focusedSkillRequest = useRef<string | null>(null);
     const [editing, setEditing] = useState<LibrarySkill | null>(null);
     const [displayName, setDisplayName] = useState("");
     const [description, setDescription] = useState("");
@@ -457,26 +467,13 @@ export const LibrarySkillsPanel = forwardRef<
         if (!item) {
           throw new Error(t("skills.library.deploymentFailed"));
         }
-        const safeOutcomes = new Set([
-          "applied",
-          "replaced",
-          "already_in_sync",
-          "removed",
-          "already_absent",
-          "forgotten",
-        ]);
-        if (!safeOutcomes.has(item.outcome)) {
-          toast.error(
-            item.message
-              ? `${item.outcome}: ${item.message}`
-              : t("skills.library.deploymentOutcomeBlocked", {
-                  outcome: item.outcome,
-                }),
-          );
+        const label = t(deploymentOutcomeLabelKeys[item.outcome]);
+        if (!successfulDeploymentOutcomes.has(item.outcome)) {
+          toast.error(item.message ? `${label}: ${item.message}` : label);
           return;
         }
         if (item.message) {
-          toast.success(`${item.outcome}: ${item.message}`);
+          toast.success(`${label}: ${item.message}`);
           return;
         }
         const consumer = intent.target.consumer;
@@ -599,6 +596,24 @@ export const LibrarySkillsPanel = forwardRef<
       );
     }, [query, skills]);
 
+    useEffect(() => {
+      if (!focusLibrarySkillId) {
+        focusedSkillRequest.current = null;
+        setFocusedSkillId(null);
+        return;
+      }
+      if (focusedSkillRequest.current === focusLibrarySkillId) return;
+      const target = skills.find((skill) => skill.id === focusLibrarySkillId);
+      if (!target) {
+        focusedSkillRequest.current = focusLibrarySkillId;
+        setFocusedSkillId(null);
+        return;
+      }
+      focusedSkillRequest.current = focusLibrarySkillId;
+      setFocusedSkillId(target.id);
+      setQuery(target.displayName || target.directory);
+    }, [focusLibrarySkillId, skills]);
+
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-3 border-b px-5 py-3">
@@ -706,7 +721,8 @@ export const LibrarySkillsPanel = forwardRef<
               {filtered.map((skill) => (
                 <article
                   key={skill.id}
-                  className="rounded-xl border bg-card p-4 shadow-sm"
+                  className={`rounded-xl border bg-card p-4 shadow-sm${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
+                  data-testid={`library-skill-${skill.id}`}
                 >
                   <div className="flex items-start gap-4">
                     <div className="min-w-0 flex-1">

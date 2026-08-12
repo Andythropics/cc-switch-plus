@@ -195,6 +195,21 @@ impl Database {
         Ok(())
     }
 
+    /// Failure injection for startup Skills migration integration tests.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn fail_skill_inserts_for_test(&self) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS test_fail_skill_insert;
+             CREATE TRIGGER test_fail_skill_insert
+             BEFORE INSERT ON skills
+             BEGIN SELECT RAISE(ABORT, 'injected Skill insert failure'); END;",
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
     /// 更新 Skill 的应用启用状态
     pub fn update_skill_apps(&self, id: &str, apps: &SkillApps) -> Result<bool, AppError> {
         let conn = lock_conn!(self.conn);

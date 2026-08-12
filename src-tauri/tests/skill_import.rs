@@ -6,8 +6,9 @@ use std::path::Path;
 use std::process::Command;
 
 use cc_switch_lib::{
-    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidationStatus,
-    WorkspaceLifecycle,
+    ActivityDetailCode, ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason,
+    ActivityRecorder, ProjectSkillImportScope, ProjectSkillImportService,
+    ProjectSkillImportValidationStatus, WorkspaceLifecycle,
 };
 
 #[path = "support.rs"]
@@ -157,6 +158,19 @@ fn import_only_admits_a_local_snapshot_without_deploying_project_content() {
         !source.is_symlink(),
         "import-only must leave project source real"
     );
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Library),
+            reason: Some(ActivityReason::Import),
+            ..ActivityQuery::default()
+        })
+        .expect("list import activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
+    assert_eq!(
+        activity.entries[0].target.library_skill_id,
+        result.library_skill_id
+    );
 }
 
 #[test]
@@ -215,6 +229,32 @@ fn import_and_replace_backs_up_source_and_deploys_expected_link() {
     );
     let desired = state.db.list_skill_deployments().expect("list desired");
     assert_eq!(desired.len(), 1);
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            reason: Some(ActivityReason::ImportAndReplace),
+            ..ActivityQuery::default()
+        })
+        .expect("list import-and-replace activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
+    assert_eq!(activity.entries[0].operation, ActivityOperation::Library);
+    let low_level = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Deployment),
+            ..ActivityQuery::default()
+        })
+        .expect("list nested deployment activity");
+    assert_eq!(low_level.entries.len(), 1);
+    assert_eq!(low_level.entries[0].reason, ActivityReason::Deploy);
+    assert_eq!(low_level.entries[0].outcome, ActivityOutcome::Success);
+    assert_eq!(
+        low_level.entries[0].target.library_skill_id,
+        result.library_skill_id
+    );
+    assert_eq!(
+        low_level.entries[0].target.workspace_id.as_deref(),
+        Some(workspace.id.as_str())
+    );
 }
 
 #[test]
@@ -429,6 +469,18 @@ fn deployment_failure_rolls_back_source_library_and_desired_state() {
         .backup_path
         .as_deref()
         .is_some_and(|path| Path::new(path).is_dir()));
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            reason: Some(ActivityReason::ImportAndReplace),
+            ..ActivityQuery::default()
+        })
+        .expect("list rolled-back import activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::RolledBack);
+    assert_eq!(
+        activity.entries[0].detail_code,
+        ActivityDetailCode::FilesystemFailure
+    );
 }
 
 #[test]

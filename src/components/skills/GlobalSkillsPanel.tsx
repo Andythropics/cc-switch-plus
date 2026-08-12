@@ -23,6 +23,10 @@ import {
   useRefreshSkillDeployments,
   useSkillDeployments,
 } from "@/hooks/useSkills";
+import {
+  deploymentOutcomeLabelKeys,
+  successfulDeploymentOutcomes,
+} from "@/lib/api/skills";
 import type {
   DeploymentBatch,
   DeploymentConsumer,
@@ -160,19 +164,11 @@ export function GlobalSkillsPanel({
       const result = await apply.mutateAsync({ intents: [intent] });
       const item = result.items[0];
       if (!item) throw new Error(t("skills.library.deploymentFailed"));
-      if (
-        [
-          "applied",
-          "replaced",
-          "already_in_sync",
-          "removed",
-          "already_absent",
-          "forgotten",
-        ].includes(item.outcome)
-      ) {
-        toast.success(item.message ?? item.outcome);
+      const label = t(deploymentOutcomeLabelKeys[item.outcome]);
+      if (successfulDeploymentOutcomes.has(item.outcome)) {
+        toast.success(item.message ? `${label}: ${item.message}` : label);
       } else {
-        toast.error(item.message ?? item.outcome);
+        toast.error(item.message ? `${label}: ${item.message}` : label);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));

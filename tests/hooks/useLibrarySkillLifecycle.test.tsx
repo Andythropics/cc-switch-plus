@@ -92,6 +92,9 @@ describe("Library update and deletion hooks", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "libraryUpdate", "library-1"],
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "activity"],
+    });
   });
 
   it("invalidates Library and deployment observations after delete, while inspection stays explicit", async () => {
@@ -138,6 +141,9 @@ describe("Library update and deletion hooks", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "deployments"],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "activity"],
     });
   });
 });

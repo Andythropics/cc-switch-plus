@@ -123,6 +123,8 @@ impl Database {
         Self::create_skill_deployments_table(conn)?;
         #[cfg(target_os = "macos")]
         Self::create_project_workspaces_table(conn)?;
+        #[cfg(target_os = "macos")]
+        Self::create_skill_activity_table(conn)?;
 
         // 7. Settings 表
         conn.execute(
@@ -545,6 +547,14 @@ impl Database {
                         log::info!("迁移数据库从 v19 到 v20（记录 Project Workspace 稳定身份）");
                         Self::migrate_v19_to_v20(conn)?;
                         Self::set_user_version(conn, 20)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    20 => {
+                        log::info!(
+                            "迁移数据库从 v20 到 v21（添加设备本地 Skills activity history）"
+                        );
+                        Self::migrate_v20_to_v21(conn)?;
+                        Self::set_user_version(conn, 21)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1392,6 +1402,96 @@ impl Database {
             .map_err(|error| AppError::Database(error.to_string()))?;
         }
         log::info!("v19 -> v20 迁移完成：已添加 Project Workspace 稳定身份");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn create_skill_activity_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skill_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation TEXT NOT NULL CHECK(operation IN (
+                    'library', 'workspace', 'deployment', 'repair',
+                    'migration', 'forget', 'removal'
+                )),
+                reason TEXT NOT NULL CHECK(reason IN (
+                    'acquire', 'import', 'metadata_update', 'update',
+                    'register', 'rename', 'archive', 'restore', 'relocate',
+                    'lifecycle_refresh', 'deploy', 'replace_foreign_link',
+                    'undeploy', 'repair', 'migrate', 'migrate_item', 'resume',
+                    'deployment_forget', 'workspace_forget', 'library_remove',
+                    'deployment_remove', 'legacy_link_remove',
+                    'compensation_restore', 'import_and_replace',
+                    'recover_deployment'
+                )),
+                outcome TEXT NOT NULL CHECK(outcome IN (
+                    'success', 'no_op', 'blocked', 'conflict', 'failed',
+                    'compensation_failed', 'rolled_back'
+                )),
+                actor TEXT NOT NULL CHECK(actor IN ('user', 'system', 'migration')),
+                trigger TEXT NOT NULL CHECK(trigger IN (
+                    'command', 'startup', 'focus', 'manual', 'batch', 'resume'
+                )),
+                occurred_at INTEGER NOT NULL,
+                library_skill_id TEXT,
+                workspace_id TEXT,
+                deployment_id TEXT,
+                consumer TEXT CHECK(consumer IS NULL OR consumer IN ('claude', 'codex')),
+                workspace_kind TEXT CHECK(
+                    workspace_kind IS NULL OR workspace_kind IN ('global', 'project')
+                ),
+                batch_id TEXT,
+                batch_index INTEGER CHECK(batch_index IS NULL OR batch_index >= 0),
+                batch_count INTEGER CHECK(batch_count IS NULL OR batch_count > 0),
+                detail_code TEXT NOT NULL CHECK(detail_code IN (
+                    'none', 'already_in_sync', 'already_absent',
+                    'stale_observation', 'drift', 'missing_library',
+                    'archived_workspace', 'unavailable_workspace',
+                    'target_conflict', 'invalid_input', 'unsupported_platform',
+                    'validation_failure', 'filesystem_failure',
+                    'database_failure', 'compensation_failure', 'duplicate_key',
+                    'partial_batch'
+                )),
+                CHECK((batch_id IS NULL AND batch_index IS NULL AND batch_count IS NULL)
+                   OR (batch_id IS NOT NULL AND batch_index IS NOT NULL
+                       AND batch_count IS NOT NULL AND batch_index < batch_count))
+            )",
+            [],
+        )
+        .map_err(|error| AppError::Database(format!("创建 skill_activity 表失败: {error}")))?;
+
+        for (name, columns) in [
+            ("idx_skill_activity_time", "occurred_at DESC, id DESC"),
+            (
+                "idx_skill_activity_operation_outcome",
+                "operation, outcome, occurred_at DESC, id DESC",
+            ),
+            (
+                "idx_skill_activity_library",
+                "library_skill_id, occurred_at DESC, id DESC",
+            ),
+            (
+                "idx_skill_activity_workspace",
+                "workspace_id, occurred_at DESC, id DESC",
+            ),
+            (
+                "idx_skill_activity_deployment",
+                "deployment_id, occurred_at DESC, id DESC",
+            ),
+        ] {
+            conn.execute(
+                &format!("CREATE INDEX IF NOT EXISTS {name} ON skill_activity({columns})"),
+                [],
+            )
+            .map_err(|error| AppError::Database(format!("创建 {name} 索引失败: {error}")))?;
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
+        Self::create_skill_activity_table(conn)?;
+        log::info!("v20 -> v21 迁移完成：已添加设备本地 Skills activity history");
         Ok(())
     }
 
@@ -3665,6 +3765,51 @@ mod tests {
                 row.get(0)
             })?;
         assert_eq!(deployment_count, 1);
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v20_to_v21_adds_device_local_skill_activity() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        // `create_tables_on_conn` creates all current tables up front. Remove
+        // the v21 table so this test exercises the actual 20 -> 21 migration.
+        conn.execute("DROP TABLE skill_activity", [])?;
+        Database::set_user_version(&conn, 20)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, 21);
+        assert!(Database::table_exists(&conn, "skill_activity")?);
+        for index in [
+            "idx_skill_activity_time",
+            "idx_skill_activity_operation_outcome",
+            "idx_skill_activity_library",
+            "idx_skill_activity_workspace",
+            "idx_skill_activity_deployment",
+        ] {
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1
+                )",
+                [index],
+                |row| row.get(0),
+            )?;
+            assert!(exists, "missing activity index {index}");
+        }
+
+        // Migration is idempotent and preserves existing activity rows.
+        conn.execute(
+            "INSERT INTO skill_activity (
+                operation, reason, outcome, actor, trigger, occurred_at, detail_code
+             ) VALUES ('library', 'acquire', 'success', 'user', 'command', 1, 'none')",
+            [],
+        )?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM skill_activity", [], |row| row.get(0))?;
+        assert_eq!(count, 1);
         Ok(())
     }
 }

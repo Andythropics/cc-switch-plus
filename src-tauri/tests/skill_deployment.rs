@@ -6,7 +6,8 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::Command;
 
 use cc_switch_lib::{
-    ConsumerCompatibility, DeploymentBatch, DeploymentConsumer, DeploymentIntent,
+    ActivityDetailCode, ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason,
+    ActivityRecorder, ConsumerCompatibility, DeploymentBatch, DeploymentConsumer, DeploymentIntent,
     DeploymentMutationOutcome, DeploymentQuery, DeploymentStatus, DeploymentTarget,
     DesiredDeployment, LibrarySkill, LibrarySkillAcquisitionService, LibrarySkillCompatibility,
     LibrarySkillSource, LibrarySourceKind, ProjectWorkspace, ProjectWorkspaceService,
@@ -519,7 +520,10 @@ fn compensation_failure_is_reported_alongside_the_primary_database_failure() {
         }))
         .expect("compensation failure must be an item result");
     SkillDeploymentService::force_compensation_failure_for_test(false);
-    assert_eq!(result.items[0].outcome, DeploymentMutationOutcome::Error);
+    assert_eq!(
+        result.items[0].outcome,
+        DeploymentMutationOutcome::RecoveryRequired
+    );
     let message = result.items[0].message.as_deref().unwrap_or_default();
     assert!(message.contains("database save failed"));
     assert!(message.contains("filesystem compensation failed"));
@@ -537,6 +541,22 @@ fn compensation_failure_is_reported_alongside_the_primary_database_failure() {
     assert_eq!(
         inspection.observed.state,
         cc_switch_lib::ObservedDeploymentState::UnrecordedLink
+    );
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Deployment),
+            reason: Some(ActivityReason::Deploy),
+            ..ActivityQuery::default()
+        })
+        .expect("list deployment activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(
+        activity.entries[0].outcome,
+        ActivityOutcome::CompensationFailed
+    );
+    assert_eq!(
+        activity.entries[0].detail_code,
+        ActivityDetailCode::CompensationFailure
     );
 }
 
@@ -1489,6 +1509,28 @@ fn batches_reject_duplicate_keys_and_continue_after_independent_conflicts() {
         duplicate.is_err(),
         "duplicate Deployment keys must be rejected"
     );
+    let duplicate_activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Repair),
+            reason: Some(ActivityReason::Repair),
+            ..ActivityQuery::default()
+        })
+        .expect("list duplicate preflight activity");
+    assert_eq!(duplicate_activity.entries.len(), 1);
+    assert_eq!(
+        duplicate_activity.entries[0].outcome,
+        ActivityOutcome::Failed
+    );
+    assert_eq!(
+        duplicate_activity.entries[0].detail_code,
+        ActivityDetailCode::DuplicateKey
+    );
+    let duplicate_batch = duplicate_activity.entries[0]
+        .batch
+        .as_ref()
+        .expect("duplicate entry must retain batch position");
+    assert_eq!(duplicate_batch.item_index, 1);
+    assert_eq!(duplicate_batch.item_count, 2);
 
     fs::create_dir_all(home.join(".claude/skills")).expect("create batch target root");
     fs::write(home.join(".claude/skills/batch-conflict"), "user-owned")
@@ -1497,11 +1539,11 @@ fn batches_reject_duplicate_keys_and_continue_after_independent_conflicts() {
         .apply(DeploymentBatch {
             intents: vec![
                 DeploymentIntent::Deploy {
-                    library_skill_id: conflict_skill.id,
+                    library_skill_id: conflict_skill.id.clone(),
                     target: target.clone(),
                 },
                 DeploymentIntent::Deploy {
-                    library_skill_id: success_skill.id,
+                    library_skill_id: success_skill.id.clone(),
                     target,
                 },
             ],
@@ -1513,6 +1555,41 @@ fn batches_reject_duplicate_keys_and_continue_after_independent_conflicts() {
     assert!(home.join(".claude/skills/batch-conflict").is_file());
     assert!(home.join(".claude/skills/batch-success").is_symlink());
     assert_eq!(state.db.list_skill_deployments().unwrap().len(), 1);
+
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Deployment),
+            reason: Some(ActivityReason::Deploy),
+            ..ActivityQuery::default()
+        })
+        .expect("list deployment batch activity");
+    assert_eq!(activity.entries.len(), 2);
+    assert_eq!(
+        activity.entries[0].target.library_skill_id,
+        Some(success_skill.id)
+    );
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
+    assert_eq!(
+        activity.entries[1].target.library_skill_id,
+        Some(conflict_skill.id)
+    );
+    assert_eq!(activity.entries[1].outcome, ActivityOutcome::Conflict);
+    assert_eq!(
+        activity.entries[1].detail_code,
+        ActivityDetailCode::TargetConflict
+    );
+    let newest_batch = activity.entries[0]
+        .batch
+        .as_ref()
+        .expect("multi-item operation must be batched");
+    let oldest_batch = activity.entries[1]
+        .batch
+        .as_ref()
+        .expect("multi-item operation must be batched");
+    assert_eq!(newest_batch.batch_id, oldest_batch.batch_id);
+    assert_eq!(newest_batch.item_index, 1);
+    assert_eq!(oldest_batch.item_index, 0);
+    assert_eq!(newest_batch.item_count, 2);
 }
 
 #[test]
@@ -1660,9 +1737,4 @@ fn inspect_reports_broken_library_missing_unrecorded_and_lifecycle_states() {
         archived.observed.state,
         cc_switch_lib::ObservedDeploymentState::CorrectLink
     );
-}
-
-#[allow(dead_code)]
-fn _workspace_kind_is_shared() {
-    assert_eq!(WorkspaceKind::Global, WorkspaceKind::Global);
 }

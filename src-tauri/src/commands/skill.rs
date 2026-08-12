@@ -11,16 +11,17 @@ use crate::services::skill::{
     LibrarySourceKind, MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService,
     SkillStorageLocation, SkillUninstallResult, SkillUpdateInfo, SkillsShSearchResult,
 };
+#[cfg(target_os = "macos")]
+use crate::services::{
+    ActivityPage, ActivityQuery, ActivityRecorder, LibrarySkillDeletionInspection,
+    LibrarySkillDeletionIntent, LibrarySkillDeletionResult, LibrarySkillUpdateApplyIntent,
+    LibrarySkillUpdateCheck, LibrarySkillUpdateResult, LibrarySkillUpdateService,
+    ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
+    ProjectSkillImportService,
+};
 use crate::services::{
     DeploymentBatch, DeploymentBatchResult, DeploymentInspectionResult, DeploymentQuery,
     SkillDeploymentService,
-};
-#[cfg(target_os = "macos")]
-use crate::services::{
-    LibrarySkillDeletionInspection, LibrarySkillDeletionIntent, LibrarySkillDeletionResult,
-    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateCheck, LibrarySkillUpdateResult,
-    LibrarySkillUpdateService, ProjectSkillImportInspection, ProjectSkillImportIntent,
-    ProjectSkillImportResult, ProjectSkillImportService,
 };
 use crate::store::AppState;
 use std::collections::HashMap;
@@ -54,6 +55,18 @@ pub fn getLibrarySkills(app_state: State<'_, AppState>) -> Result<Vec<LibrarySki
     app_state
         .db
         .list_library_skills()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn listSkillActivity(
+    query: Option<ActivityQuery>,
+    app_state: State<'_, AppState>,
+) -> Result<ActivityPage, String> {
+    ActivityRecorder::new(app_state.db.clone())
+        .list(query.unwrap_or_default())
         .map_err(|error| error.to_string())
 }
 

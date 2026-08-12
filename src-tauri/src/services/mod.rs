@@ -1,3 +1,7 @@
+#[cfg(target_os = "macos")]
+pub mod activity;
+#[cfg(all(test, target_os = "macos"))]
+mod activity_tests;
 pub mod balance;
 pub mod codex_oauth_models;
 pub mod coding_plan;
@@ -40,6 +44,12 @@ pub mod webdav;
 pub mod webdav_auto_sync;
 pub mod webdav_sync;
 
+#[cfg(target_os = "macos")]
+pub use activity::{
+    ActivityActor, ActivityBatchContext, ActivityCursor, ActivityDetailCode, ActivityEventInput,
+    ActivityOperation, ActivityOutcome, ActivityPage, ActivityQuery, ActivityReason,
+    ActivityRecord, ActivityRecorder, ActivityTarget, ActivityTrigger,
+};
 pub use config::ConfigService;
 pub use mcp::McpService;
 pub use omo::OmoService;

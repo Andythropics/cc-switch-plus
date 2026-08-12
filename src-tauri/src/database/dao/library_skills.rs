@@ -212,6 +212,34 @@ impl Database {
 
     #[cfg(debug_assertions)]
     #[doc(hidden)]
+    pub fn fail_library_skill_inserts_after_for_test(
+        &self,
+        successful_inserts: u32,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS test_fail_library_skill_insert;
+             DROP TABLE IF EXISTS test_library_skill_insert_counter;
+             CREATE TABLE test_library_skill_insert_counter (remaining INTEGER NOT NULL);
+             CREATE TRIGGER test_fail_library_skill_insert
+             BEFORE INSERT ON library_skills
+             BEGIN
+               UPDATE test_library_skill_insert_counter SET remaining = remaining - 1;
+               SELECT CASE WHEN (SELECT remaining FROM test_library_skill_insert_counter) < 0
+                 THEN RAISE(ABORT, 'injected Library Skill insert failure') END;
+             END;",
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        conn.execute(
+            "INSERT INTO test_library_skill_insert_counter (remaining) VALUES (?1)",
+            [successful_inserts],
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
     pub fn fail_library_skill_updates_for_test(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
         conn.execute_batch(

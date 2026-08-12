@@ -77,6 +77,9 @@ describe("Skill Deployment hooks", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "deployments"],
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "activity"],
+    });
   });
 
   it("reconciles active observations when the window regains focus", async () => {

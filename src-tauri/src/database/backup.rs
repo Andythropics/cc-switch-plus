@@ -77,6 +77,9 @@ const SYNC_SKIP_TABLES: &[&str] = &[
     "provider_health",
     "proxy_live_backup",
     "usage_daily_rollups",
+    "skill_activity",
+    "project_workspaces",
+    "skill_deployments",
 ];
 
 /// Tables whose local data is preserved (restored from local snapshot) during WebDAV import.
@@ -86,6 +89,9 @@ const SYNC_PRESERVE_TABLES: &[&str] = &[
     "stream_check_logs",
     "proxy_live_backup",
     "usage_daily_rollups",
+    "skill_activity",
+    "project_workspaces",
+    "skill_deployments",
 ];
 
 /// A database backup entry for the UI
@@ -1586,6 +1592,64 @@ mod tests {
             provider_health_count, 0,
             "同步导入应清除可重建的本地 provider_health 状态"
         );
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[serial]
+    fn sync_excludes_device_local_skill_activity_and_preserves_local_rows() -> Result<(), AppError>
+    {
+        let _test_home = TestHomeGuard::new();
+        let remote_db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(remote_db.conn);
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote Provider', '{}', '{}')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO skill_activity (
+                    operation, reason, outcome, actor, trigger, occurred_at, detail_code,
+                    workspace_id
+                 ) VALUES ('workspace', 'register', 'success', 'user', 'command', 10, 'none', 'remote')",
+                [],
+            )?;
+        }
+        let remote_sql = remote_db.export_sql_string_for_sync()?;
+        let exported = Connection::open_in_memory()?;
+        exported.execute_batch(&remote_sql)?;
+        let exported_count: i64 =
+            exported.query_row("SELECT COUNT(*) FROM skill_activity", [], |row| row.get(0))?;
+        assert_eq!(exported_count, 0, "activity rows must not leave the device");
+
+        let local_db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(local_db.conn);
+            conn.execute(
+                "INSERT INTO skill_activity (
+                    operation, reason, outcome, actor, trigger, occurred_at, detail_code,
+                    workspace_id
+                 ) VALUES ('workspace', 'register', 'success', 'user', 'command', 20, 'none', 'local')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote Provider', '{}', '{}')",
+                [],
+            )?;
+        }
+        local_db.import_sql_string_for_sync(&remote_sql)?;
+
+        let conn = crate::database::lock_conn!(local_db.conn);
+        let (activity_count, workspace_id): (i64, String) = conn.query_row(
+            "SELECT COUNT(*), MAX(workspace_id) FROM skill_activity",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(activity_count, 1);
+        assert_eq!(workspace_id, "local");
         Ok(())
     }
 

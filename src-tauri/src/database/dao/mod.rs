@@ -2,6 +2,8 @@
 //!
 //! Database access operations for each domain
 
+#[cfg(target_os = "macos")]
+pub mod activity;
 pub mod failover;
 pub mod library_skills;
 pub mod mcp;

@@ -106,6 +106,39 @@ describe("BatchDeploymentDialog", () => {
     expect(screen.getByText("consumer blocked")).toBeInTheDocument();
   });
 
+  it("renders recovery_required as a high-visibility typed outcome", async () => {
+    const onApply = vi.fn().mockResolvedValue({
+      items: [
+        {
+          librarySkillId: "skill-recovery",
+          target: { consumer: "claude", workspace: "global" },
+          outcome: "recovery_required",
+          message: "preserve backup",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={vi.fn()}
+        skills={[makeSkill("skill-recovery", "recovery")]}
+        onApply={onApply}
+      />,
+    );
+
+    await user.click(screen.getByTestId("batch-apply"));
+
+    expect(
+      await screen.findByTestId("batch-recovery-required"),
+    ).toHaveTextContent("recovery_required");
+    expect(screen.getByTestId("batch-result-0")).toHaveAttribute(
+      "role",
+      "alert",
+    );
+    expect(screen.getByText("preserve backup")).toBeInTheDocument();
+  });
+
   it("supports explicit undeploy for an archived registered target", async () => {
     const archived: ProjectWorkspace = {
       id: "workspace-archived",

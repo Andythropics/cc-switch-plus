@@ -4,10 +4,12 @@ use std::fs;
 use std::process::Command;
 
 use cc_switch_lib::{
-    DeploymentBatch, DeploymentConsumer, DeploymentIntent, DeploymentMutationOutcome,
-    DeploymentQuery, DeploymentStatus, DeploymentTarget, LibrarySkillAcquisitionService,
-    LibrarySkillSource, LibrarySourceKind, ProjectWorkspaceService, SkillDeploymentService,
-    WorkspaceKind, WorkspaceLifecycle, WorkspaceRootKind, WorkspaceScopeKind,
+    ActivityActor, ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason,
+    ActivityRecorder, ActivityTrigger, DeploymentBatch, DeploymentConsumer, DeploymentIntent,
+    DeploymentMutationOutcome, DeploymentQuery, DeploymentStatus, DeploymentTarget,
+    LibrarySkillAcquisitionService, LibrarySkillSource, LibrarySourceKind, ProjectWorkspaceService,
+    SkillDeploymentService, WorkspaceKind, WorkspaceLifecycle, WorkspaceRootKind,
+    WorkspaceScopeKind,
 };
 
 #[path = "support.rs"]
@@ -40,6 +42,19 @@ fn registers_a_git_repository_at_its_canonical_root_without_creating_consumer_di
     );
     assert!(!repository.path().join(".claude").exists());
     assert!(!repository.path().join(".agents").exists());
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Workspace),
+            reason: Some(ActivityReason::Register),
+            ..ActivityQuery::default()
+        })
+        .expect("list registration activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
+    assert_eq!(
+        activity.entries[0].target.workspace_id.as_deref(),
+        Some(registration.workspace.id.as_str())
+    );
 }
 
 #[test]
@@ -419,6 +434,17 @@ fn active_workspace_retargeted_through_a_symlink_becomes_persisted_unavailable()
             .lifecycle,
         WorkspaceLifecycle::Unavailable
     );
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Workspace),
+            reason: Some(ActivityReason::LifecycleRefresh),
+            ..ActivityQuery::default()
+        })
+        .expect("list automatic lifecycle activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(activity.entries[0].actor, ActivityActor::System);
+    assert_eq!(activity.entries[0].trigger, ActivityTrigger::Focus);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
 }
 
 #[test]
@@ -814,6 +840,26 @@ fn forget_requires_zero_project_deployments_and_never_deletes_project_files() {
     assert_eq!(
         fs::read(repository.path().join("README.md")).expect("read project content"),
         content_before
+    );
+    assert!(state
+        .db
+        .get_project_workspace(&workspace.id)
+        .expect("read forgotten workspace")
+        .is_none());
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Forget),
+            reason: Some(ActivityReason::WorkspaceForget),
+            workspace_id: Some(workspace.id.clone()),
+            ..ActivityQuery::default()
+        })
+        .expect("list workspace forget activity");
+    assert_eq!(activity.entries.len(), 2);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
+    assert_eq!(activity.entries[1].outcome, ActivityOutcome::Blocked);
+    assert_eq!(
+        activity.entries[0].target.workspace_id.as_deref(),
+        Some(workspace.id.as_str())
     );
 }
 

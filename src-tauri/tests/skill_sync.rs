@@ -1,7 +1,9 @@
 use std::fs;
 
 use cc_switch_lib::{
-    migrate_skills_to_ssot, AppType, ImportSkillSelection, InstalledSkill, SkillApps, SkillService,
+    migrate_skills_to_ssot, ActivityActor, ActivityDetailCode, ActivityOperation, ActivityOutcome,
+    ActivityQuery, ActivityReason, ActivityRecorder, ActivityTrigger, AppType,
+    ImportSkillSelection, InstalledSkill, SkillApps, SkillService,
 };
 
 #[path = "support.rs"]
@@ -424,4 +426,85 @@ fn migration_snapshot_overrides_multi_source_directory_inference() {
         !migrated.apps.opencode,
         "migration should no longer infer OpenCode enablement from a duplicate directory alone"
     );
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Migration),
+            ..ActivityQuery::default()
+        })
+        .expect("list migration activity");
+    assert_eq!(activity.entries.len(), 2);
+    let item = activity
+        .entries
+        .iter()
+        .find(|entry| entry.reason == ActivityReason::MigrateItem)
+        .expect("migration item row");
+    assert_eq!(item.outcome, ActivityOutcome::Success);
+    assert_eq!(item.actor, ActivityActor::Migration);
+    assert_eq!(item.trigger, ActivityTrigger::Startup);
+    assert_eq!(
+        item.target.library_skill_id.as_deref(),
+        Some(migrated.id.as_str())
+    );
+    let top_level = activity
+        .entries
+        .iter()
+        .find(|entry| entry.reason == ActivityReason::Migrate)
+        .expect("top-level migration row");
+    assert_eq!(top_level.outcome, ActivityOutcome::Success);
+    assert!(top_level.target.library_skill_id.is_none());
+}
+
+#[test]
+fn failed_startup_migration_records_typed_item_and_top_level_failure_then_resumes() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    write_skill(&home.join(".claude/skills/failing-skill"), "Failure");
+    let state = create_test_state().expect("create test state");
+    state
+        .db
+        .set_setting(
+            "skills_ssot_migration_snapshot",
+            r#"[{"directory":"failing-skill","app_type":"claude"}]"#,
+        )
+        .expect("seed migration snapshot");
+    state
+        .db
+        .fail_skill_inserts_for_test()
+        .expect("install Skill insert failpoint");
+
+    assert!(migrate_skills_to_ssot(&state.db).is_err());
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Migration),
+            ..ActivityQuery::default()
+        })
+        .expect("list failed migration activity");
+    assert_eq!(activity.entries.len(), 2);
+    assert!(activity.entries.iter().all(|entry| {
+        entry.outcome == ActivityOutcome::Failed
+            && entry.detail_code == ActivityDetailCode::DatabaseFailure
+            && entry.actor == ActivityActor::Migration
+            && entry.trigger == ActivityTrigger::Startup
+    }));
+    assert_eq!(
+        activity
+            .entries
+            .iter()
+            .find(|entry| entry.reason == ActivityReason::MigrateItem)
+            .and_then(|entry| entry.target.library_skill_id.as_deref()),
+        Some("local:failing-skill")
+    );
+
+    assert!(migrate_skills_to_ssot(&state.db).is_err());
+    let resumed = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Migration),
+            ..ActivityQuery::default()
+        })
+        .expect("list resumed migration activity");
+    assert_eq!(resumed.entries.len(), 4);
+    assert!(resumed.entries[..2]
+        .iter()
+        .all(|entry| entry.trigger == ActivityTrigger::Resume));
 }

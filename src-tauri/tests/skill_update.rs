@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use cc_switch_lib::{
+    ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason, ActivityRecorder,
     DeploymentBatch, DeploymentConsumer, DeploymentIntent, DeploymentMutationOutcome,
     DeploymentTarget, LibrarySkillAcquisitionService, LibrarySkillSource,
     LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheckOutcome,
@@ -911,6 +912,15 @@ fn staged_update_applies_atomically_and_keeps_a_managed_backup() {
         .as_deref()
         .map(std::path::Path::new)
         .is_some_and(Path::exists));
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Library),
+            reason: Some(ActivityReason::Update),
+            ..ActivityQuery::default()
+        })
+        .expect("list update activity");
+    assert_eq!(activity.entries.len(), 1);
+    assert_eq!(activity.entries[0].outcome, ActivityOutcome::Success);
 }
 
 #[test]
@@ -1036,6 +1046,30 @@ fn deletion_removes_exact_link_and_library_snapshot_with_backup() {
         .is_none());
     assert!(!home.join(".claude/skills/delete-check").exists());
     assert!(state.db.list_skill_deployments().unwrap().is_empty());
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            library_skill_id: Some(skill.id.clone()),
+            ..ActivityQuery::default()
+        })
+        .expect("list deletion activity");
+    let removal = activity
+        .entries
+        .iter()
+        .find(|entry| {
+            entry.operation == ActivityOperation::Removal
+                && entry.reason == ActivityReason::LibraryRemove
+        })
+        .expect("Library removal row must survive deletion");
+    assert_eq!(removal.outcome, ActivityOutcome::Success);
+    let child = activity
+        .entries
+        .iter()
+        .find(|entry| entry.reason == ActivityReason::DeploymentRemove)
+        .expect("deletion child row");
+    assert_eq!(child.outcome, ActivityOutcome::Success);
+    assert_eq!(child.target.consumer, Some(DeploymentConsumer::Claude));
+    assert_eq!(child.target.workspace_kind, Some(WorkspaceKind::Global));
+    assert!(child.target.workspace_id.is_none());
 }
 
 #[test]
@@ -1095,4 +1129,17 @@ fn deletion_removes_safe_links_but_blocks_on_drifted_targets() {
         .unwrap()
         .is_some());
     assert_eq!(state.db.list_skill_deployments().unwrap().len(), 1);
+    let activity = ActivityRecorder::new(state.db.clone())
+        .list(ActivityQuery {
+            operation: Some(ActivityOperation::Removal),
+            library_skill_id: Some(skill.id.clone()),
+            ..ActivityQuery::default()
+        })
+        .expect("list mixed deletion activity");
+    let final_row = activity
+        .entries
+        .iter()
+        .find(|entry| entry.reason == ActivityReason::LibraryRemove)
+        .expect("final Library removal activity");
+    assert_eq!(final_row.outcome, ActivityOutcome::Blocked);
 }

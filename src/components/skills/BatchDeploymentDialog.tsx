@@ -20,6 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  deploymentOutcomeLabelKeys,
+  highVisibilityDeploymentOutcomes,
+} from "@/lib/api/skills";
 import type {
   DeploymentBatch,
   DeploymentBatchResult,
@@ -446,6 +450,11 @@ export function BatchDeploymentDialog({
                     <li
                       key={`${item.librarySkillId}-${item.target?.consumer ?? "unknown"}-${item.target?.workspace ?? "unknown"}-${item.target?.workspaceId ?? "global"}-${index}`}
                       data-testid={`batch-result-${index}`}
+                      role={
+                        item.outcome === "recovery_required"
+                          ? "alert"
+                          : undefined
+                      }
                     >
                       <span className="font-mono text-xs">
                         {item.librarySkillId}
@@ -454,12 +463,17 @@ export function BatchDeploymentDialog({
                       {targetLabel(item.target)}:{" "}
                       <Badge
                         variant={
-                          item.outcome === "blocked"
+                          highVisibilityDeploymentOutcomes.has(item.outcome)
                             ? "destructive"
                             : "secondary"
                         }
+                        data-testid={
+                          item.outcome === "recovery_required"
+                            ? "batch-recovery-required"
+                            : undefined
+                        }
                       >
-                        {item.outcome}
+                        {t(deploymentOutcomeLabelKeys[item.outcome])}
                       </Badge>
                       {item.message && (
                         <span className="ml-1 text-muted-foreground">

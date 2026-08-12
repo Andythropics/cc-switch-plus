@@ -46,6 +46,132 @@ export type RemoteLibrarySourceKind = Exclude<
   "zip" | "local_import"
 >;
 
+export type SkillActivityOperation =
+  | "library"
+  | "workspace"
+  | "deployment"
+  | "repair"
+  | "migration"
+  | "forget"
+  | "removal";
+
+export type SkillActivityOutcome =
+  | "success"
+  | "no_op"
+  | "blocked"
+  | "conflict"
+  | "failed"
+  | "compensation_failed"
+  | "rolled_back";
+
+export type SkillActivityReason =
+  | "acquire"
+  | "import"
+  | "metadata_update"
+  | "update"
+  | "register"
+  | "rename"
+  | "archive"
+  | "restore"
+  | "relocate"
+  | "lifecycle_refresh"
+  | "deploy"
+  | "replace_foreign_link"
+  | "undeploy"
+  | "repair"
+  | "migrate"
+  | "migrate_item"
+  | "resume"
+  | "deployment_forget"
+  | "workspace_forget"
+  | "library_remove"
+  | "deployment_remove"
+  | "legacy_link_remove"
+  | "compensation_restore"
+  | "import_and_replace"
+  | "recover_deployment";
+
+export type SkillActivityDetailCode =
+  | "none"
+  | "already_in_sync"
+  | "already_absent"
+  | "stale_observation"
+  | "drift"
+  | "missing_library"
+  | "archived_workspace"
+  | "unavailable_workspace"
+  | "target_conflict"
+  | "invalid_input"
+  | "unsupported_platform"
+  | "validation_failure"
+  | "filesystem_failure"
+  | "database_failure"
+  | "compensation_failure"
+  | "duplicate_key"
+  | "partial_batch";
+
+export type SkillActivityActor = "user" | "system" | "migration";
+export type SkillActivityTrigger =
+  | "command"
+  | "startup"
+  | "focus"
+  | "manual"
+  | "batch"
+  | "resume";
+
+export interface SkillActivityTarget {
+  librarySkillId?: string;
+  workspaceId?: string;
+  deploymentId?: string;
+  consumer?: DeploymentConsumer;
+  workspaceKind?: WorkspaceKind;
+}
+
+export interface SkillActivityBatch {
+  batchId: string;
+  itemIndex: number;
+  itemCount: number;
+}
+
+export interface SkillActivityEntry {
+  id: number;
+  occurredAt: number;
+  operation: SkillActivityOperation;
+  reason: SkillActivityReason;
+  detailCode: SkillActivityDetailCode;
+  outcome: SkillActivityOutcome;
+  actor: SkillActivityActor;
+  trigger: SkillActivityTrigger;
+  target?: SkillActivityTarget | null;
+  batch?: SkillActivityBatch | null;
+}
+
+export interface SkillActivityCursor {
+  occurredAt: number;
+  id: number;
+}
+
+export interface SkillActivityQuery {
+  operation?: SkillActivityOperation;
+  reason?: SkillActivityReason;
+  outcome?: SkillActivityOutcome;
+  librarySkillId?: string;
+  workspaceId?: string;
+  deploymentId?: string;
+  consumer?: DeploymentConsumer;
+  workspaceKind?: WorkspaceKind;
+  since?: number;
+  until?: number;
+  cursor?: SkillActivityCursor;
+  limit?: number;
+}
+
+export interface SkillActivityPage {
+  entries: SkillActivityEntry[];
+  nextCursor?: SkillActivityCursor | null;
+  hasMore: boolean;
+}
+
 export interface LibrarySkillSource {
   kind: LibrarySourceKind;
   url?: string;
@@ -284,7 +410,47 @@ export type DeploymentMutationOutcome =
   | "blocked"
   | "stale_observation"
   | "forgotten"
+  | "recovery_required"
   | "error";
+
+/** Typed outcome labels and policies shared by every Skills deployment view. */
+export const deploymentOutcomeLabelKeys: Record<
+  DeploymentMutationOutcome,
+  string
+> = {
+  applied: "skills.batch.outcome.applied",
+  replaced: "skills.batch.outcome.replaced",
+  already_in_sync: "skills.batch.outcome.already_in_sync",
+  removed: "skills.batch.outcome.removed",
+  already_absent: "skills.batch.outcome.already_absent",
+  conflict: "skills.batch.outcome.conflict",
+  drift: "skills.batch.outcome.drift",
+  blocked: "skills.batch.outcome.blocked",
+  stale_observation: "skills.batch.outcome.stale_observation",
+  forgotten: "skills.batch.outcome.forgotten",
+  recovery_required: "skills.batch.outcome.recovery_required",
+  error: "skills.batch.outcome.error",
+};
+
+export const successfulDeploymentOutcomes: ReadonlySet<DeploymentMutationOutcome> =
+  new Set([
+    "applied",
+    "replaced",
+    "already_in_sync",
+    "removed",
+    "already_absent",
+    "forgotten",
+  ]);
+
+export const highVisibilityDeploymentOutcomes: ReadonlySet<DeploymentMutationOutcome> =
+  new Set([
+    "conflict",
+    "drift",
+    "blocked",
+    "stale_observation",
+    "recovery_required",
+    "error",
+  ]);
 
 export interface DeploymentItemResult {
   librarySkillId: string;
@@ -404,6 +570,11 @@ export const skillsApi = {
   /** List snapshots in the private Library (never consumer deployments). */
   async getLibrary(): Promise<LibrarySkill[]> {
     return await invoke("getLibrarySkills");
+  },
+
+  /** List redacted, device-local Skills activity in newest-first order. */
+  async listActivity(query?: SkillActivityQuery): Promise<SkillActivityPage> {
+    return await invoke("listSkillActivity", { query: query ?? null });
   },
 
   /** Inspect desired and observed Claude/Codex deployment state. */

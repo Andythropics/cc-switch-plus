@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -49,6 +50,10 @@ import { DeploymentResolutionActions } from "@/components/skills/DeploymentResol
 import { ProjectSkillImportPanel } from "@/components/skills/ProjectSkillImportPanel";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { settingsApi } from "@/lib/api/settings";
+import {
+  deploymentOutcomeLabelKeys,
+  successfulDeploymentOutcomes,
+} from "@/lib/api/skills";
 import type {
   DeploymentBatch,
   DeploymentConsumer,
@@ -60,6 +65,8 @@ import type { ProjectWorkspace } from "@/lib/api/projectWorkspaces";
 interface ProjectWorkspacesPanelProps {
   onOpenLibrary?: () => void;
   onOpenGlobal?: () => void;
+  /** Stable Workspace identity supplied by Activity deep links. */
+  focusWorkspaceId?: string | null;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
 }
@@ -120,26 +127,13 @@ function ProjectWorkspaceDeployments({
       const result = await apply.mutateAsync({ intents: [intent] });
       const item = result.items[0];
       if (!item) throw new Error(t("skills.projects.deploymentFailed"));
-      const safeOutcomes = new Set([
-        "applied",
-        "replaced",
-        "already_in_sync",
-        "removed",
-        "already_absent",
-        "forgotten",
-      ]);
-      if (!safeOutcomes.has(item.outcome)) {
-        toast.error(
-          item.message
-            ? `${item.outcome}: ${item.message}`
-            : t("skills.library.deploymentOutcomeBlocked", {
-                outcome: item.outcome,
-              }),
-        );
+      const label = t(deploymentOutcomeLabelKeys[item.outcome]);
+      if (!successfulDeploymentOutcomes.has(item.outcome)) {
+        toast.error(item.message ? `${label}: ${item.message}` : label);
         return;
       }
       if (item.message) {
-        toast.success(`${item.outcome}: ${item.message}`);
+        toast.success(`${label}: ${item.message}`);
         return;
       }
       toast.success(
@@ -316,6 +310,7 @@ export const ProjectWorkspacesPanel = forwardRef<
   {
     onOpenLibrary,
     onOpenGlobal,
+    focusWorkspaceId,
     onInteractionBlockedChange,
     onNavigationBlockedChange,
   },
@@ -339,6 +334,7 @@ export const ProjectWorkspacesPanel = forwardRef<
   const forget = useForgetProjectWorkspace();
   const refreshDeployments = useRefreshSkillDeployments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const focusedWorkspaceRequest = useRef<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
   const [renameTarget, setRenameTarget] = useState<ProjectWorkspace | null>(
@@ -372,6 +368,21 @@ export const ProjectWorkspacesPanel = forwardRef<
   const archivedWorkspaces = filteredWorkspaces.filter(
     (workspace) => workspace.lifecycle === "archived",
   );
+
+  useEffect(() => {
+    if (!focusWorkspaceId) {
+      focusedWorkspaceRequest.current = null;
+      return;
+    }
+    if (focusedWorkspaceRequest.current === focusWorkspaceId) return;
+    const target = workspaces.find(
+      (workspace) => workspace.id === focusWorkspaceId,
+    );
+    focusedWorkspaceRequest.current = focusWorkspaceId;
+    if (!target) return;
+    setSelectedId(target.id);
+    if (target.lifecycle === "archived") setShowArchived(true);
+  }, [focusWorkspaceId, workspaces]);
   const lifecycleBusy =
     register.isPending ||
     rename.isPending ||
@@ -521,8 +532,9 @@ export const ProjectWorkspacesPanel = forwardRef<
     return (
       <article
         key={workspace.id}
-        className={`rounded-xl border p-4 ${selectedWorkspace ? "border-primary" : ""}`}
+        className={`rounded-xl border p-4 ${selectedWorkspace ? "border-primary ring-2 ring-primary/40" : ""}`}
         data-testid={`project-workspace-${workspace.lifecycle}`}
+        data-workspace-id={workspace.id}
       >
         <div className="flex items-start gap-3">
           <button

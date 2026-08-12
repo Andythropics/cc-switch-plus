@@ -20,7 +20,12 @@ use tokio::time::timeout;
 use crate::app_config::{AppType, InstalledSkill, SkillApps, UnmanagedSkill};
 use crate::config::get_app_config_dir;
 use crate::database::Database;
-use crate::error::format_skill_error;
+use crate::error::{format_skill_error, AppError};
+#[cfg(target_os = "macos")]
+use crate::services::activity::{
+    ActivityActor, ActivityBatchContext, ActivityDetailCode, ActivityEventInput, ActivityOperation,
+    ActivityOutcome, ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
+};
 
 // ========== 数据结构 ==========
 
@@ -3522,6 +3527,24 @@ pub(crate) struct LibrarySkillSourceInspection {
     pub content_hash: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LibraryAdmissionDisposition {
+    Created,
+    Reused,
+}
+
+#[derive(Debug, Clone)]
+struct LibraryAdmission {
+    skill: LibrarySkill,
+    disposition: LibraryAdmissionDisposition,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+struct ZipBatchActivityRecorded {
+    message: String,
+}
+
 impl LibrarySkillAcquisitionService {
     pub(crate) fn lock_for_composite() -> Result<MutexGuard<'static, ()>> {
         LIBRARY_MUTATION_LOCK
@@ -4118,31 +4141,36 @@ impl LibrarySkillAcquisitionService {
         source_kind: LibrarySourceKind,
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
-        Self::ensure_supported_platform()?;
-        if !matches!(
-            source_kind,
-            LibrarySourceKind::Git | LibrarySourceKind::Marketplace
-        ) {
-            return Err(anyhow!(
-                "this source kind must use the local Skill Import endpoint"
-            ));
+        let result = async {
+            Self::ensure_supported_platform()?;
+            if !matches!(
+                source_kind,
+                LibrarySourceKind::Git | LibrarySourceKind::Marketplace
+            ) {
+                return Err(anyhow!(
+                    "this source kind must use the local Skill Import endpoint"
+                ));
+            }
+            let repo = SkillRepo {
+                owner: skill.repo_owner.clone(),
+                name: skill.repo_name.clone(),
+                branch: skill.repo_branch.clone(),
+                enabled: true,
+            };
+            let (_extracted, repo_root, resolved_branch) =
+                Self::download_repo_preserving_links(&repo).await?;
+            Self::acquire_from_repository_snapshot_inner(
+                db,
+                &repo_root,
+                skill,
+                source_kind,
+                &resolved_branch,
+                requested_directory,
+            )
         }
-        let repo = SkillRepo {
-            owner: skill.repo_owner.clone(),
-            name: skill.repo_name.clone(),
-            branch: skill.repo_branch.clone(),
-            enabled: true,
-        };
-        let (_extracted, repo_root, resolved_branch) =
-            Self::download_repo_preserving_links(&repo).await?;
-        Self::acquire_from_repository_snapshot(
-            db,
-            &repo_root,
-            skill,
-            source_kind,
-            &resolved_branch,
-            requested_directory,
-        )
+        .await;
+        Self::record_admission_result(db, &result);
+        result.map(|admission| admission.skill)
     }
 
     /// Admit a downloaded repository snapshot. Keeping network transfer above
@@ -4156,6 +4184,26 @@ impl LibrarySkillAcquisitionService {
         resolved_branch: &str,
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
+        let result = Self::acquire_from_repository_snapshot_inner(
+            db,
+            repo_root,
+            skill,
+            source_kind,
+            resolved_branch,
+            requested_directory,
+        );
+        Self::record_admission_result(db, &result);
+        result.map(|admission| admission.skill)
+    }
+
+    fn acquire_from_repository_snapshot_inner(
+        db: &Arc<Database>,
+        repo_root: &Path,
+        skill: &DiscoverableSkill,
+        source_kind: LibrarySourceKind,
+        resolved_branch: &str,
+        requested_directory: Option<&str>,
+    ) -> Result<LibraryAdmission> {
         Self::ensure_supported_platform()?;
         if !matches!(
             source_kind,
@@ -4200,7 +4248,8 @@ impl LibrarySkillAcquisitionService {
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .ok_or_else(|| anyhow!("Skill needs a readable Library directory name"))?;
-        Self::acquire_from_directory(
+        let _guard = Self::lock_for_composite()?;
+        Self::acquire_from_directory_locked_with_disposition(
             db,
             &source,
             LibrarySkillSource {
@@ -4218,6 +4267,27 @@ impl LibrarySkillAcquisitionService {
     }
 
     pub fn acquire_from_zip(
+        db: &Arc<Database>,
+        zip_path: &Path,
+        requested_directories: &HashMap<String, String>,
+    ) -> Result<Vec<LibrarySkill>> {
+        let result = Self::acquire_from_zip_inner(db, zip_path, requested_directories);
+        if let Err(error) = &result {
+            if error.downcast_ref::<ZipBatchActivityRecorded>().is_none() {
+                Self::record_library_activity(
+                    db,
+                    ActivityReason::Acquire,
+                    ActivityOutcome::Failed,
+                    Self::activity_detail_for_error(error),
+                    None,
+                    None,
+                );
+            }
+        }
+        result
+    }
+
+    fn acquire_from_zip_inner(
         db: &Arc<Database>,
         zip_path: &Path,
         requested_directories: &HashMap<String, String>,
@@ -4278,15 +4348,12 @@ impl LibrarySkillAcquisitionService {
             }
         }
 
-        let mut acquired: Vec<(LibrarySkill, bool)> = Vec::with_capacity(candidates.len());
-        for (source, relative, requested) in candidates {
-            let source_hash = Self::compute_library_hash(&source)?;
-            let already_admitted = db
-                .get_library_skill_by_content_hash(&source_hash)?
-                .is_some();
-            let result = Self::acquire_from_directory_locked(
+        let item_count = candidates.len() as u32;
+        let mut acquired: Vec<LibraryAdmission> = Vec::with_capacity(candidates.len());
+        for (failed_index, (source, relative, requested)) in candidates.iter().enumerate() {
+            let result = Self::acquire_from_directory_locked_with_disposition(
                 db,
-                &source,
+                source,
                 LibrarySkillSource {
                     kind: LibrarySourceKind::Zip,
                     url: None,
@@ -4296,31 +4363,33 @@ impl LibrarySkillAcquisitionService {
                     skill_path: if relative.is_empty() {
                         None
                     } else {
-                        Some(relative)
+                        Some(relative.clone())
                     },
                     marketplace: None,
                 },
-                Some(&requested),
+                Some(requested),
             );
             match result {
-                Ok(skill) => acquired.push((skill, !already_admitted)),
+                Ok(admission) => acquired.push(admission),
                 Err(error) => {
                     let mut compensation_errors = Vec::new();
-                    for (skill, created) in &acquired {
-                        if !created {
+                    let mut compensation_failed = vec![false; acquired.len()];
+                    for (index, admission) in acquired.iter().enumerate() {
+                        if admission.disposition == LibraryAdmissionDisposition::Reused {
                             continue;
                         }
+                        let skill = &admission.skill;
                         let path = Self::library_directory_path().join(&skill.directory);
                         let rollback = Self::library_directory_path()
                             .join(format!(".zip-rollback-{}", uuid::Uuid::new_v4()));
                         if let Err(compensation) = fs::rename(&path, &rollback) {
-                            if compensation.kind() != std::io::ErrorKind::NotFound {
-                                compensation_errors.push(compensation.to_string());
-                            }
+                            compensation_failed[index] = true;
+                            compensation_errors.push(compensation.to_string());
                             continue;
                         }
                         if let Err(compensation) = db.delete_library_skill(&skill.id) {
                             let restore = fs::rename(&rollback, &path).err();
+                            compensation_failed[index] = true;
                             compensation_errors.push(match restore {
                                 Some(restore) => {
                                     format!("{compensation}; restore failed: {restore}")
@@ -4328,20 +4397,101 @@ impl LibrarySkillAcquisitionService {
                                 None => compensation.to_string(),
                             });
                         } else if let Err(compensation) = fs::remove_dir_all(&rollback) {
+                            compensation_failed[index] = true;
                             compensation_errors.push(compensation.to_string());
                         }
                     }
-                    if compensation_errors.is_empty() {
-                        return Err(error);
+
+                    let batch_id = uuid::Uuid::new_v4().to_string();
+                    for (index, admission) in acquired.iter().enumerate() {
+                        let (outcome, detail_code) = match admission.disposition {
+                            LibraryAdmissionDisposition::Reused => {
+                                (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync)
+                            }
+                            LibraryAdmissionDisposition::Created if compensation_failed[index] => (
+                                ActivityOutcome::CompensationFailed,
+                                ActivityDetailCode::CompensationFailure,
+                            ),
+                            LibraryAdmissionDisposition::Created => {
+                                (ActivityOutcome::RolledBack, ActivityDetailCode::None)
+                            }
+                        };
+                        Self::record_library_activity(
+                            db,
+                            ActivityReason::Acquire,
+                            outcome,
+                            detail_code,
+                            Some(admission.skill.id.clone()),
+                            Some(ActivityBatchContext {
+                                batch_id: batch_id.clone(),
+                                item_index: index as u32,
+                                item_count,
+                            }),
+                        );
                     }
-                    return Err(anyhow!(
-                        "ZIP Library admission failed ({error}); batch compensation failed: {}",
-                        compensation_errors.join("; ")
-                    ));
+                    Self::record_library_activity(
+                        db,
+                        ActivityReason::Acquire,
+                        ActivityOutcome::Failed,
+                        Self::activity_detail_for_error(&error),
+                        None,
+                        Some(ActivityBatchContext {
+                            batch_id: batch_id.clone(),
+                            item_index: failed_index as u32,
+                            item_count,
+                        }),
+                    );
+                    for index in (failed_index + 1)..candidates.len() {
+                        Self::record_library_activity(
+                            db,
+                            ActivityReason::Acquire,
+                            ActivityOutcome::Blocked,
+                            ActivityDetailCode::PartialBatch,
+                            None,
+                            Some(ActivityBatchContext {
+                                batch_id: batch_id.clone(),
+                                item_index: index as u32,
+                                item_count,
+                            }),
+                        );
+                    }
+                    let message = if compensation_errors.is_empty() {
+                        error.to_string()
+                    } else {
+                        format!(
+                            "ZIP Library admission failed ({error}); batch compensation failed: {}",
+                            compensation_errors.join("; ")
+                        )
+                    };
+                    return Err(ZipBatchActivityRecorded { message }.into());
                 }
             }
         }
-        Ok(acquired.into_iter().map(|(skill, _)| skill).collect())
+        let batch_id = (item_count > 1).then(|| uuid::Uuid::new_v4().to_string());
+        for (index, admission) in acquired.iter().enumerate() {
+            Self::record_library_activity(
+                db,
+                ActivityReason::Acquire,
+                match admission.disposition {
+                    LibraryAdmissionDisposition::Created => ActivityOutcome::Success,
+                    LibraryAdmissionDisposition::Reused => ActivityOutcome::NoOp,
+                },
+                match admission.disposition {
+                    LibraryAdmissionDisposition::Created => ActivityDetailCode::None,
+                    LibraryAdmissionDisposition::Reused => ActivityDetailCode::AlreadyInSync,
+                },
+                Some(admission.skill.id.clone()),
+                batch_id.as_ref().map(|batch_id| ActivityBatchContext {
+                    batch_id: batch_id.clone(),
+                    item_index: index as u32,
+                    item_count,
+                }),
+            );
+        }
+        Ok(acquired
+            .into_iter()
+            .map(|admission| admission.skill)
+            .collect())
     }
 
     fn require_available_directory(db: &Arc<Database>, raw_directory: &str) -> Result<String> {
@@ -4371,7 +4521,42 @@ impl LibrarySkillAcquisitionService {
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
         let _guard = Self::lock_for_composite()?;
-        Self::acquire_from_directory_locked(db, source, upstream, requested_directory)
+        let result = Self::acquire_from_directory_locked_with_disposition(
+            db,
+            source,
+            upstream,
+            requested_directory,
+        );
+        match result {
+            Ok(admission) => {
+                Self::record_library_activity(
+                    db,
+                    ActivityReason::Acquire,
+                    match admission.disposition {
+                        LibraryAdmissionDisposition::Created => ActivityOutcome::Success,
+                        LibraryAdmissionDisposition::Reused => ActivityOutcome::NoOp,
+                    },
+                    match admission.disposition {
+                        LibraryAdmissionDisposition::Created => ActivityDetailCode::None,
+                        LibraryAdmissionDisposition::Reused => ActivityDetailCode::AlreadyInSync,
+                    },
+                    Some(admission.skill.id.clone()),
+                    None,
+                );
+                Ok(admission.skill)
+            }
+            Err(error) => {
+                Self::record_library_activity(
+                    db,
+                    ActivityReason::Acquire,
+                    ActivityOutcome::Failed,
+                    Self::activity_detail_for_error(&error),
+                    None,
+                    None,
+                );
+                Err(error)
+            }
+        }
     }
 
     /// Admission primitive for a caller already holding the shared Library
@@ -4384,6 +4569,21 @@ impl LibrarySkillAcquisitionService {
         upstream: LibrarySkillSource,
         requested_directory: Option<&str>,
     ) -> Result<LibrarySkill> {
+        Self::acquire_from_directory_locked_with_disposition(
+            db,
+            source,
+            upstream,
+            requested_directory,
+        )
+        .map(|admission| admission.skill)
+    }
+
+    fn acquire_from_directory_locked_with_disposition(
+        db: &Arc<Database>,
+        source: &Path,
+        upstream: LibrarySkillSource,
+        requested_directory: Option<&str>,
+    ) -> Result<LibraryAdmission> {
         Self::ensure_supported_platform()?;
         let source_metadata = fs::symlink_metadata(source)
             .with_context(|| format!("read Skill source metadata: {}", source.display()))?;
@@ -4397,7 +4597,10 @@ impl LibrarySkillAcquisitionService {
         let (display_name, description, compatibility) = Self::read_manifest(source)?;
         let source_content_hash = Self::compute_library_hash(source)?;
         if let Some(existing) = db.get_library_skill_by_content_hash(&source_content_hash)? {
-            return Ok(existing);
+            return Ok(LibraryAdmission {
+                skill: existing,
+                disposition: LibraryAdmissionDisposition::Reused,
+            });
         }
 
         let raw_directory = requested_directory
@@ -4461,7 +4664,10 @@ impl LibrarySkillAcquisitionService {
             let _ = fs::remove_dir_all(&destination);
             return Err(error.into());
         }
-        Ok(skill)
+        Ok(LibraryAdmission {
+            skill,
+            disposition: LibraryAdmissionDisposition::Created,
+        })
     }
 
     pub fn update_display_metadata(
@@ -4471,22 +4677,116 @@ impl LibrarySkillAcquisitionService {
         description: Option<&str>,
     ) -> Result<LibrarySkill> {
         let _guard = Self::lock_for_composite()?;
-        Self::ensure_supported_platform()?;
-        let display_name = display_name.trim();
-        if display_name.is_empty() {
-            return Err(anyhow!("Library Skill display name cannot be empty"));
+        let result = (|| {
+            Self::ensure_supported_platform()?;
+            let display_name = display_name.trim();
+            if display_name.is_empty() {
+                return Err(anyhow!("Library Skill display name cannot be empty"));
+            }
+            let description = description
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+            db.update_library_skill_display_metadata(
+                id,
+                display_name,
+                description.as_deref(),
+                Utc::now().timestamp(),
+            )?
+            .ok_or_else(|| anyhow!("Library Skill not found: {id}"))
+        })();
+        Self::record_library_activity(
+            db,
+            ActivityReason::MetadataUpdate,
+            if result.is_ok() {
+                ActivityOutcome::Success
+            } else {
+                ActivityOutcome::Failed
+            },
+            result
+                .as_ref()
+                .err()
+                .map(Self::activity_detail_for_error)
+                .unwrap_or(ActivityDetailCode::None),
+            Some(id.to_string()),
+            None,
+        );
+        result
+    }
+
+    fn activity_detail_for_error(error: &anyhow::Error) -> ActivityDetailCode {
+        for source in error.chain() {
+            if let Some(error) = source.downcast_ref::<AppError>() {
+                return match error {
+                    AppError::Database(_) => ActivityDetailCode::DatabaseFailure,
+                    AppError::InvalidInput(_) | AppError::Config(_) => {
+                        ActivityDetailCode::InvalidInput
+                    }
+                    AppError::Io { .. } | AppError::IoContext { .. } => {
+                        ActivityDetailCode::FilesystemFailure
+                    }
+                    _ => ActivityDetailCode::ValidationFailure,
+                };
+            }
+            if source.downcast_ref::<std::io::Error>().is_some() {
+                return ActivityDetailCode::FilesystemFailure;
+            }
         }
-        let description = description
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned);
-        db.update_library_skill_display_metadata(
-            id,
-            display_name,
-            description.as_deref(),
-            Utc::now().timestamp(),
-        )?
-        .ok_or_else(|| anyhow!("Library Skill not found: {id}"))
+        ActivityDetailCode::ValidationFailure
+    }
+
+    fn record_admission_result(db: &Arc<Database>, result: &Result<LibraryAdmission>) {
+        match result {
+            Ok(admission) => Self::record_library_activity(
+                db,
+                ActivityReason::Acquire,
+                match admission.disposition {
+                    LibraryAdmissionDisposition::Created => ActivityOutcome::Success,
+                    LibraryAdmissionDisposition::Reused => ActivityOutcome::NoOp,
+                },
+                match admission.disposition {
+                    LibraryAdmissionDisposition::Created => ActivityDetailCode::None,
+                    LibraryAdmissionDisposition::Reused => ActivityDetailCode::AlreadyInSync,
+                },
+                Some(admission.skill.id.clone()),
+                None,
+            ),
+            Err(error) => Self::record_library_activity(
+                db,
+                ActivityReason::Acquire,
+                ActivityOutcome::Failed,
+                Self::activity_detail_for_error(error),
+                None,
+                None,
+            ),
+        }
+    }
+
+    fn record_library_activity(
+        db: &Arc<Database>,
+        reason: ActivityReason,
+        outcome: ActivityOutcome,
+        detail_code: ActivityDetailCode,
+        library_skill_id: Option<String>,
+        batch: Option<ActivityBatchContext>,
+    ) {
+        ActivityRecorder::new(db.clone()).record_best_effort(ActivityEventInput {
+            operation: ActivityOperation::Library,
+            reason,
+            outcome,
+            actor: ActivityActor::User,
+            trigger: if batch.is_some() {
+                ActivityTrigger::Batch
+            } else {
+                ActivityTrigger::Command
+            },
+            target: ActivityTarget {
+                library_skill_id,
+                ..ActivityTarget::default()
+            },
+            batch,
+            detail_code,
+        });
     }
 }
 
@@ -4585,6 +4885,52 @@ fn save_repos_from_lock(
 
 /// 首次启动迁移：扫描应用目录，重建数据库
 pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
+    #[cfg(target_os = "macos")]
+    let trigger = ActivityRecorder::new(db.clone())
+        .list(crate::services::activity::ActivityQuery {
+            operation: Some(ActivityOperation::Migration),
+            reason: Some(ActivityReason::Migrate),
+            limit: Some(1),
+            ..crate::services::activity::ActivityQuery::default()
+        })
+        .ok()
+        .and_then(|page| page.entries.into_iter().next())
+        .filter(|entry| entry.outcome == ActivityOutcome::Failed)
+        .map(|_| ActivityTrigger::Resume)
+        .unwrap_or(ActivityTrigger::Startup);
+
+    #[cfg(target_os = "macos")]
+    let result = migrate_skills_to_ssot_inner(db, trigger);
+    #[cfg(not(target_os = "macos"))]
+    let result = migrate_skills_to_ssot_inner(db);
+
+    #[cfg(target_os = "macos")]
+    {
+        let (outcome, detail_code) = match &result {
+            Ok(0) => (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync),
+            Ok(_) => (ActivityOutcome::Success, ActivityDetailCode::None),
+            Err(error) => (
+                ActivityOutcome::Failed,
+                LibrarySkillAcquisitionService::activity_detail_for_error(error),
+            ),
+        };
+        record_ssot_migration_activity(
+            db,
+            ActivityReason::Migrate,
+            outcome,
+            detail_code,
+            None,
+            trigger,
+            None,
+        );
+    }
+    result
+}
+
+fn migrate_skills_to_ssot_inner(
+    db: &Arc<Database>,
+    #[cfg(target_os = "macos")] activity_trigger: ActivityTrigger,
+) -> Result<usize> {
     let ssot_dir = SkillService::get_ssot_dir()?;
     let agents_lock = parse_agents_lock();
     let snapshot: Vec<LegacySkillMigrationRow> =
@@ -4670,8 +5016,14 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
     // 将 lock 文件中发现的仓库保存到 skill_repos
     save_repos_from_lock(db, &agents_lock, discovered.keys());
 
+    #[cfg(target_os = "macos")]
+    let item_count = discovered.len() as u32;
+    #[cfg(target_os = "macos")]
+    let batch_id = (item_count > 0).then(|| uuid::Uuid::new_v4().to_string());
+    let mut discovered = discovered.into_iter().collect::<Vec<_>>();
+    discovered.sort_by(|left, right| left.0.cmp(&right.0));
     let mut count = 0;
-    for (directory, apps) in discovered {
+    for (item_index, (directory, apps)) in discovered.into_iter().enumerate() {
         let ssot_path = ssot_dir.join(&directory);
         let skill_md = ssot_path.join("SKILL.md");
 
@@ -4697,7 +5049,37 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
             updated_at: 0,
         };
 
-        db.save_skill(&skill)?;
+        if let Err(error) = db.save_skill(&skill) {
+            #[cfg(target_os = "macos")]
+            record_ssot_migration_activity(
+                db,
+                ActivityReason::MigrateItem,
+                ActivityOutcome::Failed,
+                ActivityDetailCode::DatabaseFailure,
+                activity_safe_migration_skill_id(&skill.id),
+                activity_trigger,
+                batch_id.as_ref().map(|batch_id| ActivityBatchContext {
+                    batch_id: batch_id.clone(),
+                    item_index: item_index as u32,
+                    item_count,
+                }),
+            );
+            return Err(error.into());
+        }
+        #[cfg(target_os = "macos")]
+        record_ssot_migration_activity(
+            db,
+            ActivityReason::MigrateItem,
+            ActivityOutcome::Success,
+            ActivityDetailCode::None,
+            activity_safe_migration_skill_id(&skill.id),
+            activity_trigger,
+            batch_id.as_ref().map(|batch_id| ActivityBatchContext {
+                batch_id: batch_id.clone(),
+                item_index: item_index as u32,
+                item_count,
+            }),
+        );
         count += 1;
     }
 
@@ -4706,6 +5088,36 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
     log::info!("Skills 迁移完成，共 {count} 个");
 
     Ok(count)
+}
+
+#[cfg(target_os = "macos")]
+fn activity_safe_migration_skill_id(id: &str) -> Option<String> {
+    ActivityTarget::safe_identifier(id.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn record_ssot_migration_activity(
+    db: &Arc<Database>,
+    reason: ActivityReason,
+    outcome: ActivityOutcome,
+    detail_code: ActivityDetailCode,
+    library_skill_id: Option<String>,
+    trigger: ActivityTrigger,
+    batch: Option<ActivityBatchContext>,
+) {
+    ActivityRecorder::new(db.clone()).record_best_effort(ActivityEventInput {
+        operation: ActivityOperation::Migration,
+        reason,
+        outcome,
+        actor: ActivityActor::Migration,
+        trigger,
+        target: ActivityTarget {
+            library_skill_id,
+            ..ActivityTarget::default()
+        },
+        batch,
+        detail_code,
+    });
 }
 
 #[cfg(test)]

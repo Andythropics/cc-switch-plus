@@ -15,6 +15,11 @@ use std::process::Command;
 use std::sync::Arc;
 
 use crate::database::Database;
+use crate::error::AppError;
+use crate::services::activity::{
+    ActivityActor, ActivityDetailCode, ActivityEventInput, ActivityOperation, ActivityOutcome,
+    ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
+};
 use crate::services::project_workspace::{
     workspace_root_matches_identity, ProjectWorkspaceService, WorkspaceLifecycle,
     WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
@@ -391,6 +396,14 @@ impl ProjectSkillImportService {
     /// by Git/ZIP acquisition.  Import-and-replace additionally takes the
     /// Deployment lock after it, preserving the global lock order.
     pub fn apply(&self, intent: ProjectSkillImportIntent) -> Result<ProjectSkillImportResult> {
+        let workspace_id = intent.workspace_id.clone();
+        let mode = intent.mode;
+        let result = self.apply_inner(intent);
+        self.record_import_activity(&workspace_id, mode, &result);
+        result
+    }
+
+    fn apply_inner(&self, intent: ProjectSkillImportIntent) -> Result<ProjectSkillImportResult> {
         LibrarySkillAcquisitionService::ensure_supported_platform()?;
         let _library_guard = LibrarySkillAcquisitionService::lock_for_composite()?;
         let needs_deployment_lock = intent.mode == ProjectSkillImportMode::ImportAndReplace
@@ -1151,10 +1164,12 @@ impl ProjectSkillImportService {
             workspace_id: workspace.id.clone(),
         };
         let deployment = SkillDeploymentService::new(self.db.clone());
-        let deploy_result = deployment.apply_one_for_composite(&DeploymentIntent::Deploy {
+        let deploy_intent = DeploymentIntent::Deploy {
             library_skill_id: admission.skill().id.clone(),
             target: target.clone(),
-        });
+        };
+        let deploy_result = deployment.apply_one_for_composite(&deploy_intent);
+        deployment.record_composite_activity(&deploy_intent, &deploy_result);
         let success = matches!(
             deploy_result,
             Ok(ref item)
@@ -1457,6 +1472,97 @@ impl ProjectSkillImportService {
             requested,
             suggestions,
         })
+    }
+
+    fn record_import_activity(
+        &self,
+        workspace_id: &str,
+        mode: ProjectSkillImportMode,
+        result: &Result<ProjectSkillImportResult>,
+    ) {
+        let (outcome, detail_code, library_skill_id) = match result {
+            Ok(result) => {
+                let mapped = match result.outcome {
+                    ProjectSkillImportOutcome::Reused => {
+                        (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync)
+                    }
+                    ProjectSkillImportOutcome::Created
+                    | ProjectSkillImportOutcome::LibraryReplaced
+                    | ProjectSkillImportOutcome::Deployed => {
+                        (ActivityOutcome::Success, ActivityDetailCode::None)
+                    }
+                    ProjectSkillImportOutcome::Blocked => (
+                        ActivityOutcome::Blocked,
+                        match result.reason {
+                            Some(
+                                ProjectSkillImportReplaceBlockReason::DirectoryIdentityMismatch,
+                            ) => ActivityDetailCode::TargetConflict,
+                            Some(ProjectSkillImportReplaceBlockReason::GitTrackedContent)
+                            | Some(ProjectSkillImportReplaceBlockReason::NestedUnsupported)
+                            | Some(ProjectSkillImportReplaceBlockReason::InvalidSource)
+                            | None => ActivityDetailCode::ValidationFailure,
+                        },
+                    ),
+                    ProjectSkillImportOutcome::Stale => (
+                        ActivityOutcome::Blocked,
+                        ActivityDetailCode::StaleObservation,
+                    ),
+                    ProjectSkillImportOutcome::RolledBack => (
+                        ActivityOutcome::RolledBack,
+                        ActivityDetailCode::FilesystemFailure,
+                    ),
+                    ProjectSkillImportOutcome::RecoveryRequired => (
+                        ActivityOutcome::CompensationFailed,
+                        ActivityDetailCode::CompensationFailure,
+                    ),
+                };
+                (mapped.0, mapped.1, result.library_skill_id.clone())
+            }
+            Err(error) => (
+                ActivityOutcome::Failed,
+                Self::activity_detail_for_error(error),
+                None,
+            ),
+        };
+        ActivityRecorder::new(self.db.clone()).record_best_effort(ActivityEventInput {
+            operation: ActivityOperation::Library,
+            reason: match mode {
+                ProjectSkillImportMode::ImportOnly => ActivityReason::Import,
+                ProjectSkillImportMode::ImportAndReplace => ActivityReason::ImportAndReplace,
+            },
+            outcome,
+            actor: ActivityActor::User,
+            trigger: ActivityTrigger::Command,
+            target: ActivityTarget {
+                library_skill_id,
+                workspace_id: Some(workspace_id.to_string()),
+                workspace_kind: Some(WorkspaceKind::Project),
+                ..ActivityTarget::default()
+            },
+            batch: None,
+            detail_code,
+        });
+    }
+
+    fn activity_detail_for_error(error: &anyhow::Error) -> ActivityDetailCode {
+        for source in error.chain() {
+            if let Some(error) = source.downcast_ref::<AppError>() {
+                return match error {
+                    AppError::Database(_) => ActivityDetailCode::DatabaseFailure,
+                    AppError::InvalidInput(_) | AppError::Config(_) => {
+                        ActivityDetailCode::InvalidInput
+                    }
+                    AppError::Io { .. } | AppError::IoContext { .. } => {
+                        ActivityDetailCode::FilesystemFailure
+                    }
+                    _ => ActivityDetailCode::ValidationFailure,
+                };
+            }
+            if source.downcast_ref::<std::io::Error>().is_some() {
+                return ActivityDetailCode::FilesystemFailure;
+            }
+        }
+        ActivityDetailCode::ValidationFailure
     }
 }
 
