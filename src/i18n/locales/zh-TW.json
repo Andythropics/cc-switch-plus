@@ -2524,6 +2524,9 @@
       "loadError": "無法檢查舊版 Skills 狀態，未進行任何遷移變更。",
       "recheck": "重新檢查遷移計畫",
       "defer": "暫緩遷移",
+      "apply": "套用遷移",
+      "resume": "繼續遷移",
+      "restore": "還原備份",
       "deferredDescription": "本工作階段已暫緩遷移。新版 Skills 管理維持唯讀，舊版資料未變更。",
       "inventory": "舊版清單",
       "inventoryEmpty": "未發現舊版清單項目。",
@@ -2532,7 +2535,37 @@
       "planEmpty": "沒有建議的遷移操作。",
       "enabled": "已啟用",
       "disabled": "未啟用",
-      "applyUnavailable": "此版本尚不能套用計畫。請在未來切換前先檢視備份與復原準備狀態。",
+      "applyUnavailable": "備份先決條件就緒後才能套用遷移。",
+      "confirm": {
+        "title": "套用已檢視的遷移？",
+        "description": "CC Switch 將驗證本次檢視仍然有效，建立備份，然後執行由後端管理的遷移計畫。",
+        "apply": "確認並套用"
+      },
+      "pending": {
+        "applying": "正在套用遷移。Skills 管理維持唯讀。",
+        "resuming": "正在繼續遷移。Skills 管理維持唯讀。",
+        "restoring": "正在還原遷移備份。Skills 管理維持唯讀。"
+      },
+      "execution": {
+        "completed": "遷移已完成",
+        "stale_observation": "已檢視的狀態發生變更。請檢視更新後的計畫，再次套用。",
+        "resumable": "遷移已暫停，可以安全繼續。",
+        "blocked": "遷移遭到阻止。請重新檢查遷移狀態以查看詳細資訊。",
+        "blockedNoBackup": "沒有經過驗證的備份，因此沒有可繼續或還原的遷移工作。請解決回報的前置條件，然後重新檢查。",
+        "recovery_required": "需要復原遷移。",
+        "restored": "遷移備份已還原。",
+        "awaitingPreview": "正在等待新的權威預檢，然後才能啟用 Skills 管理。",
+        "progress": "已儲存進度",
+        "commandError": "遷移命令失敗。正在重新整理遷移狀態，未假設操作成功。"
+      },
+      "itemOutcome": {
+        "completed": "已完成",
+        "already_completed": "先前已完成",
+        "preserved": "已保留",
+        "rolled_back": "已回復",
+        "blocked": "已阻止",
+        "recovery_required": "需要復原"
+      },
       "status": {
         "not_required": "無需遷移",
         "decision_needed": "需要決定",
@@ -2573,7 +2606,8 @@
         "remove_legacy_codex_link": "移除已確認的舊版 Codex 連結",
         "preserve_content": "保留現有內容",
         "resolve_conflict": "解決目標衝突",
-        "repair_preflight": "修復預檢狀態"
+        "repair_preflight": "修復預檢狀態",
+        "finalize": "完成遷移"
       },
       "reason": {
         "proven_managed": "已確認由 CC Switch 管理。",
@@ -2585,7 +2619,8 @@
         "content_conflict": "目標已被不同內容占用。",
         "missing_source": "預期來源缺少。",
         "invalid_legacy_state": "舊版狀態無效。",
-        "unreadable": "無法讀取該位置。"
+        "unreadable": "無法讀取該位置。",
+        "migration_finalized": "遷移已完成收尾。"
       },
       "backup": {
         "title": "備份與復原準備狀態",

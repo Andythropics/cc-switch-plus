@@ -90,9 +90,12 @@ pub use services::{
     ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
     ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
     ProjectWorkspace, ProjectWorkspaceService, SkillsMigrationAction, SkillsMigrationBackupPlan,
-    SkillsMigrationDisposition, SkillsMigrationInventoryItem, SkillsMigrationInventoryKind,
-    SkillsMigrationInventoryState, SkillsMigrationPageMode, SkillsMigrationPlanItem,
-    SkillsMigrationPreflight, SkillsMigrationPreviewService, SkillsMigrationReason,
+    SkillsMigrationBackupReference, SkillsMigrationDisposition, SkillsMigrationExecutionOutcome,
+    SkillsMigrationExecutionResult, SkillsMigrationExecutionService, SkillsMigrationIntent,
+    SkillsMigrationInventoryItem, SkillsMigrationInventoryKind, SkillsMigrationInventoryState,
+    SkillsMigrationItemOutcome, SkillsMigrationItemResult, SkillsMigrationPageMode,
+    SkillsMigrationPlanItem, SkillsMigrationPreflight, SkillsMigrationPreviewService,
+    SkillsMigrationProgress, SkillsMigrationReason, SkillsMigrationRestoreIntent,
     SkillsMigrationStatus, UpdateDeploymentImpact, WorkspaceLifecycle, WorkspaceRegistration,
     WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
     WorkspaceScopeKind, WorkspaceSkillScope,
@@ -1454,6 +1457,12 @@ pub fn run() {
             commands::restore_env_backup,
             // Skill management (v3.10.0+ unified)
             commands::get_installed_skills,
+            #[cfg(target_os = "macos")]
+            commands::applySkillsMigration,
+            #[cfg(target_os = "macos")]
+            commands::resumeSkillsMigration,
+            #[cfg(target_os = "macos")]
+            commands::restoreSkillsMigrationBackup,
             commands::getLibrarySkills,
             #[cfg(target_os = "macos")]
             commands::listSkillActivity,

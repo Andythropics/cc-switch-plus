@@ -18,7 +18,9 @@ use crate::services::{
     LibrarySkillDeletionIntent, LibrarySkillDeletionResult, LibrarySkillUpdateApplyIntent,
     LibrarySkillUpdateCheck, LibrarySkillUpdateResult, LibrarySkillUpdateService,
     ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
-    ProjectSkillImportService, SkillsMigrationPreflight, SkillsMigrationPreviewService,
+    ProjectSkillImportService, SkillsMigrationExecutionResult, SkillsMigrationExecutionService,
+    SkillsMigrationIntent, SkillsMigrationPreflight, SkillsMigrationPreviewService,
+    SkillsMigrationRestoreIntent,
 };
 use crate::services::{
     DeploymentBatch, DeploymentBatchResult, DeploymentInspectionResult, DeploymentQuery,
@@ -91,6 +93,43 @@ pub fn inspectSkillsMigrationPreflight(
 ) -> Result<SkillsMigrationPreflight, String> {
     SkillsMigrationPreviewService::new(app_state.db.clone())
         .inspect()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn applySkillsMigration(
+    intent: SkillsMigrationIntent,
+    app_state: State<'_, AppState>,
+) -> Result<SkillsMigrationExecutionResult, String> {
+    SkillsMigrationExecutionService::new(app_state.db.clone())
+        .start(intent)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn resumeSkillsMigration(
+    app_state: State<'_, AppState>,
+) -> Result<SkillsMigrationExecutionResult, String> {
+    SkillsMigrationExecutionService::new(app_state.db.clone())
+        .resume()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn restoreSkillsMigrationBackup(
+    backupId: String,
+    app_state: State<'_, AppState>,
+) -> Result<SkillsMigrationExecutionResult, String> {
+    SkillsMigrationExecutionService::new(app_state.db.clone())
+        .restore(SkillsMigrationRestoreIntent {
+            backup_id: backupId,
+        })
         .map_err(|error| error.to_string())
 }
 

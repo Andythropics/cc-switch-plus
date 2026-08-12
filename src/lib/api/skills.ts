@@ -465,7 +465,8 @@ export type SkillsMigrationPlanAction =
   | "remove_legacy_codex_link"
   | "preserve_content"
   | "resolve_conflict"
-  | "repair_preflight";
+  | "repair_preflight"
+  | "finalize";
 
 export type SkillsMigrationPlanReason =
   | "proven_managed"
@@ -477,7 +478,8 @@ export type SkillsMigrationPlanReason =
   | "content_conflict"
   | "missing_source"
   | "invalid_legacy_state"
-  | "unreadable";
+  | "unreadable"
+  | "migration_finalized";
 
 /** Deterministically ordered proposed work; all locations are display-only. */
 export interface SkillsMigrationPlanItem {
@@ -506,6 +508,55 @@ export interface SkillsMigrationPreflight {
   inventory: SkillsMigrationInventoryItem[];
   plan: SkillsMigrationPlanItem[];
   backup: SkillsMigrationBackupPlan;
+  execution?: SkillsMigrationExecutionResult;
+}
+
+export interface SkillsMigrationIntent {
+  observationToken: string;
+}
+
+export type SkillsMigrationExecutionOutcome =
+  | "completed"
+  | "stale_observation"
+  | "resumable"
+  | "blocked"
+  | "recovery_required"
+  | "restored";
+
+export interface SkillsMigrationProgress {
+  completedItems: number;
+  totalItems: number;
+}
+
+export interface SkillsMigrationBackup {
+  backupId: string;
+  createdAt: number;
+  restoreAvailable: boolean;
+}
+
+export type SkillsMigrationItemOutcome =
+  | "completed"
+  | "already_completed"
+  | "preserved"
+  | "rolled_back"
+  | "blocked"
+  | "recovery_required";
+
+/** Backend-ordered execution fact; locations are display-only. */
+export interface SkillsMigrationItemResult {
+  action: SkillsMigrationPlanAction;
+  outcome: SkillsMigrationItemOutcome;
+  directory?: string;
+  consumer?: DeploymentConsumer;
+  reason?: SkillsMigrationPlanReason;
+}
+
+export interface SkillsMigrationExecutionResult {
+  outcome: SkillsMigrationExecutionOutcome;
+  pageMode: SkillsMigrationPageMode;
+  progress: SkillsMigrationProgress;
+  items: SkillsMigrationItemResult[];
+  backup?: SkillsMigrationBackup;
 }
 
 export type DeploymentIntent =
@@ -736,6 +787,25 @@ export const skillsApi = {
   /** Preview the macOS guided migration without changing legacy state. */
   async inspectSkillsMigrationPreflight(): Promise<SkillsMigrationPreflight> {
     return await invoke("inspectSkillsMigrationPreflight");
+  },
+
+  /** Execute exactly the reviewed migration observation. */
+  async applySkillsMigration(
+    intent: SkillsMigrationIntent,
+  ): Promise<SkillsMigrationExecutionResult> {
+    return await invoke("applySkillsMigration", { intent });
+  },
+
+  /** Continue backend-journaled work without rebuilding a plan in the UI. */
+  async resumeSkillsMigration(): Promise<SkillsMigrationExecutionResult> {
+    return await invoke("resumeSkillsMigration");
+  },
+
+  /** Restore by opaque backup identity; display paths never become intent. */
+  async restoreSkillsMigrationBackup(
+    backupId: string,
+  ): Promise<SkillsMigrationExecutionResult> {
+    return await invoke("restoreSkillsMigrationBackup", { backupId });
   },
 
   /** Apply ordered deployment intents without selecting an app implicitly. */

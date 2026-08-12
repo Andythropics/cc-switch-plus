@@ -16,9 +16,24 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useSkillsMigrationPreflight } from "@/hooks/useSkills";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  useApplySkillsMigration,
+  useRestoreSkillsMigrationBackup,
+  useResumeSkillsMigration,
+  useSkillsMigrationPreflight,
+} from "@/hooks/useSkills";
 import type {
+  SkillsMigrationExecutionResult,
   SkillsMigrationInventoryItem,
+  SkillsMigrationItemResult,
   SkillsMigrationPlanItem,
 } from "@/lib/api/skills";
 
@@ -38,14 +53,21 @@ export function SkillsMigrationGate({
 }: SkillsMigrationGateProps) {
   const { t } = useTranslation();
   const preflight = useSkillsMigrationPreflight({ enabled });
+  const applyMigration = useApplySkillsMigration();
+  const resumeMigration = useResumeSkillsMigration();
+  const restoreMigration = useRestoreSkillsMigrationBackup();
   const [drift, setDrift] = useState<"unchanged" | "changed" | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [transientExecution, setTransientExecution] =
+    useState<SkillsMigrationExecutionResult | null>(null);
   const observedToken = useRef<string | null>(null);
   const writable =
     !enabled ||
     (!preflight.isFetching &&
       !preflight.isError &&
       preflight.data?.status === "not_required" &&
-      preflight.data.pageMode === "writable");
+      preflight.data.pageMode === "writable" &&
+      !preflight.data.execution);
 
   useLayoutEffect(() => {
     onReadOnlyChange?.(!writable);
@@ -57,6 +79,8 @@ export function SkillsMigrationGate({
     if (!nextToken) return;
     if (observedToken.current && observedToken.current !== nextToken) {
       setDrift("changed");
+      setTransientExecution(null);
+      setConfirming(false);
     }
     observedToken.current = nextToken;
   }, [preflight.data?.observationToken]);
@@ -94,13 +118,71 @@ export function SkillsMigrationGate({
   }
 
   const { inventory, plan, backup, status } = preflight.data;
-  const deferred = Boolean(deferredToken);
+  const execution = preflight.data.execution ?? transientExecution;
+  const deferred = deferredToken === preflight.data.observationToken;
+  const pendingOperation = applyMigration.isPending
+    ? "applying"
+    : resumeMigration.isPending
+      ? "resuming"
+      : restoreMigration.isPending
+        ? "restoring"
+        : null;
+  const mutationError =
+    applyMigration.error ?? resumeMigration.error ?? restoreMigration.error;
   const recheck = async () => {
     const before = preflight.data?.observationToken;
     const result = await preflight.refetch();
     const after = result.data?.observationToken;
     if (before && after) setDrift(before === after ? "unchanged" : "changed");
   };
+  const applyReviewedMigration = async () => {
+    setConfirming(false);
+    try {
+      const result = await applyMigration.mutateAsync({
+        observationToken: preflight.data.observationToken,
+      });
+      setTransientExecution(result);
+      await preflight.refetch();
+    } catch {
+      // The mutation exposes its typed error while onSettled refreshes state.
+    }
+  };
+  const resumePersistedMigration = async () => {
+    try {
+      const result = await resumeMigration.mutateAsync();
+      setTransientExecution(result);
+      await preflight.refetch();
+    } catch {
+      // The mutation exposes its typed error while onSettled refreshes state.
+    }
+  };
+  const restorePersistedBackup = async (backupId: string) => {
+    try {
+      const result = await restoreMigration.mutateAsync(backupId);
+      setTransientExecution(result);
+      await preflight.refetch();
+    } catch {
+      // The mutation exposes its typed error while onSettled refreshes state.
+    }
+  };
+  const executionOwnsActions = Boolean(execution);
+  const restorableBackup = execution?.backup?.restoreAvailable
+    ? execution.backup
+    : undefined;
+  const restoreAvailable = Boolean(restorableBackup);
+  const canResumeExecution =
+    execution?.outcome === "resumable" ||
+    (execution?.outcome === "blocked" && restoreAvailable);
+  const canRestoreExecution =
+    restoreAvailable &&
+    (execution?.outcome === "resumable" ||
+      execution?.outcome === "blocked" ||
+      execution?.outcome === "recovery_required");
+  const canApply =
+    status === "decision_needed" &&
+    backup.ready &&
+    !deferred &&
+    !executionOwnsActions;
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
@@ -137,11 +219,29 @@ export function SkillsMigrationGate({
               {t(`skills.migration.drift.${drift}`)}
             </p>
           )}
+          {pendingOperation && (
+            <p
+              role="status"
+              className="mt-4 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm"
+            >
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+              {t(`skills.migration.pending.${pendingOperation}`)}
+            </p>
+          )}
+          {mutationError && (
+            <p
+              role="alert"
+              className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              {t("skills.migration.execution.commandError")}
+            </p>
+          )}
+          {execution && <ExecutionSummary execution={execution} />}
 
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               variant="outline"
-              disabled={preflight.isFetching}
+              disabled={preflight.isFetching || Boolean(pendingOperation)}
               onClick={() => void recheck()}
             >
               {preflight.isFetching ? (
@@ -151,14 +251,49 @@ export function SkillsMigrationGate({
               )}
               {t("skills.migration.recheck")}
             </Button>
-            {status === "decision_needed" && !deferred && (
+            {canApply && (
               <Button
-                variant="secondary"
-                onClick={() => onDefer?.(preflight.data.observationToken)}
+                disabled={Boolean(pendingOperation)}
+                onClick={() => setConfirming(true)}
               >
-                {t("skills.migration.defer")}
+                {t("skills.migration.apply")}
               </Button>
             )}
+            {canResumeExecution && (
+              <Button
+                disabled={Boolean(pendingOperation)}
+                onClick={() => void resumePersistedMigration()}
+              >
+                {resumeMigration.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {t("skills.migration.resume")}
+              </Button>
+            )}
+            {canRestoreExecution && restorableBackup && (
+              <Button
+                variant="destructive"
+                disabled={Boolean(pendingOperation)}
+                onClick={() =>
+                  void restorePersistedBackup(restorableBackup.backupId)
+                }
+              >
+                {restoreMigration.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {t("skills.migration.restore")}
+              </Button>
+            )}
+            {status === "decision_needed" &&
+              !deferred &&
+              !executionOwnsActions && (
+                <Button
+                  variant="secondary"
+                  onClick={() => onDefer?.(preflight.data.observationToken)}
+                >
+                  {t("skills.migration.defer")}
+                </Button>
+              )}
           </div>
         </section>
 
@@ -234,11 +369,114 @@ export function SkillsMigrationGate({
               {path}
             </p>
           ))}
-          <p className="mt-3 text-xs text-muted-foreground">
-            {t("skills.migration.applyUnavailable")}
-          </p>
+          {!backup.ready && status === "decision_needed" && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t("skills.migration.applyUnavailable")}
+            </p>
+          )}
         </section>
       </div>
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent zIndex="alert">
+          <DialogHeader>
+            <DialogTitle>{t("skills.migration.confirm.title")}</DialogTitle>
+            <DialogDescription>
+              {t("skills.migration.confirm.description")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => void applyReviewedMigration()}>
+              {t("skills.migration.confirm.apply")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ExecutionSummary({
+  execution,
+}: {
+  execution: SkillsMigrationExecutionResult;
+}) {
+  const { t } = useTranslation();
+  const highVisibility = ["blocked", "recovery_required"].includes(
+    execution.outcome,
+  );
+  return (
+    <div
+      role={
+        highVisibility || execution.outcome === "stale_observation"
+          ? "alert"
+          : "status"
+      }
+      className={`mt-4 rounded-md border px-3 py-3 text-sm ${
+        highVisibility
+          ? "border-destructive/50 bg-destructive/10 text-destructive"
+          : "bg-muted/30"
+      }`}
+    >
+      <p className="font-medium">
+        {t(`skills.migration.execution.${execution.outcome}`)}
+      </p>
+      {execution.outcome === "completed" && (
+        <p className="mt-1 text-muted-foreground">
+          {t("skills.migration.execution.awaitingPreview")}
+        </p>
+      )}
+      {execution.outcome === "blocked" &&
+        !execution.backup?.restoreAvailable && (
+          <p className="mt-1 text-muted-foreground">
+            {t("skills.migration.execution.blockedNoBackup")}
+          </p>
+        )}
+      <p className="mt-1 text-muted-foreground">
+        {t("skills.migration.execution.progress")}:{" "}
+        <span>{`${execution.progress.completedItems} / ${execution.progress.totalItems}`}</span>
+      </p>
+      {execution.items.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {execution.items.map((item, index) => (
+            <ExecutionItem
+              key={`${item.action}-${item.directory ?? item.consumer ?? "item"}-${index}`}
+              item={item}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExecutionItem({ item }: { item: SkillsMigrationItemResult }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-md border bg-background/60 p-2">
+      <div className="flex flex-wrap gap-2">
+        <span>{t(`skills.migration.action.${item.action}`)}</span>
+        <Badge variant="outline">
+          {t(`skills.migration.itemOutcome.${item.outcome}`)}
+        </Badge>
+        {item.directory && <span className="font-mono">{item.directory}</span>}
+        {item.consumer && (
+          <span className="uppercase">
+            {item.consumer === "claude"
+              ? t("skills.library.consumerClaude")
+              : item.consumer === "codex"
+                ? t("skills.library.consumerCodex")
+                : item.consumer}
+          </span>
+        )}
+      </div>
+      {item.reason && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t(`skills.migration.reason.${item.reason}`)}
+        </p>
+      )}
     </div>
   );
 }

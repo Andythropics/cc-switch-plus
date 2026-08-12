@@ -2523,6 +2523,9 @@
       "loadError": "无法检查旧版 Skills 状态，未进行任何迁移更改。",
       "recheck": "重新检查迁移计划",
       "defer": "暂缓迁移",
+      "apply": "应用迁移",
+      "resume": "继续迁移",
+      "restore": "恢复备份",
       "deferredDescription": "本会话已暂缓迁移。新版 Skills 管理保持只读，旧版数据未改变。",
       "inventory": "旧版清单",
       "inventoryEmpty": "未发现旧版清单项目。",
@@ -2531,7 +2534,37 @@
       "planEmpty": "没有建议的迁移操作。",
       "enabled": "已启用",
       "disabled": "未启用",
-      "applyUnavailable": "此版本尚不能应用计划。请在未来切换前先审查备份和恢复准备状态。",
+      "applyUnavailable": "备份前置条件就绪后才能应用迁移。",
+      "confirm": {
+        "title": "应用已审查的迁移？",
+        "description": "CC Switch 将验证本次审查仍然有效，创建备份，然后执行由后端管理的迁移计划。",
+        "apply": "确认并应用"
+      },
+      "pending": {
+        "applying": "正在应用迁移。Skills 管理保持只读。",
+        "resuming": "正在继续迁移。Skills 管理保持只读。",
+        "restoring": "正在恢复迁移备份。Skills 管理保持只读。"
+      },
+      "execution": {
+        "completed": "迁移已完成",
+        "stale_observation": "已审查的状态发生变化。请审查刷新后的计划，再次应用。",
+        "resumable": "迁移已暂停，可以安全继续。",
+        "blocked": "迁移被阻止。请重新检查迁移状态以查看详情。",
+        "blockedNoBackup": "没有经过验证的备份，因此没有可继续或恢复的迁移工作。请解决报告的前置条件，然后重新检查。",
+        "recovery_required": "需要恢复迁移。",
+        "restored": "迁移备份已恢复。",
+        "awaitingPreview": "正在等待新的权威预检，然后才能启用 Skills 管理。",
+        "progress": "已保存进度",
+        "commandError": "迁移命令失败。正在刷新迁移状态，未假定操作成功。"
+      },
+      "itemOutcome": {
+        "completed": "已完成",
+        "already_completed": "此前已完成",
+        "preserved": "已保留",
+        "rolled_back": "已回滚",
+        "blocked": "已阻止",
+        "recovery_required": "需要恢复"
+      },
       "status": {
         "not_required": "无需迁移",
         "decision_needed": "需要决定",
@@ -2572,7 +2605,8 @@
         "remove_legacy_codex_link": "移除已确认的旧版 Codex 链接",
         "preserve_content": "保留现有内容",
         "resolve_conflict": "解决目标冲突",
-        "repair_preflight": "修复预检状态"
+        "repair_preflight": "修复预检状态",
+        "finalize": "完成迁移"
       },
       "reason": {
         "proven_managed": "已确认由 CC Switch 管理。",
@@ -2584,7 +2618,8 @@
         "content_conflict": "目标已被不同内容占用。",
         "missing_source": "预期来源缺失。",
         "invalid_legacy_state": "旧版状态无效。",
-        "unreadable": "无法读取该位置。"
+        "unreadable": "无法读取该位置。",
+        "migration_finalized": "迁移已完成收尾。"
       },
       "backup": {
         "title": "备份与恢复准备状态",

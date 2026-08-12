@@ -626,6 +626,14 @@ fn dual_consumer_sources_coalesce_when_identical_and_conflict_when_different() {
         identical
             .plan
             .iter()
+            .filter(|item| item.action == SkillsMigrationAction::ReuseLibrary)
+            .count(),
+        1
+    );
+    assert_eq!(
+        identical
+            .plan
+            .iter()
             .filter(|item| item.action == SkillsMigrationAction::CreateGlobalDeployment)
             .count(),
         2

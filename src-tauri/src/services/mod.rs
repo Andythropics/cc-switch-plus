@@ -35,6 +35,8 @@ pub mod skill_import;
 #[cfg(target_os = "macos")]
 pub mod skill_update;
 #[cfg(target_os = "macos")]
+pub mod skills_migration;
+#[cfg(target_os = "macos")]
 pub mod skills_migration_preview;
 pub mod speedtest;
 pub mod sql_helpers;
@@ -100,6 +102,13 @@ pub use skill_update::{
     LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
     LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
     LibrarySkillUpdateService, UpdateDeploymentImpact,
+};
+#[cfg(target_os = "macos")]
+pub use skills_migration::{
+    SkillsMigrationBackupReference, SkillsMigrationExecutionOutcome,
+    SkillsMigrationExecutionResult, SkillsMigrationExecutionService, SkillsMigrationIntent,
+    SkillsMigrationItemOutcome, SkillsMigrationItemResult, SkillsMigrationProgress,
+    SkillsMigrationRestoreIntent,
 };
 #[cfg(target_os = "macos")]
 pub use skills_migration_preview::{

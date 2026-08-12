@@ -2523,6 +2523,9 @@
       "loadError": "旧 Skills の状態を確認できませんでした。移行による変更は行われていません。",
       "recheck": "移行計画を再確認",
       "defer": "移行を延期",
+      "apply": "移行を適用",
+      "resume": "移行を再開",
+      "restore": "バックアップを復元",
       "deferredDescription": "このセッションでは移行を延期しました。新しい Skills 管理は読み取り専用のままで、旧データは変更されません。",
       "inventory": "旧データの棚卸し",
       "inventoryEmpty": "旧データの項目は見つかりませんでした。",
@@ -2531,7 +2534,37 @@
       "planEmpty": "提案される移行操作はありません。",
       "enabled": "有効",
       "disabled": "無効",
-      "applyUnavailable": "このバージョンでは計画を適用できません。将来の切り替え前にバックアップと復旧準備を確認してください。",
+      "applyUnavailable": "バックアップの前提条件が整うまで移行を適用できません。",
+      "confirm": {
+        "title": "確認済みの移行を適用しますか？",
+        "description": "CC Switch は、この確認が現在も有効であることを検証し、バックアップを作成してから、バックエンド管理の移行計画を実行します。",
+        "apply": "確認して適用"
+      },
+      "pending": {
+        "applying": "移行を適用中です。Skills 管理は読み取り専用のままです。",
+        "resuming": "移行を再開中です。Skills 管理は読み取り専用のままです。",
+        "restoring": "移行バックアップを復元中です。Skills 管理は読み取り専用のままです。"
+      },
+      "execution": {
+        "completed": "移行が完了しました",
+        "stale_observation": "確認済みの状態が変更されました。更新された計画を確認してから再度適用してください。",
+        "resumable": "移行は一時停止され、安全に再開できます。",
+        "blocked": "移行がブロックされています。詳細を確認するため、移行状態を再確認してください。",
+        "blockedNoBackup": "検証済みのバックアップがないため、再開または復元できる移行作業はありません。報告された前提条件を解決してから、再確認してください。",
+        "recovery_required": "移行の復旧が必要です。",
+        "restored": "移行バックアップを復元しました。",
+        "awaitingPreview": "Skills 管理を有効にする前に、新しい正式な事前確認を待っています。",
+        "progress": "保存済みの進捗",
+        "commandError": "移行コマンドに失敗しました。移行状態を更新中で、成功したとは見なしていません。"
+      },
+      "itemOutcome": {
+        "completed": "完了",
+        "already_completed": "完了済み",
+        "preserved": "保持",
+        "rolled_back": "ロールバック済み",
+        "blocked": "ブロック済み",
+        "recovery_required": "復旧が必要"
+      },
       "status": {
         "not_required": "移行不要",
         "decision_needed": "判断が必要",
@@ -2572,7 +2605,8 @@
         "remove_legacy_codex_link": "確認済みの旧 Codex リンクを削除",
         "preserve_content": "既存コンテンツを保持",
         "resolve_conflict": "ターゲット競合を解決",
-        "repair_preflight": "プリフライト状態を修復"
+        "repair_preflight": "プリフライト状態を修復",
+        "finalize": "移行を完了"
       },
       "reason": {
         "proven_managed": "CC Switch の管理対象であることが確認されています。",
@@ -2584,7 +2618,8 @@
         "content_conflict": "異なるコンテンツがターゲットを使用しています。",
         "missing_source": "想定されたソースがありません。",
         "invalid_legacy_state": "旧状態が無効です。",
-        "unreadable": "場所を読み取れませんでした。"
+        "unreadable": "場所を読み取れませんでした。",
+        "migration_finalized": "移行の最終処理が完了しました。"
       },
       "backup": {
         "title": "バックアップと復旧の準備",

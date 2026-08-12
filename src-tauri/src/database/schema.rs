@@ -127,6 +127,8 @@ impl Database {
         Self::create_project_workspaces_table(conn)?;
         #[cfg(target_os = "macos")]
         Self::create_skill_activity_table(conn)?;
+        #[cfg(target_os = "macos")]
+        Self::create_skills_migration_journal_tables(conn)?;
 
         // 7. Settings 表
         conn.execute(
@@ -557,6 +559,14 @@ impl Database {
                         );
                         Self::migrate_v20_to_v21(conn)?;
                         Self::set_user_version(conn, 21)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    21 => {
+                        log::info!(
+                            "迁移数据库从 v21 到 v22（添加设备本地 Skills migration journal）"
+                        );
+                        Self::migrate_v21_to_v22(conn)?;
+                        Self::set_user_version(conn, 22)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1509,6 +1519,85 @@ impl Database {
     fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
         Self::create_skill_activity_table(conn)?;
         log::info!("v20 -> v21 迁移完成：已添加设备本地 Skills activity history");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn create_skills_migration_journal_tables(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skills_migration_runs (
+                id TEXT PRIMARY KEY,
+                accepted_observation_token TEXT NOT NULL UNIQUE,
+                resume_token TEXT NOT NULL UNIQUE,
+                state TEXT NOT NULL CHECK(state IN (
+                    'prepared', 'running', 'blocked', 'recovery_required',
+                    'completed', 'restored'
+                )),
+                database_backup_filename TEXT,
+                content_backup_root TEXT,
+                plan_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                completed_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|error| {
+            AppError::Database(format!("创建 skills_migration_runs 表失败: {error}"))
+        })?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skills_migration_items (
+                run_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+                item_key TEXT NOT NULL,
+                action TEXT NOT NULL,
+                directory TEXT,
+                consumer TEXT CHECK(consumer IS NULL OR consumer IN ('claude', 'codex')),
+                source_location TEXT,
+                target_location TEXT,
+                expected_fingerprint TEXT,
+                state TEXT NOT NULL CHECK(state IN (
+                    'pending', 'in_progress', 'completed', 'rolled_back',
+                    'blocked', 'recovery_required'
+                )),
+                library_skill_id TEXT,
+                detail_code TEXT,
+                started_at INTEGER,
+                completed_at INTEGER,
+                PRIMARY KEY(run_id, ordinal),
+                UNIQUE(run_id, item_key),
+                FOREIGN KEY(run_id) REFERENCES skills_migration_runs(id) ON DELETE CASCADE
+            )",
+            [],
+        )
+        .map_err(|error| {
+            AppError::Database(format!("创建 skills_migration_items 表失败: {error}"))
+        })?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skills_migration_runs_state
+             ON skills_migration_runs(state, updated_at DESC)",
+            [],
+        )
+        .map_err(|error| {
+            AppError::Database(format!("创建 skills_migration_runs 状态索引失败: {error}"))
+        })?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skills_migration_items_state_order
+             ON skills_migration_items(run_id, state, ordinal)",
+            [],
+        )
+        .map_err(|error| {
+            AppError::Database(format!("创建 skills_migration_items 状态索引失败: {error}"))
+        })?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
+        Self::create_skills_migration_journal_tables(conn)?;
+        log::info!("v21 -> v22 迁移完成：已添加设备本地 Skills migration journal");
         Ok(())
     }
 
@@ -3799,7 +3888,7 @@ mod tests {
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
-        assert_eq!(Database::get_user_version(&conn)?, 21);
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
         assert!(Database::table_exists(&conn, "skill_activity")?);
         for index in [
             "idx_skill_activity_time",
@@ -3829,6 +3918,103 @@ mod tests {
         let count: i64 =
             conn.query_row("SELECT COUNT(*) FROM skill_activity", [], |row| row.get(0))?;
         assert_eq!(count, 1);
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v21_to_v22_adds_skills_migration_journal_idempotently() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        // Current-table creation is intentionally ahead of the migration. Drop
+        // the journal so this exercises the actual v21 -> v22 step.
+        conn.execute("DROP TABLE skills_migration_items", [])?;
+        conn.execute("DROP TABLE skills_migration_runs", [])?;
+        Database::set_user_version(&conn, 21)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, 22);
+        assert!(Database::table_exists(&conn, "skills_migration_runs")?);
+        assert!(Database::table_exists(&conn, "skills_migration_items")?);
+        for index in [
+            "idx_skills_migration_runs_state",
+            "idx_skills_migration_items_state_order",
+        ] {
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1
+                )",
+                [index],
+                |row| row.get(0),
+            )?;
+            assert!(exists, "missing migration journal index {index}");
+        }
+
+        conn.execute(
+            "INSERT INTO skills_migration_runs (
+                id, accepted_observation_token, resume_token, state, plan_hash,
+                created_at, updated_at
+             ) VALUES ('run-1', 'observation-1', 'resume-1', 'prepared', 'plan-1', 1, 1)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO skills_migration_items (
+                run_id, ordinal, item_key, action, directory, consumer,
+                source_location, target_location, expected_fingerprint, state
+             ) VALUES ('run-1', 0, 'item-1', 'move_to_library', 'review', 'claude',
+                       '/legacy/review', '/library/review', 'fingerprint-1', 'pending')",
+            [],
+        )?;
+
+        // Re-running the migration must keep both journal rows and not change
+        // the schema or user_version.
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, 22);
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'run-1'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'run-1'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            1
+        );
+
+        // The normalized journal rejects unknown states, duplicate ordering,
+        // and orphaned items while allowing nullable consumer/path fields.
+        assert!(conn
+            .execute(
+                "INSERT INTO skills_migration_runs (
+                    id, accepted_observation_token, resume_token, state, plan_hash,
+                    created_at, updated_at
+                 ) VALUES ('run-invalid', 'observation-2', 'resume-2', 'unknown', 'plan-2', 1, 1)",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO skills_migration_items (
+                    run_id, ordinal, item_key, action, state
+                 ) VALUES ('run-1', 0, 'item-duplicate', 'noop', 'pending')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO skills_migration_items (
+                    run_id, ordinal, item_key, action, state
+                 ) VALUES ('missing-run', 0, 'orphan', 'noop', 'pending')",
+                [],
+            )
+            .is_err());
         Ok(())
     }
 }

@@ -17,6 +17,8 @@ pub mod proxy;
 pub mod settings;
 pub mod skill_deployments;
 pub mod skills;
+#[cfg(target_os = "macos")]
+pub mod skills_migration;
 pub mod stream_check;
 pub mod universal_providers;
 pub mod usage_rollup;

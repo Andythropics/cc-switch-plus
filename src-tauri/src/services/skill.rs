@@ -4579,6 +4579,59 @@ impl LibrarySkillAcquisitionService {
         .map(|admission| admission.skill)
     }
 
+    /// Admit a legacy Skill that is already physically located at its final
+    /// private Library path. Migration uses this instead of copying a directory
+    /// onto itself; normal acquisition never needs this seam.
+    pub(crate) fn admit_existing_library_directory_locked(
+        db: &Arc<Database>,
+        directory: &str,
+    ) -> Result<LibrarySkill> {
+        Self::ensure_supported_platform()?;
+        let canonical = SkillService::sanitize_install_name(directory)
+            .filter(|value| value == directory)
+            .ok_or_else(|| anyhow!("Library directory identity is invalid"))?;
+        if let Some(existing) = db.get_library_skill_by_directory(&canonical)? {
+            let path = Self::library_directory_path().join(&canonical);
+            let hash = Self::compute_library_hash(&path)?;
+            if hash != existing.content_hash {
+                return Err(anyhow!("Library Skill content drifted during migration"));
+            }
+            return Ok(existing);
+        }
+        let path = Self::library_directory_path().join(&canonical);
+        let inspection = Self::inspect_source_directory(&path)?;
+        if db
+            .get_library_skill_by_content_hash(&inspection.content_hash)?
+            .is_some()
+        {
+            return Err(anyhow!(
+                "Library content already belongs to a different directory identity"
+            ));
+        }
+        let now = chrono::Utc::now().timestamp();
+        let skill = LibrarySkill {
+            id: uuid::Uuid::new_v4().to_string(),
+            directory: canonical,
+            display_name: inspection.display_name,
+            description: inspection.description,
+            source: LibrarySkillSource {
+                kind: LibrarySourceKind::LocalImport,
+                url: None,
+                repo_owner: None,
+                repo_name: None,
+                repo_branch: None,
+                skill_path: None,
+                marketplace: None,
+            },
+            compatibility: inspection.compatibility,
+            content_hash: inspection.content_hash,
+            acquired_at: now,
+            updated_at: now,
+        };
+        db.save_library_skill(&skill)?;
+        Ok(skill)
+    }
+
     fn acquire_from_directory_locked_with_disposition(
         db: &Arc<Database>,
         source: &Path,

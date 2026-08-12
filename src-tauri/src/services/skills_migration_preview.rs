@@ -94,6 +94,7 @@ pub enum SkillsMigrationAction {
     PreserveContent,
     ResolveConflict,
     RepairPreflight,
+    Finalize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +110,7 @@ pub enum SkillsMigrationReason {
     MissingSource,
     InvalidLegacyState,
     Unreadable,
+    MigrationFinalized,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +149,15 @@ pub struct SkillsMigrationPreflight {
     pub inventory: Vec<SkillsMigrationInventoryItem>,
     pub plan: Vec<SkillsMigrationPlanItem>,
     pub backup: SkillsMigrationBackupPlan,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<crate::services::skills_migration::SkillsMigrationExecutionResult>,
+}
+
+/// Re-inspect the fixed migration roots for a caller that already holds every
+/// migration mutation lock. Keeping this crate-visible avoids any second plan
+/// compiler with subtly different ownership rules.
+pub(crate) fn inspect_locked(db: Arc<Database>) -> Result<SkillsMigrationPreflight> {
+    SkillsMigrationPreviewService::new(db).inspect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +190,26 @@ impl SkillsMigrationPreviewService {
     }
 
     pub fn inspect(&self) -> Result<SkillsMigrationPreflight> {
+        let execution = self
+            .db
+            .get_active_skills_migration_run()?
+            .and_then(|run| {
+                let outcome = match run.state.as_str() {
+                    "prepared" | "running" => {
+                        crate::services::skills_migration::SkillsMigrationExecutionOutcome::Resumable
+                    }
+                    "blocked" => {
+                        crate::services::skills_migration::SkillsMigrationExecutionOutcome::Blocked
+                    }
+                    "recovery_required" => crate::services::skills_migration::SkillsMigrationExecutionOutcome::RecoveryRequired,
+                    _ => return None,
+                };
+                crate::services::skills_migration::SkillsMigrationExecutionService::new(
+                    self.db.clone(),
+                )
+                .inspect_run(&run, outcome)
+                .ok()
+            });
         let pending = self.db.get_setting("skills_ssot_migration_pending")?;
         let snapshot_raw = self.db.get_setting("skills_ssot_migration_snapshot")?;
         let legacy_skills = self.db.get_all_installed_skills()?;
@@ -237,6 +268,7 @@ impl SkillsMigrationPreviewService {
                 inventory,
                 plan,
                 backup,
+                execution,
             });
         }
 
@@ -280,6 +312,7 @@ impl SkillsMigrationPreviewService {
         });
         for row in evidence {
             let Some(consumer) = parse_legacy_consumer(&row.app_type) else {
+                blocked = true;
                 inventory.push(SkillsMigrationInventoryItem {
                     kind: SkillsMigrationInventoryKind::LegacySkill,
                     directory: Some(row.directory.clone()),
@@ -333,6 +366,7 @@ impl SkillsMigrationPreviewService {
                 &row.directory,
                 consumer,
                 row.installed,
+                row.installed,
                 None,
                 path,
             );
@@ -358,6 +392,12 @@ impl SkillsMigrationPreviewService {
         }
         reconcile_duplicate_library_actions(&mut inventory, &mut plan);
         suppress_deployments_with_content_conflicts(&mut plan);
+        if plan
+            .iter()
+            .any(|item| item.disposition == SkillsMigrationDisposition::UserResolve)
+        {
+            blocked = true;
+        }
 
         for (root, codex_legacy) in &roots.scan_roots {
             scan_unclaimed(
@@ -453,6 +493,7 @@ impl SkillsMigrationPreviewService {
             inventory,
             plan,
             backup,
+            execution,
         })
     }
 }
@@ -545,6 +586,7 @@ fn add_legacy_evidence(
     directory: &str,
     consumer: DeploymentConsumer,
     enabled: bool,
+    manage_content: bool,
     managed_skill_id: Option<String>,
     path: PathBuf,
 ) {
@@ -567,7 +609,7 @@ fn add_legacy_evidence(
         enabled: Some(enabled),
         state,
     });
-    if !enabled {
+    if !enabled && !manage_content {
         if state != SkillsMigrationInventoryState::Missing {
             plan.push(SkillsMigrationPlanItem {
                 disposition: SkillsMigrationDisposition::Preserve,
@@ -655,10 +697,14 @@ fn add_legacy_evidence(
                 to_location,
                 reason,
             });
-            plan.push(deployment_plan(directory, consumer));
+            if enabled {
+                plan.push(deployment_plan(directory, consumer, None));
+            }
         }
         SkillsMigrationInventoryState::ManagedLink => {
-            if consumer == DeploymentConsumer::Codex {
+            let official_target = deployment_root(consumer).join(directory);
+            let is_official_target = path == official_target;
+            if consumer == DeploymentConsumer::Codex && !is_official_target {
                 plan.push(SkillsMigrationPlanItem {
                     disposition: SkillsMigrationDisposition::Perform,
                     action: SkillsMigrationAction::RemoveLegacyCodexLink,
@@ -669,7 +715,10 @@ fn add_legacy_evidence(
                     reason: SkillsMigrationReason::ProvenCcSwitchLink,
                 });
             }
-            plan.push(deployment_plan(directory, consumer));
+            if enabled {
+                let proven_official_link = is_official_target.then_some(path.as_path());
+                plan.push(deployment_plan(directory, consumer, proven_official_link));
+            }
         }
         SkillsMigrationInventoryState::Missing => {
             *blocked = true;
@@ -775,11 +824,25 @@ fn add_current_legacy_skill(
             &skill.directory,
             consumer,
             enabled,
+            true,
             Some(skill.id.clone()),
             source.clone(),
         );
+        if enabled {
+            let official_target = deployment_root(consumer).join(&skill.directory);
+            if is_exact_link_to(&official_target, &source) {
+                if let Some(deployment) = plan.iter_mut().rev().find(|item| {
+                    item.action == SkillsMigrationAction::CreateGlobalDeployment
+                        && item.directory.as_deref() == Some(skill.directory.as_str())
+                        && item.consumer == Some(consumer)
+                }) {
+                    deployment.from_location = Some(display_path(official_target));
+                }
+            }
+        }
     }
     if skill.apps.gemini || skill.apps.grokbuild || skill.apps.opencode || skill.apps.hermes {
+        *blocked = true;
         inventory.push(SkillsMigrationInventoryItem {
             kind: SkillsMigrationInventoryKind::LegacySkill,
             directory: Some(skill.directory.clone()),
@@ -790,8 +853,8 @@ fn add_current_legacy_skill(
             state: classify_path(&source, managed_paths),
         });
         plan.push(SkillsMigrationPlanItem {
-            disposition: SkillsMigrationDisposition::Preserve,
-            action: SkillsMigrationAction::PreserveContent,
+            disposition: SkillsMigrationDisposition::UserResolve,
+            action: SkillsMigrationAction::ResolveConflict,
             directory: Some(skill.directory.clone()),
             consumer: None,
             from_location: Some(display_path(&source)),
@@ -801,16 +864,45 @@ fn add_current_legacy_skill(
     }
 }
 
-fn deployment_plan(directory: &str, consumer: DeploymentConsumer) -> SkillsMigrationPlanItem {
+fn deployment_plan(
+    directory: &str,
+    consumer: DeploymentConsumer,
+    proven_official_link: Option<&Path>,
+) -> SkillsMigrationPlanItem {
     SkillsMigrationPlanItem {
         disposition: SkillsMigrationDisposition::Perform,
         action: SkillsMigrationAction::CreateGlobalDeployment,
         directory: Some(directory.to_string()),
         consumer: Some(consumer),
-        from_location: None,
+        from_location: proven_official_link.map(display_path),
         to_location: Some(display_path(deployment_root(consumer).join(directory))),
         reason: SkillsMigrationReason::LegacyEnabled,
     }
+}
+
+fn is_exact_link_to(link: &Path, expected: &Path) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(link) else {
+        return false;
+    };
+    if !metadata.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(raw_target) = fs::read_link(link) else {
+        return false;
+    };
+    let resolved = if raw_target.is_absolute() {
+        raw_target
+    } else {
+        let Some(parent) = link.parent() else {
+            return false;
+        };
+        parent.join(raw_target)
+    };
+    resolved == expected
+        || matches!(
+            (fs::canonicalize(resolved), fs::canonicalize(expected)),
+            (Ok(left), Ok(right)) if left == right
+        )
 }
 
 fn reconcile_duplicate_library_actions(
@@ -849,23 +941,39 @@ fn reconcile_duplicate_library_actions(
         let identical = hashes
             .ok()
             .is_some_and(|hashes| hashes.windows(2).all(|pair| pair[0] == pair[1]));
-        let mut kept = false;
-        plan.retain(|item| {
-            if !matches!(
-                item.action,
-                SkillsMigrationAction::MoveToLibrary | SkillsMigrationAction::ReuseLibrary
-            ) || item.directory.as_deref() != Some(directory.as_str())
-            {
-                return true;
+        if identical {
+            let library_destination =
+                display_path(get_app_config_dir().join("skills").join(directory.as_str()));
+            let library_is_existing_source = paths.contains(&library_destination);
+            let mut kept = false;
+            for item in plan.iter_mut().filter(|item| {
+                matches!(
+                    item.action,
+                    SkillsMigrationAction::MoveToLibrary | SkillsMigrationAction::ReuseLibrary
+                ) && item.directory.as_deref() == Some(directory.as_str())
+            }) {
+                if library_is_existing_source {
+                    item.action = SkillsMigrationAction::ReuseLibrary;
+                    item.to_location = Some(library_destination.clone());
+                    item.reason = SkillsMigrationReason::AlreadyInLibrary;
+                } else if !kept {
+                    kept = true;
+                } else {
+                    // The first item admits/reuses the Library identity. Every
+                    // other proven identical source is still journaled so the
+                    // executor retires the duplicate and restore can recreate it.
+                    item.action = SkillsMigrationAction::ReuseLibrary;
+                    item.to_location = Some(library_destination.clone());
+                    item.reason = SkillsMigrationReason::AlreadyInLibrary;
+                }
             }
-            if identical && !kept {
-                kept = true;
-                true
-            } else {
-                false
-            }
-        });
-        if !identical {
+        } else {
+            plan.retain(|item| {
+                !matches!(
+                    item.action,
+                    SkillsMigrationAction::MoveToLibrary | SkillsMigrationAction::ReuseLibrary
+                ) || item.directory.as_deref() != Some(directory.as_str())
+            });
             plan.retain(|item| {
                 item.action != SkillsMigrationAction::CreateGlobalDeployment
                     || item.directory.as_deref() != Some(directory.as_str())

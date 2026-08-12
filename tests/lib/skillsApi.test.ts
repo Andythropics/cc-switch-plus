@@ -45,6 +45,33 @@ describe("Skills Library API", () => {
     });
   });
 
+  it("applies a reviewed migration using only its opaque observation token", async () => {
+    await skillsApi.applySkillsMigration({
+      observationToken: "migration-observation-v1",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("applySkillsMigration", {
+      intent: { observationToken: "migration-observation-v1" },
+    });
+    expect(invokeMock.mock.calls[0][1].intent).not.toHaveProperty("path");
+    expect(invokeMock.mock.calls[0][1].intent).not.toHaveProperty("plan");
+  });
+
+  it("resumes durable migration work without reconstructing frontend intent", async () => {
+    await skillsApi.resumeSkillsMigration();
+
+    expect(invokeMock).toHaveBeenCalledWith("resumeSkillsMigration");
+  });
+
+  it("restores migration recovery using only an opaque backup id", async () => {
+    await skillsApi.restoreSkillsMigrationBackup("migration-backup-v1");
+
+    expect(invokeMock).toHaveBeenCalledWith("restoreSkillsMigrationBackup", {
+      backupId: "migration-backup-v1",
+    });
+    expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("path");
+  });
+
   it("updates presentation metadata without changing directory identity", async () => {
     await skillsApi.updateLibraryMetadata(
       "library-id",

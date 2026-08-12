@@ -80,6 +80,8 @@ const SYNC_SKIP_TABLES: &[&str] = &[
     "skill_activity",
     "project_workspaces",
     "skill_deployments",
+    "skills_migration_runs",
+    "skills_migration_items",
 ];
 
 /// Tables whose local data is preserved (restored from local snapshot) during WebDAV import.
@@ -92,6 +94,8 @@ const SYNC_PRESERVE_TABLES: &[&str] = &[
     "skill_activity",
     "project_workspaces",
     "skill_deployments",
+    "skills_migration_runs",
+    "skills_migration_items",
 ];
 
 /// Row-level sync filters for device-local values that must never leave a device.
@@ -519,6 +523,84 @@ impl Database {
 
         Self::cleanup_db_backups(&backup_dir)?;
         Ok(Some(backup_path))
+    }
+
+    /// Create a protected snapshot at an explicitly owned path.
+    ///
+    /// Migration snapshots live outside the rolling backup directory and must
+    /// not be pruned by normal backup retention. The write is staged in the
+    /// destination's parent directory so an interrupted SQLite backup cannot
+    /// leave a partially valid snapshot at the journaled path.
+    pub(crate) fn backup_database_snapshot_file(&self, destination: &Path) -> Result<(), AppError> {
+        if destination.as_os_str().is_empty() || destination.is_dir() {
+            return Err(AppError::InvalidInput(
+                "Invalid database snapshot destination".to_string(),
+            ));
+        }
+        let parent = destination.parent().ok_or_else(|| {
+            AppError::InvalidInput("Database snapshot destination has no parent".to_string())
+        })?;
+        fs::create_dir_all(parent).map_err(|error| AppError::io(parent, error))?;
+
+        let temp = NamedTempFile::new_in(parent).map_err(|error| AppError::IoContext {
+            context: "创建数据库迁移快照临时文件失败".to_string(),
+            source: error,
+        })?;
+        let temp_path = temp.path().to_path_buf();
+        {
+            let conn = lock_conn!(self.conn);
+            let mut destination_conn = Connection::open(&temp_path)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+            let backup = Backup::new(&conn, &mut destination_conn)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+            backup
+                .step(-1)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+        }
+        // Close the SQLite handle before moving the staged file into place.
+        // A protected migration snapshot is immutable once journaled; never
+        // replace one that already exists.
+        temp.persist_noclobber(destination)
+            .map_err(|error| AppError::io(destination, error.error))?;
+        Ok(())
+    }
+
+    /// Restore a protected migration snapshot and bring its schema up to date.
+    ///
+    /// The caller owns the journal transition that follows restoration. This
+    /// method only restores the exact snapshot rows; it never inserts a second
+    /// migration run or prunes any other backup.
+    pub(crate) fn restore_database_snapshot_file(&self, source: &Path) -> Result<(), AppError> {
+        if !source.is_file() {
+            return Err(AppError::InvalidInput(format!(
+                "Database snapshot file not found: {}",
+                source.display()
+            )));
+        }
+
+        let source_conn = Connection::open(source)
+            .map_err(|error| AppError::Database(format!("打开数据库迁移快照失败: {error}")))?;
+        let source_version = Self::get_user_version(&source_conn)?;
+        if source_version > super::SCHEMA_VERSION {
+            return Err(AppError::Database(format!(
+                "数据库迁移快照版本过新（{source_version}），当前应用仅支持 {}",
+                super::SCHEMA_VERSION
+            )));
+        }
+
+        {
+            let mut main_conn = lock_conn!(self.conn);
+            let backup = Backup::new(&source_conn, &mut main_conn)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+            backup
+                .step(-1)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+        }
+
+        self.create_tables()?;
+        self.apply_schema_migrations()?;
+        self.ensure_model_pricing_seeded()?;
+        Ok(())
     }
 
     /// 清理旧的数据库备份，保留最新的 N 个
@@ -1869,6 +1951,169 @@ mod tests {
         )?;
         assert_eq!(activity_count, 1);
         assert_eq!(workspace_id, "local");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[serial]
+    fn sync_excludes_skills_migration_journal_and_preserves_local_rows() -> Result<(), AppError> {
+        let _test_home = TestHomeGuard::new();
+        let remote_db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(remote_db.conn);
+            conn.execute_batch(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote Provider', '{}', '{}');
+                 INSERT INTO skills_migration_runs (
+                     id, accepted_observation_token, resume_token, state, plan_hash,
+                     created_at, updated_at
+                 ) VALUES ('remote-run', 'remote-observation', 'remote-resume',
+                            'running', 'remote-plan', 1, 2);
+                 INSERT INTO skills_migration_items (
+                     run_id, ordinal, item_key, action, directory, consumer,
+                     source_location, target_location, expected_fingerprint, state
+                 ) VALUES ('remote-run', 0, 'remote-item', 'move_to_library', 'remote', 'claude',
+                            '/remote/source', '/remote/target', 'remote-fingerprint', 'in_progress');",
+            )?;
+        }
+
+        let full_sql = remote_db.export_sql_string()?;
+        assert!(full_sql.contains("remote-run"));
+        assert!(full_sql.contains("remote-item"));
+
+        let sync_sql = remote_db.export_sql_string_for_sync()?;
+        assert!(!sync_sql.contains("remote-observation"));
+        assert!(!sync_sql.contains("remote-item"));
+        let exported = Connection::open_in_memory()?;
+        exported.execute_batch(&sync_sql)?;
+        let exported_counts: (i64, i64) = exported.query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM skills_migration_runs),
+                (SELECT COUNT(*) FROM skills_migration_items)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(exported_counts, (0, 0));
+
+        let local_db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(local_db.conn);
+            conn.execute_batch(
+                "INSERT INTO skills_migration_runs (
+                     id, accepted_observation_token, resume_token, state, plan_hash,
+                     created_at, updated_at
+                 ) VALUES ('local-run', 'local-observation', 'local-resume',
+                            'recovery_required', 'local-plan', 3, 4);
+                 INSERT INTO skills_migration_items (
+                     run_id, ordinal, item_key, action, directory, state, detail_code
+                 ) VALUES ('local-run', 0, 'local-item', 'restore', 'local',
+                            'recovery_required', 'filesystem_failure');",
+            )?;
+        }
+        local_db.import_sql_string_for_sync(&sync_sql)?;
+
+        let conn = crate::database::lock_conn!(local_db.conn);
+        let local_counts: (i64, i64) = conn.query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'local-run'),
+                (SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'local-run')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(local_counts, (1, 1));
+
+        let full_target = Database::memory()?;
+        full_target.import_sql_string(&full_sql)?;
+        let conn = crate::database::lock_conn!(full_target.conn);
+        let remote_counts: (i64, i64) = conn.query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'remote-run'),
+                (SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'remote-run')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(remote_counts, (1, 1));
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[serial]
+    fn protected_migration_snapshot_round_trips_journal_rows() -> Result<(), AppError> {
+        let test_home = TestHomeGuard::new();
+        let db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            conn.execute_batch(
+                "INSERT INTO skills_migration_runs (
+                     id, accepted_observation_token, resume_token, state, plan_hash,
+                     database_backup_filename, content_backup_root, created_at, updated_at
+                 ) VALUES ('snapshot-run', 'snapshot-observation', 'snapshot-resume',
+                            'running', 'snapshot-plan', 'database.db',
+                            '/tmp/skills-content', 10, 20);
+                 INSERT INTO skills_migration_items (
+                     run_id, ordinal, item_key, action, directory, consumer,
+                     source_location, target_location, expected_fingerprint, state,
+                     library_skill_id, detail_code, started_at
+                 ) VALUES ('snapshot-run', 0, 'snapshot-item', 'move_to_library',
+                            'review', 'claude', '/legacy/review', '/library/review',
+                            'snapshot-fingerprint', 'in_progress', 'library-review',
+                            'none', 15);",
+            )?;
+        }
+
+        let snapshot = test_home
+            .path()
+            .join(".cc-switch/skills-migration-backups/snapshot-run/database.db");
+        db.backup_database_snapshot_file(&snapshot)?;
+        assert!(snapshot.is_file());
+
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            conn.execute(
+                "UPDATE skills_migration_runs SET state = 'blocked', updated_at = 30
+                 WHERE id = 'snapshot-run'",
+                [],
+            )?;
+            conn.execute(
+                "DELETE FROM skills_migration_items WHERE run_id = 'snapshot-run'",
+                [],
+            )?;
+        }
+
+        db.restore_database_snapshot_file(&snapshot)?;
+
+        let conn = crate::database::lock_conn!(db.conn);
+        let run: (String, String, i64) = conn.query_row(
+            "SELECT state, accepted_observation_token, updated_at
+             FROM skills_migration_runs WHERE id = 'snapshot-run'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(
+            run,
+            (
+                "running".to_string(),
+                "snapshot-observation".to_string(),
+                20
+            )
+        );
+        let item: (String, String, String, i64) = conn.query_row(
+            "SELECT item_key, state, target_location, started_at
+             FROM skills_migration_items WHERE run_id = 'snapshot-run' AND ordinal = 0",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        assert_eq!(
+            item,
+            (
+                "snapshot-item".to_string(),
+                "in_progress".to_string(),
+                "/library/review".to_string(),
+                15,
+            )
+        );
         Ok(())
     }
 

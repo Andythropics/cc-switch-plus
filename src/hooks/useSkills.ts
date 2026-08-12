@@ -22,6 +22,8 @@ import {
   type DeploymentRecoveryInspectionResult,
   type DeploymentRecoveryQuery,
   type SkillsMigrationPreflight,
+  type SkillsMigrationExecutionResult,
+  type SkillsMigrationIntent,
   type LibrarySkillDeletionInspection,
   type LibrarySkillDeletionIntent,
   type LibrarySkillDeletionResult,
@@ -137,6 +139,55 @@ export function useSkillsMigrationPreflight({ enabled }: { enabled: boolean }) {
   }, [enabled, preflightQuery.refetch]);
 
   return preflightQuery;
+}
+
+const skillsMigrationAffectedQueryKeys = [
+  ["skills", "migrationPreflight"],
+  ["skills", "library"],
+  ["skills", "installed"],
+  ["skills", "deployments"],
+  ["skills", "deploymentRecovery"],
+  ["skills", "unmanaged"],
+  ["skills", "activity"],
+  ["skills", "backups"],
+] as const;
+
+function invalidateSkillsMigrationQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  return Promise.all(
+    skillsMigrationAffectedQueryKeys.map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey: [...queryKey] }),
+    ),
+  );
+}
+
+export function useApplySkillsMigration() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    SkillsMigrationExecutionResult,
+    Error,
+    SkillsMigrationIntent
+  >({
+    mutationFn: (intent) => skillsApi.applySkillsMigration(intent),
+    onSettled: () => invalidateSkillsMigrationQueries(queryClient),
+  });
+}
+
+export function useResumeSkillsMigration() {
+  const queryClient = useQueryClient();
+  return useMutation<SkillsMigrationExecutionResult, Error, void>({
+    mutationFn: () => skillsApi.resumeSkillsMigration(),
+    onSettled: () => invalidateSkillsMigrationQueries(queryClient),
+  });
+}
+
+export function useRestoreSkillsMigrationBackup() {
+  const queryClient = useQueryClient();
+  return useMutation<SkillsMigrationExecutionResult, Error, string>({
+    mutationFn: (backupId) => skillsApi.restoreSkillsMigrationBackup(backupId),
+    onSettled: () => invalidateSkillsMigrationQueries(queryClient),
+  });
 }
 
 /** Redacted, device-local activity entries in backend-provided newest-first order. */

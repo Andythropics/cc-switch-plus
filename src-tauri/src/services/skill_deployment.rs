@@ -337,6 +337,47 @@ impl SkillDeploymentService {
         self.apply_one(intent)
     }
 
+    /// Migration may encounter a proven legacy link already occupying the
+    /// official target. This adopts only an exact link to the expected Library
+    /// Skill while the caller holds the Deployment lock; it never adopts a
+    /// directory, file, foreign link, or redirected link.
+    pub(crate) fn adopt_exact_link_for_composite(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+    ) -> Result<DeploymentItemResult> {
+        let skill = self
+            .db
+            .get_library_skill_by_id(library_skill_id)?
+            .ok_or_else(|| anyhow!("Library Skill not found: {library_skill_id}"))?;
+        let observed = self.observe(&skill, target)?;
+        if observed.state != ObservedDeploymentState::CorrectLink {
+            return Ok(self.result(&skill, target, DeploymentMutationOutcome::Conflict, None));
+        }
+        if self
+            .db
+            .get_skill_deployment(library_skill_id, target)?
+            .is_some()
+        {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::AlreadyInSync,
+                None,
+            ));
+        }
+        let now = Utc::now().timestamp();
+        self.db.save_skill_deployment(&DesiredDeployment {
+            id: uuid::Uuid::new_v4().to_string(),
+            library_skill_id: skill.id.clone(),
+            library_directory: skill.directory.clone(),
+            target: target.clone(),
+            created_at: now,
+            updated_at: now,
+        })?;
+        Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
+    }
+
     /// Restore a Deployment row captured before a composite Library deletion.
     /// This deliberately bypasses Active-only lifecycle guards so an Archived
     /// workspace's exact expected link and original desired row can be restored
