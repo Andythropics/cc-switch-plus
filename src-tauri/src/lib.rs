@@ -68,8 +68,8 @@ pub use services::{
     DeploymentTarget, DesiredDeployment, DiscoverableSkill, EndpointLatency, LibrarySkill,
     LibrarySkillAcquisitionService, LibrarySkillCompatibility, LibrarySkillSource,
     LibrarySourceKind, McpService, ObservedDeployment, ObservedDeploymentState, PromptService,
-    ProviderService, ProxyService, SkillDeploymentService, SkillService, SpeedtestService,
-    WorkspaceKind,
+    ProviderService, ProxyService, SkillDeploymentService, SkillService, SkillStorageLocation,
+    SpeedtestService, WorkspaceKind,
 };
 #[cfg(target_os = "macos")]
 pub use services::{
@@ -89,9 +89,13 @@ pub use services::{
     ProjectSkillImportReplaceBlockReason, ProjectSkillImportReplaceEligibility,
     ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
     ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
-    ProjectWorkspace, ProjectWorkspaceService, UpdateDeploymentImpact, WorkspaceLifecycle,
-    WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
-    WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+    ProjectWorkspace, ProjectWorkspaceService, SkillsMigrationAction, SkillsMigrationBackupPlan,
+    SkillsMigrationDisposition, SkillsMigrationInventoryItem, SkillsMigrationInventoryKind,
+    SkillsMigrationInventoryState, SkillsMigrationPageMode, SkillsMigrationPlanItem,
+    SkillsMigrationPreflight, SkillsMigrationPreviewService, SkillsMigrationReason,
+    SkillsMigrationStatus, UpdateDeploymentImpact, WorkspaceLifecycle, WorkspaceRegistration,
+    WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
+    WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -658,47 +662,6 @@ pub fn run() {
                 }
                 Ok(_) => {} // 表非空，静默跳过
                 Err(e) => log::warn!("✗ Failed to initialize default skill repos: {e}"),
-            }
-
-            // 1.1. Skills 统一管理迁移：当数据库迁移到 v3 结构后，自动从各应用目录导入到 SSOT
-            // 触发条件由 schema 迁移设置 settings.skills_ssot_migration_pending = true 控制。
-            match app_state.db.get_setting("skills_ssot_migration_pending") {
-                Ok(Some(flag)) if flag == "true" || flag == "1" => {
-                    // 安全保护：如果用户已经有 v3 结构的 Skills 数据，就不要自动清空重建。
-                    let has_existing = app_state
-                        .db
-                        .get_all_installed_skills()
-                        .map(|skills| !skills.is_empty())
-                        .unwrap_or(false);
-
-                    if has_existing {
-                        log::info!(
-                            "Detected skills_ssot_migration_pending but skills table not empty; skipping auto import."
-                        );
-                        let _ = app_state
-                            .db
-                            .set_setting("skills_ssot_migration_pending", "false");
-                    } else {
-                        match crate::services::skill::migrate_skills_to_ssot(&app_state.db) {
-                            Ok(count) => {
-                                log::info!("✓ Auto imported {count} skill(s) into SSOT");
-                                if count > 0 {
-                                    crate::init_status::set_skills_migration_result(count);
-                                }
-                                let _ = app_state
-                                    .db
-                                    .set_setting("skills_ssot_migration_pending", "false");
-                            }
-                            Err(e) => {
-                                log::warn!("✗ Failed to auto import legacy skills to SSOT: {e}");
-                                crate::init_status::set_skills_migration_error(e.to_string());
-                                // 保留 pending 标志，方便下次启动重试
-                            }
-                        }
-                    }
-                }
-                Ok(_) => {} // 未开启迁移标志，静默跳过
-                Err(e) => log::warn!("✗ Failed to read skills migration flag: {e}"),
             }
 
             // 1.5. 自动导入 live 配置 + seed 官方预设供应商（Claude / Codex / Gemini）
@@ -1496,6 +1459,8 @@ pub fn run() {
             commands::listSkillActivity,
             #[cfg(target_os = "macos")]
             commands::inspectDeploymentRecovery,
+            #[cfg(target_os = "macos")]
+            commands::inspectSkillsMigrationPreflight,
             commands::inspectSkillDeployments,
             commands::applySkillDeployments,
             #[cfg(target_os = "macos")]

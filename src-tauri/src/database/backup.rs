@@ -94,6 +94,29 @@ const SYNC_PRESERVE_TABLES: &[&str] = &[
     "skill_deployments",
 ];
 
+/// Row-level sync filters for device-local values that must never leave a device.
+/// The same filters are used on export and import so local migration evidence
+/// cannot be overwritten by another device's state.
+#[derive(Clone, Copy)]
+struct SyncRowFilter {
+    table: &'static str,
+    column: &'static str,
+    values: &'static [&'static str],
+}
+
+const DEVICE_LOCAL_MIGRATION_SETTING_KEYS: &[&str] = &[
+    "skills_ssot_migration_pending",
+    "skills_ssot_migration_snapshot",
+];
+
+const SYNC_SKIP_ROWS: &[SyncRowFilter] = &[SyncRowFilter {
+    table: "settings",
+    column: "key",
+    values: DEVICE_LOCAL_MIGRATION_SETTING_KEYS,
+}];
+
+const SYNC_PRESERVE_ROWS: &[SyncRowFilter] = SYNC_SKIP_ROWS;
+
 /// A database backup entry for the UI
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,7 +136,7 @@ impl Database {
     /// Export SQL for sync (WebDAV), skipping local-only tables' data
     pub fn export_sql_string_for_sync(&self) -> Result<String, AppError> {
         let snapshot = self.snapshot_to_memory()?;
-        Self::dump_sql(&snapshot, SYNC_SKIP_TABLES)
+        Self::dump_sql_with_row_filters(&snapshot, SYNC_SKIP_TABLES, SYNC_SKIP_ROWS)
     }
 
     /// 导出为 SQLite 兼容的 SQL 文本
@@ -143,19 +166,20 @@ impl Database {
 
     /// 从 SQL 字符串导入，返回生成的备份 ID（若无备份则为空字符串）
     pub fn import_sql_string(&self, sql_raw: &str) -> Result<String, AppError> {
-        self.import_sql_string_inner(sql_raw, &[])
+        self.import_sql_string_inner(sql_raw, &[], &[])
     }
 
     /// Import SQL generated for sync, then restore local-only tables from the
     /// current device snapshot before replacing the main database.
     pub(crate) fn import_sql_string_for_sync(&self, sql_raw: &str) -> Result<String, AppError> {
-        self.import_sql_string_inner(sql_raw, SYNC_PRESERVE_TABLES)
+        self.import_sql_string_inner(sql_raw, SYNC_PRESERVE_TABLES, SYNC_PRESERVE_ROWS)
     }
 
     fn import_sql_string_inner(
         &self,
         sql_raw: &str,
         preserve_tables: &[&str],
+        preserve_rows: &[SyncRowFilter],
     ) -> Result<String, AppError> {
         let sql_content = sql_raw.trim_start_matches('\u{feff}');
         Self::validate_cc_switch_sql_export(sql_content)?;
@@ -163,7 +187,7 @@ impl Database {
         // 导入前备份现有数据库
         let backup_path = self.backup_database_file()?;
 
-        let local_snapshot = if preserve_tables.is_empty() {
+        let local_snapshot = if preserve_tables.is_empty() && preserve_rows.is_empty() {
             None
         } else {
             Some(self.snapshot_to_memory()?)
@@ -194,6 +218,7 @@ impl Database {
         Self::validate_basic_state(&temp_conn)?;
         if let Some(local_snapshot) = local_snapshot.as_ref() {
             Self::restore_tables(local_snapshot, &temp_conn, preserve_tables)?;
+            Self::restore_rows(local_snapshot, &temp_conn, preserve_rows)?;
         }
 
         // 使用 Backup 将临时库原子写回主库
@@ -312,6 +337,86 @@ impl Database {
 
         tx.commit()
             .map_err(|e| AppError::Database(format!("提交恢复事务失败: {e}")))?;
+        Ok(())
+    }
+
+    fn restore_rows(
+        source_conn: &Connection,
+        target_conn: &Connection,
+        filters: &[SyncRowFilter],
+    ) -> Result<(), AppError> {
+        if filters.is_empty() {
+            return Ok(());
+        }
+
+        let tx = target_conn
+            .unchecked_transaction()
+            .map_err(|e| AppError::Database(format!("开启行恢复事务失败: {e}")))?;
+
+        for filter in filters {
+            if !Self::table_exists(source_conn, filter.table)?
+                || !Self::table_exists(&tx, filter.table)?
+            {
+                continue;
+            }
+
+            let columns = Self::get_table_columns(source_conn, filter.table)?;
+            if columns.is_empty() {
+                continue;
+            }
+
+            let quoted_table = Self::quote_identifier(filter.table);
+            let predicate = Self::row_filter_predicate(filter);
+            tx.execute(&format!("DELETE FROM {quoted_table} WHERE {predicate}"), [])
+                .map_err(|e| {
+                    AppError::Database(format!("清空表 {} 本地行失败: {e}", filter.table))
+                })?;
+
+            let quoted_columns = columns
+                .iter()
+                .map(|column| Self::quote_identifier(column))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let placeholders = (1..=columns.len())
+                .map(|idx| format!("?{idx}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let insert_sql =
+                format!("INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})");
+            let mut insert_stmt = tx.prepare(&insert_sql).map_err(|e| {
+                AppError::Database(format!("准备表 {} 行插入语句失败: {e}", filter.table))
+            })?;
+
+            let mut stmt = source_conn
+                .prepare(&format!(
+                    "SELECT {quoted_columns} FROM {quoted_table} WHERE {predicate}"
+                ))
+                .map_err(|e| {
+                    AppError::Database(format!("读取表 {} 本地行失败: {e}", filter.table))
+                })?;
+            let mut rows = stmt.query([]).map_err(|e| {
+                AppError::Database(format!("查询表 {} 本地行失败: {e}", filter.table))
+            })?;
+
+            while let Some(row) = rows.next().map_err(|e| AppError::Database(e.to_string()))? {
+                let mut values = Vec::with_capacity(columns.len());
+                for idx in 0..columns.len() {
+                    values.push(
+                        row.get::<_, rusqlite::types::Value>(idx)
+                            .map_err(|e| AppError::Database(e.to_string()))?,
+                    );
+                }
+
+                insert_stmt
+                    .execute(rusqlite::params_from_iter(values.iter()))
+                    .map_err(|e| {
+                        AppError::Database(format!("恢复表 {} 本地行失败: {e}", filter.table))
+                    })?;
+            }
+        }
+
+        tx.commit()
+            .map_err(|e| AppError::Database(format!("提交行恢复事务失败: {e}")))?;
         Ok(())
     }
 
@@ -468,6 +573,14 @@ impl Database {
 
     /// 导出数据库为 SQL 文本
     fn dump_sql(conn: &Connection, skip_tables: &[&str]) -> Result<String, AppError> {
+        Self::dump_sql_with_row_filters(conn, skip_tables, &[])
+    }
+
+    fn dump_sql_with_row_filters(
+        conn: &Connection,
+        skip_tables: &[&str],
+        skip_rows: &[SyncRowFilter],
+    ) -> Result<String, AppError> {
         let mut output = String::new();
         let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let user_version: i64 = conn
@@ -542,7 +655,10 @@ impl Database {
             let insert_prefix = format!("INSERT INTO {quoted_table} ({quoted_columns}) VALUES ");
 
             let mut stmt = conn
-                .prepare(&format!("SELECT {quoted_columns} FROM {quoted_table}"))
+                .prepare(&format!(
+                    "SELECT {quoted_columns} FROM {quoted_table}{}",
+                    Self::row_filter_where_clause(skip_rows, &table)
+                ))
                 .map_err(|e| AppError::Database(e.to_string()))?;
             let mut rows = stmt
                 .query([])
@@ -599,6 +715,29 @@ impl Database {
 
         output.push_str("COMMIT;\nPRAGMA foreign_keys=ON;\n");
         Ok(output)
+    }
+
+    fn row_filter_where_clause(filters: &[SyncRowFilter], table: &str) -> String {
+        let predicates = filters
+            .iter()
+            .filter(|filter| filter.table == table)
+            .map(Self::row_filter_predicate)
+            .collect::<Vec<_>>();
+        if predicates.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE NOT ({})", predicates.join(" OR "))
+        }
+    }
+
+    fn row_filter_predicate(filter: &SyncRowFilter) -> String {
+        let values = filter
+            .values
+            .iter()
+            .map(|value| format!("'{}'", value.replace('\'', "''")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{} IN ({values})", Self::quote_identifier(filter.column))
     }
 
     fn quote_identifier(identifier: &str) -> String {
@@ -1591,6 +1730,86 @@ mod tests {
         assert_eq!(
             provider_health_count, 0,
             "同步导入应清除可重建的本地 provider_health 状态"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn sync_skips_and_preserves_device_local_migration_settings() -> Result<(), AppError> {
+        let _test_home = TestHomeGuard::new();
+        let remote_pending = "remote-pending-value";
+        let remote_snapshot = r#"{"source":"remote","entries":["remote"]}"#;
+        let remote_shared = "remote-shared-value";
+        let local_pending = "local-pending-value";
+        let local_snapshot = r#"{"source":"local","entries":["local"]}"#;
+
+        let remote_db = Database::memory()?;
+        remote_db.set_setting("skills_ssot_migration_pending", remote_pending)?;
+        remote_db.set_setting("skills_ssot_migration_snapshot", remote_snapshot)?;
+        remote_db.set_setting("shared_setting", remote_shared)?;
+        {
+            let conn = crate::database::lock_conn!(remote_db.conn);
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote Provider', '{}', '{}')",
+                [],
+            )?;
+        }
+
+        let full_sql = remote_db.export_sql_string()?;
+        assert!(
+            full_sql.contains(remote_pending) && full_sql.contains(remote_snapshot),
+            "full local SQL export must continue to include migration evidence"
+        );
+
+        let sync_sql = remote_db.export_sql_string_for_sync()?;
+        assert!(!sync_sql.contains(remote_pending));
+        assert!(!sync_sql.contains(remote_snapshot));
+        let exported_sync = Connection::open_in_memory()?;
+        exported_sync.execute_batch(&sync_sql)?;
+        assert_eq!(
+            exported_sync.query_row(
+                "SELECT COUNT(*) FROM settings
+                 WHERE key IN ('skills_ssot_migration_pending', 'skills_ssot_migration_snapshot')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            0,
+            "sync export must omit device-local migration setting rows"
+        );
+        assert_eq!(
+            exported_sync.query_row(
+                "SELECT value FROM settings WHERE key = 'shared_setting'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?,
+            remote_shared
+        );
+
+        let local_db = Database::memory()?;
+        local_db.set_setting("skills_ssot_migration_pending", local_pending)?;
+        local_db.set_setting("skills_ssot_migration_snapshot", local_snapshot)?;
+        local_db.import_sql_string_for_sync(&sync_sql)?;
+
+        assert_eq!(
+            local_db.get_setting("skills_ssot_migration_pending")?,
+            Some(local_pending.to_string())
+        );
+        assert_eq!(
+            local_db.get_setting("skills_ssot_migration_snapshot")?,
+            Some(local_snapshot.to_string())
+        );
+
+        let full_target = Database::memory()?;
+        full_target.import_sql_string(&full_sql)?;
+        assert_eq!(
+            full_target.get_setting("skills_ssot_migration_pending")?,
+            Some(remote_pending.to_string())
+        );
+        assert_eq!(
+            full_target.get_setting("skills_ssot_migration_snapshot")?,
+            Some(remote_snapshot.to_string())
         );
         Ok(())
     }

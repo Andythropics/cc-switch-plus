@@ -21,6 +21,7 @@ import {
   type DeploymentQuery,
   type DeploymentRecoveryInspectionResult,
   type DeploymentRecoveryQuery,
+  type SkillsMigrationPreflight,
   type LibrarySkillDeletionInspection,
   type LibrarySkillDeletionIntent,
   type LibrarySkillDeletionResult,
@@ -113,6 +114,29 @@ export function useDeploymentRecovery(query?: DeploymentRecoveryQuery) {
   }, [recoveryQuery.refetch]);
 
   return recoveryQuery;
+}
+
+/** Read-only macOS legacy inventory, enabled only after entering Skills. */
+export function useSkillsMigrationPreflight({ enabled }: { enabled: boolean }) {
+  const preflightQuery = useQuery<SkillsMigrationPreflight>({
+    queryKey: ["skills", "migrationPreflight"],
+    queryFn: () => skillsApi.inspectSkillsMigrationPreflight(),
+    enabled,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
+  });
+
+  useEffect(() => {
+    if (!enabled) return;
+    const handleWindowFocus = () => {
+      void preflightQuery.refetch();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [enabled, preflightQuery.refetch]);
+
+  return preflightQuery;
 }
 
 /** Redacted, device-local activity entries in backend-provided newest-first order. */

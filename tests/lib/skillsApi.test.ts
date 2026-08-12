@@ -207,6 +207,31 @@ describe("Skills Library API", () => {
     expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("path");
   });
 
+  it("inspects the guided migration preflight without accepting mutable input", async () => {
+    invokeMock.mockResolvedValueOnce({
+      status: "decision_needed",
+      observationToken: "migration-plan-v1",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: true,
+        ready: false,
+        recoveryAvailable: false,
+        databasePath: "/backup/cc-switch.db",
+        contentPaths: [],
+      },
+    });
+
+    await expect(
+      skillsApi.inspectSkillsMigrationPreflight(),
+    ).resolves.toMatchObject({
+      status: "decision_needed",
+      observationToken: "migration-plan-v1",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("inspectSkillsMigrationPreflight");
+  });
+
   it("confirms recovery through the normal ordered Deployment seam", async () => {
     await skillsApi.applyDeployments({
       intents: [

@@ -644,46 +644,98 @@ fn migration_from_v3_8_schema_v1_to_current_schema_v3() {
         .expect("read cost_multiplier");
     assert_eq!(cost_multiplier, "1.0");
 
-    // v2 -> v3：skills 表重建为统一结构，并设置 pending 标记（后续由启动时扫描文件系统重建数据）
-    assert!(
-        Database::has_column(&conn, "skills", "enabled_claude").expect("check skills v3 column"),
-        "skills table should be migrated to v3 structure"
-    );
-    let skills_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM skills", [], |r| r.get(0))
-        .expect("count skills");
-    assert_eq!(skills_count, 0, "skills table should be rebuilt empty");
+    #[cfg(target_os = "macos")]
+    {
+        // macOS performs the guided v2 -> v3 cutover and records its preflight state.
+        assert!(
+            Database::has_column(&conn, "skills", "enabled_claude")
+                .expect("check skills v3 column"),
+            "skills table should be migrated to v3 structure"
+        );
+        let skills_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM skills", [], |r| r.get(0))
+            .expect("count skills");
+        assert_eq!(skills_count, 0, "skills table should be rebuilt empty");
 
-    let pending: Option<String> = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'skills_ssot_migration_pending'",
-            [],
-            |r| r.get(0),
-        )
-        .ok();
-    assert!(
-        matches!(pending.as_deref(), Some("true") | Some("1")),
-        "skills_ssot_migration_pending should be set after v2->v3 migration"
-    );
-    let snapshot: Option<String> = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'skills_ssot_migration_snapshot'",
-            [],
-            |r| r.get(0),
-        )
-        .ok();
-    let snapshot = snapshot.expect("skills migration snapshot should be recorded");
-    let snapshot_rows: serde_json::Value =
-        serde_json::from_str(&snapshot).expect("parse skills migration snapshot");
-    assert!(
-        snapshot_rows
-            .as_array()
-            .is_some_and(|rows| rows.iter().any(|row| {
-                row.get("directory").and_then(|v| v.as_str()) == Some("demo-skill")
-                    && row.get("app_type").and_then(|v| v.as_str()) == Some("claude")
-            })),
-        "skills migration snapshot should preserve legacy app mapping"
-    );
+        let pending: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'skills_ssot_migration_pending'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        assert!(
+            matches!(pending.as_deref(), Some("true") | Some("1")),
+            "skills_ssot_migration_pending should be set after v2->v3 migration"
+        );
+        let snapshot: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'skills_ssot_migration_snapshot'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        let snapshot = snapshot.expect("skills migration snapshot should be recorded");
+        let snapshot_rows: serde_json::Value =
+            serde_json::from_str(&snapshot).expect("parse skills migration snapshot");
+        assert!(
+            snapshot_rows
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| {
+                    row.get("directory").and_then(|v| v.as_str()) == Some("demo-skill")
+                        && row.get("app_type").and_then(|v| v.as_str()) == Some("claude")
+                })),
+            "skills migration snapshot should preserve legacy app mapping"
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Unsupported platforms preserve the v2 legacy table byte-for-byte.
+        let skills_sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'skills'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read legacy skills SQL");
+        assert_eq!(
+            skills_sql,
+            "CREATE TABLE skills (\n                directory TEXT NOT NULL,\n                app_type TEXT NOT NULL,\n                installed BOOLEAN NOT NULL DEFAULT 0,\n                installed_at INTEGER NOT NULL DEFAULT 0,\n                PRIMARY KEY (directory, app_type)\n            )"
+        );
+        let rows: Vec<(String, String, bool, i64)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT directory, app_type, installed, installed_at
+                     FROM skills ORDER BY directory, app_type",
+                )
+                .expect("prepare legacy skills rows");
+            stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .expect("query legacy skills rows")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("read legacy skills rows")
+        };
+        assert_eq!(
+            rows,
+            vec![("demo-skill".into(), "claude".into(), true, 1_700_000_000)]
+        );
+        for key in [
+            "skills_ssot_migration_pending",
+            "skills_ssot_migration_snapshot",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM settings WHERE key = ?1",
+                    [key],
+                    |row| row.get(0),
+                )
+                .expect("query guided setting");
+            assert_eq!(count, 0, "non-macOS migration must not write {key}");
+        }
+        assert!(!Database::table_exists(&conn, "skills_legacy_platform_evidence").unwrap());
+    }
 
     // v3.9+ 新增：proxy_config 三行 seed 必须存在（否则 UI 会查不到默认值）
     let proxy_rows: i64 = conn
@@ -696,6 +748,244 @@ fn migration_from_v3_8_schema_v1_to_current_schema_v3() {
         .query_row("SELECT COUNT(*) FROM model_pricing", [], |r| r.get(0))
         .expect("count model_pricing rows");
     assert!(pricing_rows > 0, "model_pricing should be seeded");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn v2_to_v3_snapshot_preserves_disabled_and_unknown_consumer_evidence() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+    conn.execute("PRAGMA foreign_keys = ON;", [])
+        .expect("enable foreign keys");
+    Database::create_tables_on_conn(&conn).expect("create current tables");
+    conn.execute("DROP TABLE skills", [])
+        .expect("drop current skills");
+    conn.execute_batch(
+        "CREATE TABLE skills (
+            directory TEXT NOT NULL,
+            app_type TEXT NOT NULL,
+            installed BOOLEAN NOT NULL DEFAULT 0,
+            installed_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (directory, app_type)
+        );
+        INSERT INTO skills VALUES ('disabled', 'claude', 0, 11);
+        INSERT INTO skills VALUES ('unknown', 'future-consumer', 1, 22);",
+    )
+    .expect("seed v2 legacy Skills");
+    Database::set_user_version(&conn, 2).expect("set v2");
+
+    Database::apply_schema_migrations_on_conn(&conn).expect("migrate schema");
+
+    let snapshot: String = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'skills_ssot_migration_snapshot'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read migration snapshot");
+    let rows: serde_json::Value = serde_json::from_str(&snapshot).expect("parse snapshot");
+    assert!(rows.as_array().is_some_and(|rows| rows.iter().any(|row| {
+        row["directory"] == "disabled" && row["app_type"] == "claude" && row["installed"] == false
+    })));
+    assert!(rows.as_array().is_some_and(|rows| rows.iter().any(|row| {
+        row["directory"] == "unknown"
+            && row["app_type"] == "future-consumer"
+            && row["installed"] == true
+    })));
+}
+
+#[test]
+fn v2_to_v3_helper_preserves_legacy_schema_rows_without_guided_migration_settings() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+    Database::create_tables_on_conn(&conn).expect("create current tables");
+    conn.execute("DROP TABLE skills", [])
+        .expect("drop current skills");
+    conn.execute_batch(
+        "CREATE TABLE skills (
+            directory TEXT NOT NULL,
+            app_type TEXT NOT NULL,
+            installed BOOLEAN NOT NULL DEFAULT 0,
+            installed_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (directory, app_type)
+        );
+        INSERT INTO skills VALUES ('mixed', 'claude', 1, 11);
+        INSERT INTO skills VALUES ('mixed', 'codex', 0, 12);
+        INSERT INTO skills VALUES ('unknown', 'future-consumer', 1, 22);",
+    )
+    .expect("seed legacy Skills");
+
+    let before_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'skills'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read legacy skills SQL before helper");
+    let before_rows: Vec<(String, String, bool, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT directory, app_type, installed, installed_at
+                 FROM skills ORDER BY directory, app_type",
+            )
+            .expect("prepare legacy skills rows before helper");
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query legacy skills rows before helper")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("read legacy skills rows before helper")
+    };
+
+    Database::migrate_v2_to_v3_preserving_legacy(&conn).expect("preserve legacy rows");
+
+    let skills_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'skills'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read legacy skills SQL");
+    assert_eq!(
+        skills_sql,
+        "CREATE TABLE skills (\n            directory TEXT NOT NULL,\n            app_type TEXT NOT NULL,\n            installed BOOLEAN NOT NULL DEFAULT 0,\n            installed_at INTEGER NOT NULL DEFAULT 0,\n            PRIMARY KEY (directory, app_type)\n        )"
+    );
+    assert_eq!(skills_sql, before_sql);
+    let rows: Vec<(String, String, bool, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT directory, app_type, installed, installed_at
+                 FROM skills ORDER BY directory, app_type",
+            )
+            .expect("prepare legacy skills rows");
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query legacy skills rows")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("read legacy skills rows")
+    };
+    assert_eq!(
+        rows,
+        vec![
+            ("mixed".into(), "claude".into(), true, 11),
+            ("mixed".into(), "codex".into(), false, 12),
+            ("unknown".into(), "future-consumer".into(), true, 22),
+        ]
+    );
+    assert_eq!(rows, before_rows);
+    assert!(!Database::table_exists(&conn, "skills_legacy_platform_evidence").unwrap());
+    for key in [
+        "skills_ssot_migration_pending",
+        "skills_ssot_migration_snapshot",
+    ] {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .expect("query guided setting");
+        assert_eq!(count, 0, "non-mac helper must not write {key}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn non_macos_v2_to_current_migration_preserves_legacy_skills() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+    Database::create_tables_on_conn(&conn).expect("create current tables");
+    conn.execute("DROP TABLE skills", [])
+        .expect("drop current skills");
+    conn.execute_batch(
+        "CREATE TABLE skills (
+            directory TEXT NOT NULL,
+            app_type TEXT NOT NULL,
+            installed BOOLEAN NOT NULL DEFAULT 0,
+            installed_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (directory, app_type)
+        );
+        INSERT INTO skills VALUES ('mixed', 'claude', 1, 11);
+        INSERT INTO skills VALUES ('mixed', 'codex', 0, 12);
+        INSERT INTO skills VALUES ('unknown', 'future-consumer', 1, 22);",
+    )
+    .expect("seed v2 legacy Skills");
+    let before_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'skills'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read legacy skills SQL before migration");
+    let before_rows: Vec<(String, String, bool, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT directory, app_type, installed, installed_at
+                 FROM skills ORDER BY directory, app_type",
+            )
+            .expect("prepare legacy skills rows before migration");
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query legacy skills rows before migration")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("read legacy skills rows before migration")
+    };
+    Database::set_user_version(&conn, 2).expect("set v2");
+
+    Database::apply_schema_migrations_on_conn(&conn).expect("migrate v2 to current");
+
+    assert_eq!(
+        Database::get_user_version(&conn).expect("read current version"),
+        SCHEMA_VERSION
+    );
+    let skills_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'skills'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read legacy skills SQL");
+    assert_eq!(
+        skills_sql,
+        "CREATE TABLE skills (\n            directory TEXT NOT NULL,\n            app_type TEXT NOT NULL,\n            installed BOOLEAN NOT NULL DEFAULT 0,\n            installed_at INTEGER NOT NULL DEFAULT 0,\n            PRIMARY KEY (directory, app_type)\n        )"
+    );
+    assert_eq!(skills_sql, before_sql);
+    let rows: Vec<(String, String, bool, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT directory, app_type, installed, installed_at
+                 FROM skills ORDER BY directory, app_type",
+            )
+            .expect("prepare legacy skills rows");
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query legacy skills rows")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("read legacy skills rows")
+    };
+    assert_eq!(
+        rows,
+        vec![
+            ("mixed".into(), "claude".into(), true, 11),
+            ("mixed".into(), "codex".into(), false, 12),
+            ("unknown".into(), "future-consumer".into(), true, 22),
+        ]
+    );
+    assert_eq!(rows, before_rows);
+    for key in [
+        "skills_ssot_migration_pending",
+        "skills_ssot_migration_snapshot",
+    ] {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .expect("query guided setting");
+        assert_eq!(count, 0, "non-macOS migration must not write {key}");
+    }
+    assert!(!Database::table_exists(&conn, "skills_legacy_platform_evidence").unwrap());
 }
 
 #[test]

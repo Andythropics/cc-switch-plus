@@ -34,6 +34,8 @@ pub mod skill_deployment;
 pub mod skill_import;
 #[cfg(target_os = "macos")]
 pub mod skill_update;
+#[cfg(target_os = "macos")]
+pub mod skills_migration_preview;
 pub mod speedtest;
 pub mod sql_helpers;
 pub mod stream_check;
@@ -73,7 +75,7 @@ pub use proxy::ProxyService;
 pub use skill::{
     ConsumerCompatibility, DiscoverableSkill, LibrarySkill, LibrarySkillAcquisitionService,
     LibrarySkillCompatibility, LibrarySkillSource, LibrarySourceKind, Skill, SkillRepo,
-    SkillService,
+    SkillService, SkillStorageLocation,
 };
 pub use skill_deployment::{
     DeploymentBatch, DeploymentBatchResult, DeploymentConsumer, DeploymentInspection,
@@ -98,6 +100,13 @@ pub use skill_update::{
     LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
     LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
     LibrarySkillUpdateService, UpdateDeploymentImpact,
+};
+#[cfg(target_os = "macos")]
+pub use skills_migration_preview::{
+    SkillsMigrationAction, SkillsMigrationBackupPlan, SkillsMigrationDisposition,
+    SkillsMigrationInventoryItem, SkillsMigrationInventoryKind, SkillsMigrationInventoryState,
+    SkillsMigrationPageMode, SkillsMigrationPlanItem, SkillsMigrationPreflight,
+    SkillsMigrationPreviewService, SkillsMigrationReason, SkillsMigrationStatus,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
 pub use usage_cache::UsageCache;

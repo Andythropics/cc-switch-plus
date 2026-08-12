@@ -8,11 +8,13 @@ import {
   useDeploymentRecovery,
   useRefreshSkillDeployments,
   useSkillDeployments,
+  useSkillsMigrationPreflight,
 } from "@/hooks/useSkills";
 
 const apiMocks = vi.hoisted(() => ({
   inspectDeployments: vi.fn(),
   inspectDeploymentRecovery: vi.fn(),
+  inspectSkillsMigrationPreflight: vi.fn(),
   applyDeployments: vi.fn(),
 }));
 
@@ -32,6 +34,7 @@ describe("Skill Deployment hooks", () => {
   beforeEach(() => {
     apiMocks.inspectDeployments.mockReset();
     apiMocks.inspectDeploymentRecovery.mockReset();
+    apiMocks.inspectSkillsMigrationPreflight.mockReset();
     apiMocks.applyDeployments.mockReset();
   });
 
@@ -130,6 +133,41 @@ describe("Skill Deployment hooks", () => {
     window.dispatchEvent(new Event("focus"));
     await waitFor(() =>
       expect(apiMocks.inspectDeployments).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("starts migration preflight only when its macOS Skills gate is enabled", async () => {
+    apiMocks.inspectSkillsMigrationPreflight.mockResolvedValue({
+      status: "decision_needed",
+      observationToken: "plan-v1",
+      pageMode: "read_only",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: true,
+        ready: false,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useSkillsMigrationPreflight({ enabled }),
+      { initialProps: { enabled: false }, wrapper: wrapper(queryClient) },
+    );
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(apiMocks.inspectSkillsMigrationPreflight).not.toHaveBeenCalled();
+
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiMocks.inspectSkillsMigrationPreflight).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() =>
+      expect(apiMocks.inspectSkillsMigrationPreflight).toHaveBeenCalledTimes(2),
     );
   });
 

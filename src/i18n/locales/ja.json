@@ -2516,6 +2516,85 @@
         "unavailable_workspace": "利用不可ワークスペース"
       }
     },
+    "migration": {
+      "title": "Skills ガイド付き移行を確認",
+      "description": "この読み取り専用プリフライトは旧 Skills を棚卸しし、決定的な移行計画を提示します。今後の移行ステップが利用可能になるまで変更は行いません。",
+      "loading": "旧 Skills の状態を確認中...",
+      "loadError": "旧 Skills の状態を確認できませんでした。移行による変更は行われていません。",
+      "recheck": "移行計画を再確認",
+      "defer": "移行を延期",
+      "deferredDescription": "このセッションでは移行を延期しました。新しい Skills 管理は読み取り専用のままで、旧データは変更されません。",
+      "inventory": "旧データの棚卸し",
+      "inventoryEmpty": "旧データの項目は見つかりませんでした。",
+      "plan": "提案された計画",
+      "planDescription": "CC Switch が実行できる作業、保持する内容、ユーザーの判断が必要な競合に分類しています。",
+      "planEmpty": "提案される移行操作はありません。",
+      "enabled": "有効",
+      "disabled": "無効",
+      "applyUnavailable": "このバージョンでは計画を適用できません。将来の切り替え前にバックアップと復旧準備を確認してください。",
+      "status": {
+        "not_required": "移行不要",
+        "decision_needed": "判断が必要",
+        "blocked": "プリフライトがブロック"
+      },
+      "drift": {
+        "unchanged": "移行計画に変更はありません。",
+        "changed": "旧状態が変わりました。更新された棚卸しと計画を確認してください。"
+      },
+      "kind": {
+        "managed_library": "管理対象 Library Skill",
+        "legacy_skill": "旧 Skill",
+        "unmanaged_content": "管理外コンテンツ",
+        "target_conflict": "ターゲット競合",
+        "legacy_codex_entry": "旧 Codex エントリ",
+        "scan_error": "スキャンエラー"
+      },
+      "inventoryState": {
+        "present": "存在",
+        "missing": "欠落",
+        "real_directory": "ディレクトリ",
+        "managed_link": "管理対象リンク",
+        "foreign_link": "外部リンク",
+        "broken_link": "壊れたリンク",
+        "occupied": "使用中",
+        "unreadable": "読み取り不可",
+        "invalid": "無効"
+      },
+      "disposition": {
+        "perform": "CC Switch が実行可能",
+        "preserve": "保持",
+        "user_resolve": "ユーザーによる解決が必要"
+      },
+      "action": {
+        "move_to_library": "プライベート Library へ移動",
+        "reuse_library": "既存の Library Skill を再利用",
+        "create_global_deployment": "Global Deployment を作成",
+        "remove_legacy_codex_link": "確認済みの旧 Codex リンクを削除",
+        "preserve_content": "既存コンテンツを保持",
+        "resolve_conflict": "ターゲット競合を解決",
+        "repair_preflight": "プリフライト状態を修復"
+      },
+      "reason": {
+        "proven_managed": "CC Switch の管理対象であることが確認されています。",
+        "already_in_library": "コンテンツはすでに Library にあります。",
+        "legacy_enabled": "旧 Consumer フラグが有効です。",
+        "proven_cc_switch_link": "旧リンクが CC Switch 管理であることが確認されています。",
+        "unmanaged": "所有を確認できないため、コンテンツを保持します。",
+        "foreign_or_ambiguous": "外部リンク、またはリンク先が曖昧です。",
+        "content_conflict": "異なるコンテンツがターゲットを使用しています。",
+        "missing_source": "想定されたソースがありません。",
+        "invalid_legacy_state": "旧状態が無効です。",
+        "unreadable": "場所を読み取れませんでした。"
+      },
+      "backup": {
+        "title": "バックアップと復旧の準備",
+        "ready": "バックアップの前提条件は整っていますが、バックアップはまだ作成されていません。",
+        "notReady": "バックアップの前提条件が整っていないため、移行を適用できません。",
+        "notRequired": "この計画にバックアップは不要です。",
+        "recoveryAvailable": "復旧情報を利用できます。",
+        "recoveryUnavailable": "復旧情報はまだ利用できません。"
+      }
+    },
     "activity": {
       "title": "Skills アクティビティ",
       "description": "ファイル内容やマシンのパスを公開せず、構造化された Skills 操作を確認します。",

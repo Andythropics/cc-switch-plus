@@ -11,6 +11,8 @@ use serde::Serialize;
 struct LegacySkillMigrationRow {
     directory: String,
     app_type: String,
+    installed: bool,
+    installed_at: i64,
 }
 
 impl Database {
@@ -1014,14 +1016,11 @@ impl Database {
         Ok(())
     }
 
-    /// v2 -> v3 迁移：Skills 统一管理架构
+    /// v2 -> v3 migration entry point.
     ///
-    /// 将 skills 表从 (directory, app_type) 复合主键结构迁移到统一的 id 主键结构，
-    /// 支持三应用启用标志（enabled_claude, enabled_codex, enabled_gemini）。
-    ///
-    /// 迁移策略：
-    /// 1. 旧数据库只存储安装记录，真正的 skill 文件在文件系统
-    /// 2. 直接重建新表结构，后续由 SkillService 在首次启动时扫描文件系统重建数据
+    /// macOS preserves the legacy rows in a read-only preflight snapshot before
+    /// preparing the redesigned schema. Unsupported platforms advance the
+    /// database version without changing their legacy Skills table.
     fn migrate_v2_to_v3(conn: &Connection) -> Result<(), AppError> {
         // 检查是否已经是新结构（通过检查是否有 enabled_claude 列）
         if Self::has_column(conn, "skills", "enabled_claude")? {
@@ -1029,9 +1028,20 @@ impl Database {
             return Ok(());
         }
 
+        #[cfg(not(target_os = "macos"))]
+        return Self::migrate_v2_to_v3_preserving_legacy(conn);
+
+        #[cfg(target_os = "macos")]
+        {
+            Self::migrate_v2_to_v3_for_guided_macos(conn)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v2_to_v3_for_guided_macos(conn: &Connection) -> Result<(), AppError> {
         log::info!("开始迁移 skills 表到 v3 结构（统一管理架构）...");
 
-        // 1. 备份旧数据（用于日志和后续启动迁移）
+        // Preserve all legacy enablement evidence for the guided preflight.
         let old_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM skills", [], |row| row.get(0))
             .unwrap_or(0);
@@ -1039,8 +1049,8 @@ impl Database {
 
         let mut stmt = conn
             .prepare(
-                "SELECT directory, app_type FROM skills
-                 WHERE installed = 1",
+                "SELECT directory, app_type, installed, installed_at
+                 FROM skills ORDER BY directory, app_type",
             )
             .map_err(|e| AppError::Database(format!("查询旧 skills 快照失败: {e}")))?;
         let snapshot_rows: Vec<LegacySkillMigrationRow> = stmt
@@ -1048,6 +1058,8 @@ impl Database {
                 Ok(LegacySkillMigrationRow {
                     directory: row.get(0)?,
                     app_type: row.get(1)?,
+                    installed: row.get(2)?,
+                    installed_at: row.get(3)?,
                 })
             })
             .map_err(|e| AppError::Database(format!("读取旧 skills 快照失败: {e}")))?
@@ -1056,9 +1068,7 @@ impl Database {
         let snapshot_json = serde_json::to_string(&snapshot_rows)
             .map_err(|e| AppError::Database(format!("序列化旧 skills 快照失败: {e}")))?;
 
-        // 标记：需要在启动后从文件系统扫描并重建 Skills 数据
-        // 说明：v3 结构将 Skills 的 SSOT 迁移到 ~/.cc-switch/skills/，
-        // 旧表只存“安装记录”，无法直接无损迁移到新结构，因此改为启动后扫描 app 目录导入。
+        // The first redesigned Skills page consumes this device-local evidence.
         let _ = conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('skills_ssot_migration_pending', 'true')",
             [],
@@ -1092,11 +1102,16 @@ impl Database {
         )
         .map_err(|e| AppError::Database(format!("创建新 skills 表失败: {e}")))?;
 
-        log::info!(
-            "skills 表已迁移到 v3 结构。\n\
-             注意：旧的安装记录已清除，首次启动时将自动扫描文件系统重建数据。"
-        );
+        log::info!("skills 表已准备好引导式迁移；旧状态已保留用于只读预检");
 
+        Ok(())
+    }
+
+    /// Unsupported platforms advance the schema version without entering the
+    /// redesigned Skills migration. The legacy v2 table remains the source of
+    /// truth, including its exact SQL definition and row ordering.
+    #[cfg(any(not(target_os = "macos"), test))]
+    pub(super) fn migrate_v2_to_v3_preserving_legacy(_conn: &Connection) -> Result<(), AppError> {
         Ok(())
     }
 
@@ -1112,7 +1127,8 @@ impl Database {
             "BOOLEAN NOT NULL DEFAULT 0",
         )?;
 
-        // 为 skills 表添加 enabled_opencode 列
+        // Unsupported platforms retain the v2 Skills table verbatim.
+        #[cfg(target_os = "macos")]
         Self::add_column_if_missing(
             conn,
             "skills",
@@ -1225,6 +1241,7 @@ impl Database {
 
     /// v6 -> v7: Skills 更新检测支持（content_hash + updated_at）
     fn migrate_v6_to_v7(conn: &Connection) -> Result<(), AppError> {
+        #[cfg(target_os = "macos")]
         if Self::table_exists(conn, "skills")? {
             Self::add_column_if_missing(conn, "skills", "content_hash", "TEXT")?;
             Self::add_column_if_missing(
@@ -1583,7 +1600,8 @@ impl Database {
             "BOOLEAN NOT NULL DEFAULT 0",
         )?;
 
-        // skills table may not exist in databases migrated from very old versions
+        // skills table may not exist in databases migrated from very old versions.
+        #[cfg(target_os = "macos")]
         if Self::table_exists(conn, "skills")? {
             Self::add_column_if_missing(
                 conn,
@@ -1806,6 +1824,7 @@ impl Database {
                 "BOOLEAN NOT NULL DEFAULT 0",
             )?;
         }
+        #[cfg(target_os = "macos")]
         if Self::table_exists(conn, "skills")? {
             Self::add_column_if_missing(
                 conn,

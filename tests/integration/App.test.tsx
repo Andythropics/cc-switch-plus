@@ -3,11 +3,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { providersApi } from "@/lib/api/providers";
+import { skillsApi } from "@/lib/api/skills";
 import {
+  getSettings,
   resetProviderState,
   setCurrentProviderId,
   setLiveProviderIds,
   setProviders,
+  setSettings,
 } from "../msw/state";
 import { emitTauriEvent } from "../msw/tauriMocks";
 
@@ -182,6 +185,7 @@ const renderApp = (AppComponent: ComponentType) => {
 describe("App integration with MSW", () => {
   beforeEach(() => {
     resetProviderState();
+    setSettings({ ...getSettings(), firstRunNoticeConfirmed: true });
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     skillsPanelMocks.openAcquireFromZip.mockReset();
@@ -397,7 +401,7 @@ describe("App integration with MSW", () => {
     expect(skillsPanelMocks.openAcquireFromZip).toHaveBeenCalledTimes(1);
   });
 
-  it("routes the Skills discover toolbar action through the panel guard", async () => {
+  it("routes the Skills discover toolbar action through App navigation", async () => {
     localStorage.setItem("cc-switch-last-view", "skills");
     const { default: App } = await import("@/App");
     renderApp(App);
@@ -411,12 +415,22 @@ describe("App integration with MSW", () => {
       }),
     );
 
-    expect(skillsPanelMocks.openDiscovery).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("library-skills-panel")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", {
+        name: "skills.library.discoveryTitle",
+      }),
+    ).toBeInTheDocument();
+    expect(skillsPanelMocks.openDiscovery).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("library-skills-panel"),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("keeps Skills navigation visible and explains the macOS boundary without Library operations", async () => {
     platformState.mac = false;
+    const preflightSpy = vi.spyOn(skillsApi, "inspectSkillsMigrationPreflight");
     const { default: App } = await import("@/App");
     renderApp(App);
 
@@ -432,5 +446,7 @@ describe("App integration with MSW", () => {
     expect(
       screen.queryByRole("button", { name: "skills.library.acquireZip" }),
     ).not.toBeInTheDocument();
+    expect(preflightSpy).not.toHaveBeenCalled();
+    preflightSpy.mockRestore();
   });
 });

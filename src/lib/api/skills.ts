@@ -416,6 +416,98 @@ export interface DeploymentRecoveryInspectionResult {
   findings: DeploymentRecoveryFinding[];
 }
 
+export type SkillsMigrationPreflightStatus =
+  | "not_required"
+  | "decision_needed"
+  | "blocked";
+
+export type SkillsMigrationPageMode = "writable" | "read_only";
+
+export type SkillsMigrationInventoryKind =
+  | "managed_library"
+  | "legacy_skill"
+  | "unmanaged_content"
+  | "target_conflict"
+  | "legacy_codex_entry"
+  | "scan_error";
+
+export type SkillsMigrationInventoryState =
+  | "present"
+  | "missing"
+  | "real_directory"
+  | "managed_link"
+  | "foreign_link"
+  | "broken_link"
+  | "occupied"
+  | "unreadable"
+  | "invalid";
+
+/** Read-only legacy fact. Locations are display output and never intent input. */
+export interface SkillsMigrationInventoryItem {
+  kind: SkillsMigrationInventoryKind;
+  directory?: string;
+  consumer?: DeploymentConsumer;
+  location: string;
+  state: SkillsMigrationInventoryState;
+  managedSkillId?: string;
+  enabled?: boolean;
+}
+
+export type SkillsMigrationPlanDisposition =
+  | "perform"
+  | "preserve"
+  | "user_resolve";
+
+export type SkillsMigrationPlanAction =
+  | "move_to_library"
+  | "reuse_library"
+  | "create_global_deployment"
+  | "remove_legacy_codex_link"
+  | "preserve_content"
+  | "resolve_conflict"
+  | "repair_preflight";
+
+export type SkillsMigrationPlanReason =
+  | "proven_managed"
+  | "already_in_library"
+  | "legacy_enabled"
+  | "proven_cc_switch_link"
+  | "unmanaged"
+  | "foreign_or_ambiguous"
+  | "content_conflict"
+  | "missing_source"
+  | "invalid_legacy_state"
+  | "unreadable";
+
+/** Deterministically ordered proposed work; all locations are display-only. */
+export interface SkillsMigrationPlanItem {
+  disposition: SkillsMigrationPlanDisposition;
+  action: SkillsMigrationPlanAction;
+  directory?: string;
+  consumer?: DeploymentConsumer;
+  fromLocation?: string;
+  toLocation?: string;
+  reason: SkillsMigrationPlanReason;
+}
+
+export interface SkillsMigrationBackupPlan {
+  required: boolean;
+  ready: boolean;
+  recoveryAvailable: boolean;
+  databasePath?: string;
+  contentPaths: string[];
+}
+
+/** Stable, read-only guided migration review. Issue #14 has no apply seam. */
+export interface SkillsMigrationPreflight {
+  status: SkillsMigrationPreflightStatus;
+  observationToken: string;
+  pageMode: SkillsMigrationPageMode;
+  inventory: SkillsMigrationInventoryItem[];
+  plan: SkillsMigrationPlanItem[];
+  backup: SkillsMigrationBackupPlan;
+}
+
 export type DeploymentIntent =
   | { action: "deploy"; librarySkillId: string; target: DeploymentTarget }
   | { action: "undeploy"; librarySkillId: string; target: DeploymentTarget }
@@ -639,6 +731,11 @@ export const skillsApi = {
     return await invoke("inspectDeploymentRecovery", {
       query: query ?? null,
     });
+  },
+
+  /** Preview the macOS guided migration without changing legacy state. */
+  async inspectSkillsMigrationPreflight(): Promise<SkillsMigrationPreflight> {
+    return await invoke("inspectSkillsMigrationPreflight");
   },
 
   /** Apply ordered deployment intents without selecting an app implicitly. */

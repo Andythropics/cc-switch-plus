@@ -18,7 +18,7 @@ use crate::services::{
     LibrarySkillDeletionIntent, LibrarySkillDeletionResult, LibrarySkillUpdateApplyIntent,
     LibrarySkillUpdateCheck, LibrarySkillUpdateResult, LibrarySkillUpdateService,
     ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
-    ProjectSkillImportService,
+    ProjectSkillImportService, SkillsMigrationPreflight, SkillsMigrationPreviewService,
 };
 use crate::services::{
     DeploymentBatch, DeploymentBatchResult, DeploymentInspectionResult, DeploymentQuery,
@@ -80,6 +80,17 @@ pub fn inspectDeploymentRecovery(
 ) -> Result<DeploymentRecoveryInspectionResult, String> {
     DeploymentRecoveryService::new(app_state.db.clone())
         .inspect(query.unwrap_or_default())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn inspectSkillsMigrationPreflight(
+    app_state: State<'_, AppState>,
+) -> Result<SkillsMigrationPreflight, String> {
+    SkillsMigrationPreviewService::new(app_state.db.clone())
+        .inspect()
         .map_err(|error| error.to_string())
 }
 

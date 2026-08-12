@@ -44,6 +44,21 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/get_skills_migration_result`, () =>
     success(null),
   ),
+  http.post(`${TAURI_ENDPOINT}/inspectSkillsMigrationPreflight`, () =>
+    success({
+      status: "not_required",
+      observationToken: "no-migration-required",
+      pageMode: "writable",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: false,
+        ready: true,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    }),
+  ),
   http.post(`${TAURI_ENDPOINT}/list_profiles`, () => success([])),
   http.post(`${TAURI_ENDPOINT}/get_providers`, async ({ request }) => {
     const { app } = await withJson<{ app: AppId }>(request);

@@ -86,6 +86,7 @@ import {
 import { ProjectWorkspacesPanel } from "@/components/skills/ProjectWorkspacesPanel";
 import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
 import { SkillsActivityPanel } from "@/components/skills/SkillsActivityPanel";
+import { SkillsMigrationGate } from "@/components/skills/SkillsMigrationGate";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
@@ -220,6 +221,9 @@ function App() {
   const [mcpManagementBusy, setMcpManagementBusy] = useState(false);
   const [skillsManagementBusy, setSkillsManagementBusy] = useState(false);
   const [skillsNavigationBusy, setSkillsNavigationBusy] = useState(false);
+  const [skillsMigrationReadOnly, setSkillsMigrationReadOnly] = useState(false);
+  const [skillsMigrationDeferredToken, setSkillsMigrationDeferredToken] =
+    useState<string | null>(null);
   const [promptManagementBusy, setPromptManagementBusy] = useState(false);
   const [promptNavigationBusy, setPromptNavigationBusy] = useState(false);
 
@@ -1137,7 +1141,16 @@ function App() {
       }
     })();
 
-    return (
+    const skillsMigrationEnabled =
+      isMac() &&
+      [
+        "skills",
+        "skillsDiscovery",
+        "skillsProjects",
+        "skillsGlobal",
+        "skillsActivity",
+      ].includes(currentView);
+    const animatedContent = (
       <AnimatePresence mode="wait">
         <motion.div
           key={currentView}
@@ -1150,6 +1163,19 @@ function App() {
           {content}
         </motion.div>
       </AnimatePresence>
+    );
+
+    return skillsMigrationEnabled ? (
+      <SkillsMigrationGate
+        deferredToken={skillsMigrationDeferredToken}
+        enabled
+        onDefer={setSkillsMigrationDeferredToken}
+        onReadOnlyChange={setSkillsMigrationReadOnly}
+      >
+        {animatedContent}
+      </SkillsMigrationGate>
+    ) : (
+      animatedContent
     );
   };
 
@@ -1447,18 +1473,20 @@ function App() {
                 )}
                 {currentView === "skills" && isMac() && (
                   <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={() =>
-                        void librarySkillsPanelRef.current?.openAcquireFromZip()
-                      }
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <FolderArchive className="w-4 h-4 mr-2" />
-                      {t("skills.library.acquireZip")}
-                    </Button>
+                    {!skillsMigrationReadOnly && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={skillsManagementBusy}
+                        onClick={() =>
+                          void librarySkillsPanelRef.current?.openAcquireFromZip()
+                        }
+                        className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                      >
+                        <FolderArchive className="w-4 h-4 mr-2" />
+                        {t("skills.library.acquireZip")}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1483,9 +1511,7 @@ function App() {
                       variant="ghost"
                       size="sm"
                       disabled={skillsManagementBusy}
-                      onClick={() =>
-                        librarySkillsPanelRef.current?.openDiscovery()
-                      }
+                      onClick={handleOpenSkillsDiscovery}
                       className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
                     >
                       <Search className="w-4 h-4 mr-2" />
@@ -1503,24 +1529,26 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skillsDiscovery" && isMac() && (
-                  <>
-                    {getSkillsPageHeaderActions(skillsDiscoverySource).map(
-                      ({ key, labelKey, Icon, execute }) => (
-                        <Button
-                          key={key}
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => execute(skillsPageRef.current)}
-                          className="hover:bg-black/5 dark:hover:bg-white/5"
-                        >
-                          <Icon className="w-4 h-4 mr-2" />
-                          {t(labelKey)}
-                        </Button>
-                      ),
-                    )}
-                  </>
-                )}
+                {currentView === "skillsDiscovery" &&
+                  isMac() &&
+                  !skillsMigrationReadOnly && (
+                    <>
+                      {getSkillsPageHeaderActions(skillsDiscoverySource).map(
+                        ({ key, labelKey, Icon, execute }) => (
+                          <Button
+                            key={key}
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => execute(skillsPageRef.current)}
+                            className="hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            <Icon className="w-4 h-4 mr-2" />
+                            {t(labelKey)}
+                          </Button>
+                        ),
+                      )}
+                    </>
+                  )}
                 {currentView === "skillsGlobal" && isMac() && (
                   <>
                     <Button

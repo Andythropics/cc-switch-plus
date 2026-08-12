@@ -2517,6 +2517,85 @@
         "unavailable_workspace": "無法使用的工作區"
       }
     },
+    "migration": {
+      "title": "檢視 Skills 引導遷移",
+      "description": "此唯讀預檢會盤點舊版 Skills 並產生確定性的遷移計畫。在後續遷移步驟可用前，不會變更任何內容。",
+      "loading": "正在檢查舊版 Skills 狀態...",
+      "loadError": "無法檢查舊版 Skills 狀態，未進行任何遷移變更。",
+      "recheck": "重新檢查遷移計畫",
+      "defer": "暫緩遷移",
+      "deferredDescription": "本工作階段已暫緩遷移。新版 Skills 管理維持唯讀，舊版資料未變更。",
+      "inventory": "舊版清單",
+      "inventoryEmpty": "未發現舊版清單項目。",
+      "plan": "建議計畫",
+      "planDescription": "項目分為 CC Switch 可執行、將保留的內容，以及需要你處理的衝突。",
+      "planEmpty": "沒有建議的遷移操作。",
+      "enabled": "已啟用",
+      "disabled": "未啟用",
+      "applyUnavailable": "此版本尚不能套用計畫。請在未來切換前先檢視備份與復原準備狀態。",
+      "status": {
+        "not_required": "無需遷移",
+        "decision_needed": "需要決定",
+        "blocked": "預檢受阻"
+      },
+      "drift": {
+        "unchanged": "遷移計畫沒有變化。",
+        "changed": "舊版狀態已變化，請檢視更新後的清單與計畫。"
+      },
+      "kind": {
+        "managed_library": "受管 Library Skill",
+        "legacy_skill": "舊版 Skill",
+        "unmanaged_content": "未受管內容",
+        "target_conflict": "目標衝突",
+        "legacy_codex_entry": "舊版 Codex 項目",
+        "scan_error": "掃描錯誤"
+      },
+      "inventoryState": {
+        "present": "存在",
+        "missing": "缺少",
+        "real_directory": "目錄",
+        "managed_link": "受管連結",
+        "foreign_link": "外部連結",
+        "broken_link": "損壞連結",
+        "occupied": "已占用",
+        "unreadable": "無法讀取",
+        "invalid": "無效"
+      },
+      "disposition": {
+        "perform": "CC Switch 可執行",
+        "preserve": "保留",
+        "user_resolve": "需要使用者處理"
+      },
+      "action": {
+        "move_to_library": "移入私有 Library",
+        "reuse_library": "重用現有 Library Skill",
+        "create_global_deployment": "建立全域 Deployment",
+        "remove_legacy_codex_link": "移除已確認的舊版 Codex 連結",
+        "preserve_content": "保留現有內容",
+        "resolve_conflict": "解決目標衝突",
+        "repair_preflight": "修復預檢狀態"
+      },
+      "reason": {
+        "proven_managed": "已確認由 CC Switch 管理。",
+        "already_in_library": "內容已存在於 Library。",
+        "legacy_enabled": "舊版 Consumer 標誌已啟用。",
+        "proven_cc_switch_link": "已確認舊版連結由 CC Switch 管理。",
+        "unmanaged": "無法確認歸屬，因此將保留內容。",
+        "foreign_or_ambiguous": "連結為外部連結或目標不明確。",
+        "content_conflict": "目標已被不同內容占用。",
+        "missing_source": "預期來源缺少。",
+        "invalid_legacy_state": "舊版狀態無效。",
+        "unreadable": "無法讀取該位置。"
+      },
+      "backup": {
+        "title": "備份與復原準備狀態",
+        "ready": "備份前置條件已就緒，但尚未建立備份。",
+        "notReady": "備份前置條件尚未就緒，無法套用遷移。",
+        "notRequired": "此計畫無需備份。",
+        "recoveryAvailable": "復原資訊可用。",
+        "recoveryUnavailable": "復原資訊尚不可用。"
+      }
+    },
     "activity": {
       "title": "Skills 活動",
       "description": "檢視結構化 Skills 操作，不顯示檔案內容或機器路徑。",

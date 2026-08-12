@@ -365,6 +365,7 @@ pub struct ImportSkillSelection {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)] // Kept for the journaled cutover implemented by Issue #15.
 struct LegacySkillMigrationRow {
     directory: String,
     app_type: String,
@@ -4884,6 +4885,7 @@ fn save_repos_from_lock(
 }
 
 /// 首次启动迁移：扫描应用目录，重建数据库
+#[allow(dead_code)] // Startup no longer invokes this; Issue #15 will replace its write seam.
 pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
     #[cfg(target_os = "macos")]
     let trigger = ActivityRecorder::new(db.clone())
@@ -4927,6 +4929,7 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
     result
 }
 
+#[allow(dead_code)]
 fn migrate_skills_to_ssot_inner(
     db: &Arc<Database>,
     #[cfg(target_os = "macos")] activity_trigger: ActivityTrigger,
@@ -5091,11 +5094,13 @@ fn migrate_skills_to_ssot_inner(
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn activity_safe_migration_skill_id(id: &str) -> Option<String> {
     ActivityTarget::safe_identifier(id.to_string())
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn record_ssot_migration_activity(
     db: &Arc<Database>,
     reason: ActivityReason,

@@ -2516,6 +2516,85 @@
         "unavailable_workspace": "Unavailable Workspace"
       }
     },
+    "migration": {
+      "title": "Review the guided Skills migration",
+      "description": "This read-only preflight inventories legacy Skills and proposes a deterministic migration plan. Nothing changes until a later migration step is available.",
+      "loading": "Inspecting legacy Skills state...",
+      "loadError": "Could not inspect legacy Skills state. No migration changes were made.",
+      "recheck": "Recheck migration plan",
+      "defer": "Defer migration",
+      "deferredDescription": "Migration is deferred for this session. Redesigned Skills management remains read-only, and legacy data is unchanged.",
+      "inventory": "Legacy inventory",
+      "inventoryEmpty": "No legacy inventory items were found.",
+      "plan": "Proposed plan",
+      "planDescription": "Items are separated into work CC Switch can perform, content it will preserve, and conflicts that require your decision.",
+      "planEmpty": "No migration operations are proposed.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "applyUnavailable": "Applying this plan is not available in this version. Review backup and recovery readiness before a future cutover.",
+      "status": {
+        "not_required": "No migration required",
+        "decision_needed": "Decision needed",
+        "blocked": "Preflight blocked"
+      },
+      "drift": {
+        "unchanged": "The migration plan is unchanged.",
+        "changed": "Legacy state changed. Review the updated inventory and plan."
+      },
+      "kind": {
+        "managed_library": "Managed Library Skill",
+        "legacy_skill": "Legacy Skill",
+        "unmanaged_content": "Unmanaged content",
+        "target_conflict": "Target conflict",
+        "legacy_codex_entry": "Legacy Codex entry",
+        "scan_error": "Scan error"
+      },
+      "inventoryState": {
+        "present": "Present",
+        "missing": "Missing",
+        "real_directory": "Directory",
+        "managed_link": "Managed link",
+        "foreign_link": "Foreign link",
+        "broken_link": "Broken link",
+        "occupied": "Occupied",
+        "unreadable": "Unreadable",
+        "invalid": "Invalid"
+      },
+      "disposition": {
+        "perform": "CC Switch can perform",
+        "preserve": "Preserve",
+        "user_resolve": "User resolution required"
+      },
+      "action": {
+        "move_to_library": "Move into the private Library",
+        "reuse_library": "Reuse the existing Library Skill",
+        "create_global_deployment": "Create a Global Deployment",
+        "remove_legacy_codex_link": "Remove a proven legacy Codex link",
+        "preserve_content": "Preserve existing content",
+        "resolve_conflict": "Resolve the target conflict",
+        "repair_preflight": "Repair preflight state"
+      },
+      "reason": {
+        "proven_managed": "CC Switch ownership is proven.",
+        "already_in_library": "The content is already in the Library.",
+        "legacy_enabled": "The legacy Consumer flag is enabled.",
+        "proven_cc_switch_link": "The legacy link is proven to be managed by CC Switch.",
+        "unmanaged": "Ownership is not proven, so the content will be preserved.",
+        "foreign_or_ambiguous": "The link is foreign or its target is ambiguous.",
+        "content_conflict": "Different content already occupies the target.",
+        "missing_source": "The expected source is missing.",
+        "invalid_legacy_state": "The legacy state is invalid.",
+        "unreadable": "The location could not be read."
+      },
+      "backup": {
+        "title": "Backup and recovery readiness",
+        "ready": "Backup prerequisites are ready; no backup has been created yet.",
+        "notReady": "Backup prerequisites are not ready; migration cannot be applied.",
+        "notRequired": "No backup is required for this plan.",
+        "recoveryAvailable": "Recovery information is available.",
+        "recoveryUnavailable": "Recovery information is not yet available."
+      }
+    },
     "activity": {
       "title": "Skills Activity",
       "description": "Review structured Skill operations without exposing file contents or machine paths.",

@@ -5,15 +5,61 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import App from "@/App";
 
-const { Empty } = vi.hoisted(() => ({ Empty: () => null }));
+const { Empty, migrationGateRenderMock, migrationGateState, platformState } =
+  vi.hoisted(() => ({
+    Empty: () => null,
+    migrationGateRenderMock: vi.fn(),
+    migrationGateState: { readOnly: false },
+    platformState: { mac: true },
+  }));
 
 vi.mock("@/lib/platform", () => ({
-  isMac: () => true,
+  isMac: () => platformState.mac,
   isLinux: () => false,
   isWindows: () => false,
   DRAG_REGION_ATTR: {},
   DRAG_REGION_STYLE: {},
 }));
+
+vi.mock("@/components/skills/SkillsMigrationGate", async () => {
+  const React = await import("react");
+  return {
+    SkillsMigrationGate: ({
+      children,
+      deferredToken,
+      enabled,
+      onDefer,
+      onReadOnlyChange,
+    }: React.PropsWithChildren<{
+      deferredToken?: string | null;
+      enabled: boolean;
+      onDefer?: (token: string) => void;
+      onReadOnlyChange?: (readOnly: boolean) => void;
+    }>) => {
+      migrationGateRenderMock({ deferredToken, enabled });
+      React.useEffect(() => {
+        onReadOnlyChange?.(enabled && migrationGateState.readOnly);
+        return () => onReadOnlyChange?.(false);
+      }, [enabled, onReadOnlyChange]);
+      return enabled && migrationGateState.readOnly
+        ? React.createElement(
+            "div",
+            { "data-testid": "migration-gate" },
+            React.createElement(
+              "span",
+              { "data-testid": "migration-deferred-token" },
+              deferredToken ?? "none",
+            ),
+            React.createElement(
+              "button",
+              { type: "button", onClick: () => onDefer?.("migration-plan-v1") },
+              "defer-migration",
+            ),
+          )
+        : children;
+    },
+  };
+});
 
 vi.mock("@/lib/query", () => ({
   proxyKeys: {},
@@ -123,12 +169,22 @@ vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
     LibrarySkillsPanel: React.forwardRef(
       (
         {
+          onOpenDiscovery,
           onOpenGlobal,
           focusLibrarySkillId,
-        }: { onOpenGlobal?: () => void; focusLibrarySkillId?: string | null },
-        _ref,
-      ) =>
-        React.createElement(
+        }: {
+          onOpenDiscovery?: () => void;
+          onOpenGlobal?: () => void;
+          focusLibrarySkillId?: string | null;
+        },
+        ref,
+      ) => {
+        React.useImperativeHandle(ref, () => ({
+          openDiscovery: () => onOpenDiscovery?.(),
+          openAcquireFromZip: vi.fn(),
+          refresh: vi.fn(),
+        }));
+        return React.createElement(
           "div",
           { "data-testid": "library-view" },
           React.createElement(
@@ -142,7 +198,8 @@ vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
               { type: "button", onClick: onOpenGlobal },
               "open-global-from-library",
             ),
-        ),
+        );
+      },
     ),
   };
 });
@@ -276,8 +333,84 @@ vi.mock("@/components/BrandIcons", () => ({ McpIcon: Empty }));
 
 describe("App Skills navigation", () => {
   beforeEach(() => {
+    migrationGateState.readOnly = false;
+    migrationGateRenderMock.mockClear();
+    platformState.mac = true;
     localStorage.setItem("cc-switch-last-view", "skills");
     localStorage.setItem("cc-switch-last-app", "claude");
+  });
+
+  it("keeps every redesigned Skills surface gated and hides mutation header actions", async () => {
+    migrationGateState.readOnly = true;
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.acquireZip" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "defer-migration" }));
+    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
+      "migration-plan-v1",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.global.title" }),
+    );
+    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
+      "migration-plan-v1",
+    );
+
+    await user.click(screen.getByRole("button", { name: "common.back" }));
+    await user.click(screen.getByRole("button", { name: "skills.discover" }));
+    expect(
+      screen.getByRole("heading", { name: "skills.library.discoveryTitle" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(screen.queryByTestId("discovery-view")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.back" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.title" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "skills.projects.title" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
+      "migration-plan-v1",
+    );
+    expect(screen.queryByTestId("projects-view")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.back" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.activity.title" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "skills.activity.title" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
+      "migration-plan-v1",
+    );
+    expect(screen.queryByTestId("activity-view")).not.toBeInTheDocument();
+  });
+
+  it("never mounts migration preflight on non-macOS", () => {
+    platformState.mac = false;
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("skills.library.macOnlyTitle")).toBeInTheDocument();
+    expect(migrationGateRenderMock).not.toHaveBeenCalled();
   });
 
   it("navigates Library → Global → Projects and back with view titles", async () => {
