@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
 import type { LibrarySkill } from "@/lib/api/skills";
 
-const { libraryRefetch, projectRefetch, refreshMock, state } = vi.hoisted(
-  () => ({
+const { applyMock, libraryRefetch, projectRefetch, refreshMock, state } =
+  vi.hoisted(() => ({
+    applyMock: vi.fn(),
     libraryRefetch: vi.fn(),
     projectRefetch: vi.fn(),
     refreshMock: vi.fn(),
@@ -14,9 +15,9 @@ const { libraryRefetch, projectRefetch, refreshMock, state } = vi.hoisted(
       libraryError: false,
       projectError: false,
       refreshing: false,
+      recoveryFindings: [] as unknown[],
     },
-  }),
-);
+  }));
 
 const skills: LibrarySkill[] = [
   {
@@ -70,8 +71,15 @@ vi.mock("@/hooks/useSkills", () => ({
     isFetching: state.refreshing,
   }),
   useApplySkillDeployments: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({ items: [] }),
+    mutateAsync: applyMock,
     isPending: false,
+  }),
+  useDeploymentRecovery: () => ({
+    data: { findings: state.recoveryFindings },
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
   }),
   useRefreshSkillDeployments: () => refreshMock,
 }));
@@ -84,6 +92,8 @@ describe("GlobalSkillsPanel", () => {
     libraryRefetch.mockReset().mockResolvedValue(undefined);
     projectRefetch.mockReset().mockResolvedValue(undefined);
     refreshMock.mockReset().mockResolvedValue(undefined);
+    applyMock.mockReset().mockResolvedValue({ items: [] });
+    state.recoveryFindings = [];
   });
 
   it("keeps Library identity and filters the global decision list", async () => {
@@ -106,6 +116,7 @@ describe("GlobalSkillsPanel", () => {
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
     expect(libraryRefetch).toHaveBeenCalledTimes(1);
     expect(projectRefetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("skills.recovery.title")).toBeInTheDocument();
   });
 
   it("surfaces a structured load error instead of silently hiding state", () => {
@@ -156,6 +167,59 @@ describe("GlobalSkillsPanel", () => {
 
     await user.click(
       screen.getByRole("button", { name: "skills.global.batchDeploy" }),
+    );
+
+    await waitFor(() => {
+      expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
+      expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
+    });
+    expect(
+      screen.getByRole("button", {
+        name: "skills.global.library",
+        hidden: true,
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "skills.global.projects",
+        hidden: true,
+      }),
+    ).toBeDisabled();
+  });
+
+  it("blocks parent navigation while recovery confirmation is open", async () => {
+    state.recoveryFindings = [
+      {
+        disposition: "recoverable",
+        target: { consumer: "claude", workspace: "global" },
+        entryName: "alpha",
+        librarySkillId: "skill-a",
+        libraryDirectory: "alpha",
+        observationToken: "alpha-token",
+        safeReason: "exact_library_link",
+      },
+    ];
+    const onInteractionBlockedChange = vi.fn();
+    const onNavigationBlockedChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <GlobalSkillsPanel
+        onOpenLibrary={vi.fn()}
+        onOpenProjects={vi.fn()}
+        onInteractionBlockedChange={onInteractionBlockedChange}
+        onNavigationBlockedChange={onNavigationBlockedChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skills.recovery.select",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.recovery.reviewSelected",
+      }),
     );
 
     await waitFor(() => {

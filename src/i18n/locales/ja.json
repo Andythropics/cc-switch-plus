@@ -2476,6 +2476,46 @@
         "error": "失敗"
       }
     },
+    "recovery": {
+      "title": "未記録のデプロイを復元",
+      "description": "ディスク上に存在し、望ましいデプロイ記録がないリンクを確認します。スキャンはデータベースやファイルシステムを変更しません。",
+      "refresh": "復元スキャンを更新",
+      "loading": "デプロイ先をスキャンしています...",
+      "loadError": "デプロイ復元候補を検査できませんでした。",
+      "empty": "未記録または拒否された対象項目はありません。",
+      "safeTitle": "安全な復元候補",
+      "rejectedTitle": "拒否された観測結果",
+      "select": "{{entryName}} を復元対象に選択",
+      "reviewSelected": "選択した復元を確認",
+      "confirmTitle": "選択したデプロイを記録しますか？",
+      "confirmDescription": "CC Switch は選択した {{count}} 件のリンクを再検証し、現在のライブラリを正確に指すリンクだけを記録します。ファイルシステムの対象は置換しません。",
+      "confirm": "復元を確認",
+      "applyError": "復元を適用できませんでした。再試行する前にスキャンを更新してください。",
+      "results": "復元結果（リクエスト順）",
+      "globalTarget": "{{consumer}} グローバル",
+      "projectTarget": "{{consumer}} · ワークスペース {{workspaceId}}",
+      "libraryDirectory": "ライブラリディレクトリ: {{directory}}",
+      "observedTarget": "観測対象: {{target}}",
+      "restoreWorkspace": "復元前にこのワークスペースを復元または再配置してください。",
+      "reason": {
+        "exact_library_link": "現在のライブラリへの正確なリンク"
+      },
+      "disposition": {
+        "recoverable": "復元可能",
+        "desired_exists": "望ましいデプロイ記録が存在",
+        "foreign_link": "外部リンク",
+        "ambiguous_link": "ライブラリ対象が不明確",
+        "broken_link": "壊れたリンク",
+        "escaping_link": "管理範囲外へ逃れるリンク",
+        "non_library": "ライブラリ外リンク",
+        "occupied": "リンク以外の内容が占有",
+        "unreadable": "対象を読み取れません",
+        "invalid_root": "対象ルートが無効",
+        "incompatible": "コンシューマー非互換",
+        "archived_workspace": "アーカイブ済みワークスペース",
+        "unavailable_workspace": "利用不可ワークスペース"
+      }
+    },
     "activity": {
       "title": "Skills アクティビティ",
       "description": "ファイル内容やマシンのパスを公開せず、構造化された Skills 操作を確認します。",

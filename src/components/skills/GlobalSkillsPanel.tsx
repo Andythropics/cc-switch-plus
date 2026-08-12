@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
+import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryPanel";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import {
   useApplySkillDeployments,
@@ -102,6 +103,7 @@ export function GlobalSkillsPanel({
   const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
     "deploy",
   );
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
 
   const allInspections = useMemo(
     () => [
@@ -116,7 +118,7 @@ export function GlobalSkillsPanel({
     projectsFetching ||
     claudeQuery.isFetching ||
     codexQuery.isFetching;
-  const navigationBlocked = apply.isPending || batchOpen;
+  const navigationBlocked = apply.isPending || batchOpen || recoveryBusy;
 
   useEffect(() => {
     onInteractionBlockedChange?.(navigationBlocked);
@@ -329,6 +331,13 @@ export function GlobalSkillsPanel({
           {t("skills.global.loadError")}
         </p>
       )}
+
+      <div className="px-5 pt-3">
+        <DeploymentRecoveryPanel
+          query={{ workspace: "global" }}
+          onBusyChange={setRecoveryBusy}
+        />
+      </div>
 
       <div className="flex flex-wrap gap-3 px-5 py-3">
         <div className="relative min-w-[16rem] flex-1">

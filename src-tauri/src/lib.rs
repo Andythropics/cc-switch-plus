@@ -75,21 +75,23 @@ pub use services::{
 pub use services::{
     ActivityActor, ActivityBatchContext, ActivityCursor, ActivityDetailCode, ActivityEventInput,
     ActivityOperation, ActivityOutcome, ActivityPage, ActivityQuery, ActivityReason,
-    ActivityRecord, ActivityRecorder, ActivityTarget, ActivityTrigger, LibrarySkillDeletionAction,
-    LibrarySkillDeletionInspection, LibrarySkillDeletionIntent, LibrarySkillDeletionOutcome,
-    LibrarySkillDeletionResult, LibrarySkillDeletionTarget, LibrarySkillUpdateApplyIntent,
-    LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck, LibrarySkillUpdateCheckOutcome,
-    LibrarySkillUpdateReason, LibrarySkillUpdateResult, LibrarySkillUpdateService,
-    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
-    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
-    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
-    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
-    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
-    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
-    ProjectSkillImportValidationStatus, ProjectWorkspace, ProjectWorkspaceService,
-    UpdateDeploymentImpact, WorkspaceLifecycle, WorkspaceRegistration, WorkspaceRegistrationScan,
-    WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind,
-    WorkspaceSkillScope,
+    ActivityRecord, ActivityRecorder, ActivityTarget, ActivityTrigger,
+    DeploymentRecoveryDisposition, DeploymentRecoveryFinding, DeploymentRecoveryInspectionResult,
+    DeploymentRecoveryQuery, DeploymentRecoveryReason, DeploymentRecoveryService,
+    LibrarySkillDeletionAction, LibrarySkillDeletionInspection, LibrarySkillDeletionIntent,
+    LibrarySkillDeletionOutcome, LibrarySkillDeletionResult, LibrarySkillDeletionTarget,
+    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
+    LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
+    LibrarySkillUpdateService, ProjectSkillImportDirectoryCollision,
+    ProjectSkillImportDirectoryCollisionKind, ProjectSkillImportFinding,
+    ProjectSkillImportGitState, ProjectSkillImportInspection, ProjectSkillImportIntent,
+    ProjectSkillImportLibraryMatch, ProjectSkillImportMode, ProjectSkillImportOutcome,
+    ProjectSkillImportReplaceBlockReason, ProjectSkillImportReplaceEligibility,
+    ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
+    ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
+    ProjectWorkspace, ProjectWorkspaceService, UpdateDeploymentImpact, WorkspaceLifecycle,
+    WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
+    WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1492,6 +1494,8 @@ pub fn run() {
             commands::getLibrarySkills,
             #[cfg(target_os = "macos")]
             commands::listSkillActivity,
+            #[cfg(target_os = "macos")]
+            commands::inspectDeploymentRecovery,
             commands::inspectSkillDeployments,
             commands::applySkillDeployments,
             #[cfg(target_os = "macos")]

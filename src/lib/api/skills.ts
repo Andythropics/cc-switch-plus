@@ -377,6 +377,45 @@ export interface DeploymentInspectionResult {
   items: DeploymentInspection[];
 }
 
+export interface DeploymentRecoveryQuery {
+  consumer?: DeploymentConsumer;
+  workspace?: WorkspaceKind;
+  workspaceId?: string;
+}
+
+export type DeploymentRecoveryDisposition =
+  | "recoverable"
+  | "desired_exists"
+  | "foreign_link"
+  | "ambiguous_link"
+  | "broken_link"
+  | "escaping_link"
+  | "non_library"
+  | "occupied"
+  | "unreadable"
+  | "invalid_root"
+  | "incompatible"
+  | "archived_workspace"
+  | "unavailable_workspace";
+
+export type DeploymentRecoverySafeReason = "exact_library_link";
+
+/** A read-only observation. Display paths are never accepted back as intent. */
+export interface DeploymentRecoveryFinding {
+  disposition: DeploymentRecoveryDisposition;
+  target: DeploymentTarget;
+  entryName: string;
+  librarySkillId?: string;
+  libraryDirectory?: string;
+  observedTarget?: string;
+  observationToken?: string;
+  safeReason?: DeploymentRecoverySafeReason;
+}
+
+export interface DeploymentRecoveryInspectionResult {
+  findings: DeploymentRecoveryFinding[];
+}
+
 export type DeploymentIntent =
   | { action: "deploy"; librarySkillId: string; target: DeploymentTarget }
   | { action: "undeploy"; librarySkillId: string; target: DeploymentTarget }
@@ -388,6 +427,13 @@ export type DeploymentIntent =
     }
   | {
       action: "replaceForeignLink";
+      librarySkillId: string;
+      target: DeploymentTarget;
+      observationToken: string;
+      confirmed: true;
+    }
+  | {
+      action: "recover";
       librarySkillId: string;
       target: DeploymentTarget;
       observationToken: string;
@@ -582,6 +628,15 @@ export const skillsApi = {
     query?: DeploymentQuery,
   ): Promise<DeploymentInspectionResult> {
     return await invoke("inspectSkillDeployments", {
+      query: query ?? null,
+    });
+  },
+
+  /** Find unrecorded Library links without mutating desired or observed state. */
+  async inspectDeploymentRecovery(
+    query?: DeploymentRecoveryQuery,
+  ): Promise<DeploymentRecoveryInspectionResult> {
+    return await invoke("inspectDeploymentRecovery", {
       query: query ?? null,
     });
   },

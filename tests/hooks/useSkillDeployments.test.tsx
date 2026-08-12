@@ -5,12 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   useApplySkillDeployments,
+  useDeploymentRecovery,
   useRefreshSkillDeployments,
   useSkillDeployments,
 } from "@/hooks/useSkills";
 
 const apiMocks = vi.hoisted(() => ({
   inspectDeployments: vi.fn(),
+  inspectDeploymentRecovery: vi.fn(),
   applyDeployments: vi.fn(),
 }));
 
@@ -29,6 +31,7 @@ function wrapper(queryClient: QueryClient) {
 describe("Skill Deployment hooks", () => {
   beforeEach(() => {
     apiMocks.inspectDeployments.mockReset();
+    apiMocks.inspectDeploymentRecovery.mockReset();
     apiMocks.applyDeployments.mockReset();
   });
 
@@ -80,6 +83,35 @@ describe("Skill Deployment hooks", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "activity"],
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "deploymentRecovery"],
+    });
+  });
+
+  it("loads recovery findings by stable scope and reconciles on focus", async () => {
+    apiMocks.inspectDeploymentRecovery.mockResolvedValue({ findings: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(
+      () =>
+        useDeploymentRecovery({
+          workspace: "project",
+          workspaceId: "workspace-1",
+        }),
+      { wrapper: wrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiMocks.inspectDeploymentRecovery).toHaveBeenCalledWith({
+      workspace: "project",
+      workspaceId: "workspace-1",
+    });
+
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() =>
+      expect(apiMocks.inspectDeploymentRecovery).toHaveBeenCalledTimes(2),
+    );
   });
 
   it("reconciles active observations when the window regains focus", async () => {

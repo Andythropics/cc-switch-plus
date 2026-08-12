@@ -47,6 +47,7 @@ import {
 } from "@/hooks/useSkills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
+import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryPanel";
 import { ProjectSkillImportPanel } from "@/components/skills/ProjectSkillImportPanel";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { settingsApi } from "@/lib/api/settings";
@@ -113,9 +114,10 @@ function ProjectWorkspaceDeployments({
   const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
     "deploy",
   );
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const deploymentError = claudeError || codexError;
   const deploymentFetching = claudeFetching || codexFetching;
-  const deploymentBusy = apply.isPending || batchDialogOpen;
+  const deploymentBusy = apply.isPending || batchDialogOpen || recoveryBusy;
 
   useEffect(() => {
     onBusyChange?.(workspace.id, deploymentBusy);
@@ -212,6 +214,10 @@ function ProjectWorkspaceDeployments({
 
   return (
     <div className="space-y-2 border-t pt-3">
+      <DeploymentRecoveryPanel
+        query={{ workspace: "project", workspaceId: workspace.id }}
+        onBusyChange={setRecoveryBusy}
+      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">
           {t("skills.projects.deployments")}

@@ -2476,6 +2476,46 @@
         "error": "Failed"
       }
     },
+    "recovery": {
+      "title": "Recover unrecorded Deployments",
+      "description": "Review links that exist on disk but have no desired Deployment record. Scanning never changes the database or filesystem.",
+      "refresh": "Refresh recovery scan",
+      "loading": "Scanning deployment targets...",
+      "loadError": "Could not inspect Deployment recovery candidates.",
+      "empty": "No unrecorded or rejected target entries found.",
+      "safeTitle": "Safe recovery proposals",
+      "rejectedTitle": "Rejected observations",
+      "select": "Select {{entryName}} for recovery",
+      "reviewSelected": "Review selected recovery",
+      "confirmTitle": "Record selected Deployments?",
+      "confirmDescription": "CC Switch will revalidate {{count}} selected link(s) and record only exact current Library links. It will not replace filesystem targets.",
+      "confirm": "Confirm recovery",
+      "applyError": "Recovery could not be applied. Refresh the scan before retrying.",
+      "results": "Recovery results (in request order)",
+      "globalTarget": "{{consumer}} Global",
+      "projectTarget": "{{consumer}} · Workspace {{workspaceId}}",
+      "libraryDirectory": "Library directory: {{directory}}",
+      "observedTarget": "Observed target: {{target}}",
+      "restoreWorkspace": "Restore or relocate this Workspace before recovery.",
+      "reason": {
+        "exact_library_link": "Exact current Library link"
+      },
+      "disposition": {
+        "recoverable": "Recoverable",
+        "desired_exists": "Desired Deployment already exists",
+        "foreign_link": "Foreign link",
+        "ambiguous_link": "Ambiguous Library target",
+        "broken_link": "Broken link",
+        "escaping_link": "Link escapes the managed scope",
+        "non_library": "Non-Library link",
+        "occupied": "Occupied by non-link content",
+        "unreadable": "Unreadable target",
+        "invalid_root": "Invalid target root",
+        "incompatible": "Consumer incompatible",
+        "archived_workspace": "Archived Workspace",
+        "unavailable_workspace": "Unavailable Workspace"
+      }
+    },
     "activity": {
       "title": "Skills Activity",
       "description": "Review structured Skill operations without exposing file contents or machine paths.",

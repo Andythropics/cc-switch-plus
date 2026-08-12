@@ -186,6 +186,64 @@ describe("Skills Library API", () => {
     });
   });
 
+  it("inspects recovery candidates by stable scope without accepting paths", async () => {
+    invokeMock.mockResolvedValueOnce({ findings: [] });
+
+    await expect(
+      skillsApi.inspectDeploymentRecovery({
+        consumer: "claude",
+        workspace: "project",
+        workspaceId: "workspace-1",
+      }),
+    ).resolves.toEqual({ findings: [] });
+
+    expect(invokeMock).toHaveBeenCalledWith("inspectDeploymentRecovery", {
+      query: {
+        consumer: "claude",
+        workspace: "project",
+        workspaceId: "workspace-1",
+      },
+    });
+    expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("path");
+  });
+
+  it("confirms recovery through the normal ordered Deployment seam", async () => {
+    await skillsApi.applyDeployments({
+      intents: [
+        {
+          action: "recover",
+          librarySkillId: "library-id",
+          target: {
+            consumer: "codex",
+            workspace: "project",
+            workspaceId: "workspace-1",
+          },
+          observationToken: "recovery-observation",
+          confirmed: true,
+        },
+      ],
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("applySkillDeployments", {
+      batch: {
+        intents: [
+          {
+            action: "recover",
+            librarySkillId: "library-id",
+            target: {
+              consumer: "codex",
+              workspace: "project",
+              workspaceId: "workspace-1",
+            },
+            observationToken: "recovery-observation",
+            confirmed: true,
+          },
+        ],
+      },
+    });
+    expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("observedTarget");
+  });
+
   it("checks and stages an upstream Library update without touching live content", async () => {
     const result = {
       librarySkillId: "library-id",

@@ -2476,6 +2476,46 @@
         "error": "失败"
       }
     },
+    "recovery": {
+      "title": "恢复未记录的部署",
+      "description": "审阅磁盘上已存在、但没有期望部署记录的链接。扫描不会更改数据库或文件系统。",
+      "refresh": "刷新恢复扫描",
+      "loading": "正在扫描部署目标...",
+      "loadError": "无法检查部署恢复候选项。",
+      "empty": "未发现未记录或被拒绝的目标项。",
+      "safeTitle": "可安全恢复的建议",
+      "rejectedTitle": "被拒绝的观察结果",
+      "select": "选择 {{entryName}} 进行恢复",
+      "reviewSelected": "审阅所选恢复项",
+      "confirmTitle": "记录所选部署？",
+      "confirmDescription": "CC Switch 将重新验证所选的 {{count}} 个链接，并且只记录当前准确指向技能库的链接，不会替换文件系统目标。",
+      "confirm": "确认恢复",
+      "applyError": "无法应用恢复。重试前请刷新扫描。",
+      "results": "恢复结果（按请求顺序）",
+      "globalTarget": "{{consumer}} 全局",
+      "projectTarget": "{{consumer}} · 工作区 {{workspaceId}}",
+      "libraryDirectory": "技能库目录：{{directory}}",
+      "observedTarget": "观察到的目标：{{target}}",
+      "restoreWorkspace": "请先恢复或重新定位此工作区。",
+      "reason": {
+        "exact_library_link": "准确指向当前技能库"
+      },
+      "disposition": {
+        "recoverable": "可恢复",
+        "desired_exists": "期望部署记录已存在",
+        "foreign_link": "外部链接",
+        "ambiguous_link": "技能库目标不明确",
+        "broken_link": "断开的链接",
+        "escaping_link": "链接逃逸出受管范围",
+        "non_library": "非技能库链接",
+        "occupied": "被非链接内容占用",
+        "unreadable": "目标不可读取",
+        "invalid_root": "目标根目录无效",
+        "incompatible": "消费者不兼容",
+        "archived_workspace": "已归档工作区",
+        "unavailable_workspace": "不可用工作区"
+      }
+    },
     "activity": {
       "title": "Skills 活动",
       "description": "查看结构化 Skills 操作，不显示文件内容或机器路径。",

@@ -2477,6 +2477,46 @@
         "error": "失敗"
       }
     },
+    "recovery": {
+      "title": "復原未記錄的部署",
+      "description": "檢視磁碟上已存在、但沒有期望部署記錄的連結。掃描不會變更資料庫或檔案系統。",
+      "refresh": "重新整理復原掃描",
+      "loading": "正在掃描部署目標...",
+      "loadError": "無法檢查部署復原候選項目。",
+      "empty": "未發現未記錄或遭拒絕的目標項目。",
+      "safeTitle": "可安全復原的建議",
+      "rejectedTitle": "遭拒絕的觀察結果",
+      "select": "選擇 {{entryName}} 進行復原",
+      "reviewSelected": "檢視所選復原項目",
+      "confirmTitle": "記錄所選部署？",
+      "confirmDescription": "CC Switch 將重新驗證所選的 {{count}} 個連結，且只記錄目前精確指向技能庫的連結，不會取代檔案系統目標。",
+      "confirm": "確認復原",
+      "applyError": "無法套用復原。重試前請重新整理掃描。",
+      "results": "復原結果（依請求順序）",
+      "globalTarget": "{{consumer}} 全域",
+      "projectTarget": "{{consumer}} · 工作區 {{workspaceId}}",
+      "libraryDirectory": "技能庫目錄：{{directory}}",
+      "observedTarget": "觀察到的目標：{{target}}",
+      "restoreWorkspace": "請先還原或重新定位此工作區。",
+      "reason": {
+        "exact_library_link": "精確指向目前技能庫"
+      },
+      "disposition": {
+        "recoverable": "可復原",
+        "desired_exists": "期望部署記錄已存在",
+        "foreign_link": "外部連結",
+        "ambiguous_link": "技能庫目標不明確",
+        "broken_link": "中斷的連結",
+        "escaping_link": "連結逸出受管範圍",
+        "non_library": "非技能庫連結",
+        "occupied": "被非連結內容佔用",
+        "unreadable": "目標無法讀取",
+        "invalid_root": "目標根目錄無效",
+        "incompatible": "消費者不相容",
+        "archived_workspace": "已封存工作區",
+        "unavailable_workspace": "無法使用的工作區"
+      }
+    },
     "activity": {
       "title": "Skills 活動",
       "description": "檢視結構化 Skills 操作，不顯示檔案內容或機器路徑。",

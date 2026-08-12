@@ -6,6 +6,8 @@ pub mod balance;
 pub mod codex_oauth_models;
 pub mod coding_plan;
 pub mod config;
+#[cfg(target_os = "macos")]
+pub mod deployment_recovery;
 pub mod env_checker;
 pub mod env_manager;
 pub mod mcp;
@@ -51,6 +53,11 @@ pub use activity::{
     ActivityRecord, ActivityRecorder, ActivityTarget, ActivityTrigger,
 };
 pub use config::ConfigService;
+#[cfg(target_os = "macos")]
+pub use deployment_recovery::{
+    DeploymentRecoveryDisposition, DeploymentRecoveryFinding, DeploymentRecoveryInspectionResult,
+    DeploymentRecoveryQuery, DeploymentRecoveryReason, DeploymentRecoveryService,
+};
 pub use mcp::McpService;
 pub use omo::OmoService;
 #[cfg(target_os = "macos")]

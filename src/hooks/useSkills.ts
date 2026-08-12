@@ -19,6 +19,8 @@ import {
   type DeploymentBatchResult,
   type DeploymentInspectionResult,
   type DeploymentQuery,
+  type DeploymentRecoveryInspectionResult,
+  type DeploymentRecoveryQuery,
   type LibrarySkillDeletionInspection,
   type LibrarySkillDeletionIntent,
   type LibrarySkillDeletionResult,
@@ -92,6 +94,27 @@ export function useSkillDeployments(query?: DeploymentQuery) {
   return deploymentQuery;
 }
 
+/** Read-only recovery proposals scoped by stable Consumer/Workspace identity. */
+export function useDeploymentRecovery(query?: DeploymentRecoveryQuery) {
+  const recoveryQuery = useQuery<DeploymentRecoveryInspectionResult>({
+    queryKey: ["skills", "deploymentRecovery", query ?? {}],
+    queryFn: () => skillsApi.inspectDeploymentRecovery(query),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
+  });
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      void recoveryQuery.refetch();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [recoveryQuery.refetch]);
+
+  return recoveryQuery;
+}
+
 /** Redacted, device-local activity entries in backend-provided newest-first order. */
 export function useSkillActivity(query?: Omit<SkillActivityQuery, "cursor">) {
   const activityQuery = useInfiniteQuery<
@@ -140,6 +163,9 @@ export function useApplySkillDeployments() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
         queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "deploymentRecovery"],
+        }),
       ]),
   });
 }

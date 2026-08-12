@@ -41,6 +41,7 @@ const {
     projectFetching: false,
     deploymentFetching: false,
     applyPending: false,
+    recoveryFindings: [] as unknown[],
   },
   toastSuccessMock: vi.fn(),
   toastErrorMock: vi.fn(),
@@ -137,6 +138,13 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: applyDeploymentsMock,
     isPending: queryState.applyPending,
   }),
+  useDeploymentRecovery: () => ({
+    data: { findings: queryState.recoveryFindings },
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
   useRefreshSkillDeployments: () => refreshDeploymentsMock,
 }));
 
@@ -197,6 +205,7 @@ describe("ProjectWorkspacesPanel", () => {
     queryState.projectFetching = false;
     queryState.deploymentFetching = false;
     queryState.applyPending = false;
+    queryState.recoveryFindings = [];
     claudeState.items = [];
     codexState.items = [];
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
@@ -205,6 +214,7 @@ describe("ProjectWorkspacesPanel", () => {
 
   it("keeps Claude and Codex project actions independent at the apply seam", async () => {
     render(<ProjectWorkspacesPanel />);
+    expect(screen.getByText("skills.recovery.title")).toBeInTheDocument();
     const user = userEvent.setup();
     const deployButtons = screen.getAllByRole("button", {
       name: "skills.projects.deploy",
@@ -240,6 +250,50 @@ describe("ProjectWorkspacesPanel", () => {
         },
       ],
     });
+  });
+
+  it("blocks Workspace management while recovery confirmation is open", async () => {
+    queryState.recoveryFindings = [
+      {
+        disposition: "recoverable",
+        target: {
+          consumer: "claude",
+          workspace: "project",
+          workspaceId: "workspace-1",
+        },
+        entryName: "review-skill",
+        librarySkillId: "library-1",
+        libraryDirectory: "review-skill",
+        observationToken: "project-recovery-token",
+        safeReason: "exact_library_link",
+      },
+    ];
+    const user = userEvent.setup();
+    render(<ProjectWorkspacesPanel />);
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "skills.recovery.select" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.recovery.reviewSelected",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "skills.projects.register",
+          hidden: true,
+        }),
+      ).toBeDisabled(),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "skills.projects.rename",
+        hidden: true,
+      }),
+    ).toBeDisabled();
   });
 
   it("Add Skills batches both consumers to the selected stable workspaceId", async () => {

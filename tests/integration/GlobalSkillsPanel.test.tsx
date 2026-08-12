@@ -91,7 +91,7 @@ const renderGlobal = () => {
 describe("GlobalSkillsPanel Tauri-boundary integration", () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    invokeMock.mockImplementation(async (command: string) => {
+    invokeMock.mockImplementation(async (command: string, args?: unknown) => {
       switch (command) {
         case "getLibrarySkills":
           return skills;
@@ -99,8 +99,38 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
           return [];
         case "inspectSkillDeployments":
           return { items: [] };
-        case "applySkillDeployments":
+        case "inspectDeploymentRecovery":
+          return {
+            findings: [
+              {
+                disposition: "recoverable",
+                target: { consumer: "claude", workspace: "global" },
+                entryName: "alpha",
+                librarySkillId: "skill-a",
+                libraryDirectory: "alpha",
+                observedTarget: "/private/library/alpha",
+                observationToken: "recovery-token",
+                safeReason: "exact_library_link",
+              },
+            ],
+          };
+        case "applySkillDeployments": {
+          const batch = (
+            args as { batch?: { intents?: { action?: string }[] } }
+          )?.batch;
+          if (batch?.intents?.[0]?.action === "recover") {
+            return {
+              items: [
+                {
+                  librarySkillId: "skill-a",
+                  target: { consumer: "claude", workspace: "global" },
+                  outcome: "applied",
+                },
+              ],
+            };
+          }
           return partialResult;
+        }
         default:
           throw new Error(`Unexpected Tauri command: ${command}`);
       }
@@ -164,5 +194,49 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
     expect(screen.getByTestId("batch-result-1")).toHaveTextContent("blocked");
     expect(screen.getByText("Codex target is unavailable")).toBeInTheDocument();
     expect(screen.getAllByTestId(/^batch-result-/)).toHaveLength(4);
+  });
+
+  it("inspects and explicitly confirms recovery through the real typed boundary", async () => {
+    const user = userEvent.setup();
+    renderGlobal();
+
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "skills.recovery.select",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("inspectDeploymentRecovery", {
+      query: { workspace: "global" },
+    });
+    await user.click(checkbox);
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.recovery.reviewSelected",
+      }),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "applySkillDeployments",
+      expect.anything(),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "skills.recovery.confirm" }),
+    );
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("applySkillDeployments", {
+        batch: {
+          intents: [
+            {
+              action: "recover",
+              librarySkillId: "skill-a",
+              target: { consumer: "claude", workspace: "global" },
+              observationToken: "recovery-token",
+              confirmed: true,
+            },
+          ],
+        },
+      }),
+    );
+    expect(await screen.findByTestId("recovery-result-0")).toHaveTextContent(
+      "skills.batch.outcome.applied",
+    );
   });
 });

@@ -13,7 +13,8 @@ use crate::services::skill::{
 };
 #[cfg(target_os = "macos")]
 use crate::services::{
-    ActivityPage, ActivityQuery, ActivityRecorder, LibrarySkillDeletionInspection,
+    ActivityPage, ActivityQuery, ActivityRecorder, DeploymentRecoveryInspectionResult,
+    DeploymentRecoveryQuery, DeploymentRecoveryService, LibrarySkillDeletionInspection,
     LibrarySkillDeletionIntent, LibrarySkillDeletionResult, LibrarySkillUpdateApplyIntent,
     LibrarySkillUpdateCheck, LibrarySkillUpdateResult, LibrarySkillUpdateService,
     ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
@@ -67,6 +68,18 @@ pub fn listSkillActivity(
 ) -> Result<ActivityPage, String> {
     ActivityRecorder::new(app_state.db.clone())
         .list(query.unwrap_or_default())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn inspectDeploymentRecovery(
+    query: Option<DeploymentRecoveryQuery>,
+    app_state: State<'_, AppState>,
+) -> Result<DeploymentRecoveryInspectionResult, String> {
+    DeploymentRecoveryService::new(app_state.db.clone())
+        .inspect(query.unwrap_or_default())
         .map_err(|error| error.to_string())
 }
 

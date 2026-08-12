@@ -25,11 +25,16 @@ use crate::services::activity::{
     ActivityOutcome, ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
 };
 #[cfg(target_os = "macos")]
-use crate::services::project_workspace::{
-    add_git_exclude, project_observation_target_root, project_removal_target_root,
-    project_target_root, project_workspace_lifecycle, remove_git_exclude, WorkspaceLifecycle,
+use crate::services::deployment_recovery::{
+    DeploymentRecoveryDisposition, DeploymentRecoveryService,
 };
-use crate::services::skill::{ConsumerCompatibility, LibrarySkill};
+#[cfg(target_os = "macos")]
+use crate::services::project_workspace::{
+    add_git_exclude, project_git_exclude_path, project_observation_target_root,
+    project_removal_target_root, project_target_root, project_workspace_lifecycle,
+    remove_git_exclude, workspace_root_matches_identity, WorkspaceLifecycle,
+};
+use crate::services::skill::{ConsumerCompatibility, LibrarySkill, LibrarySkillAcquisitionService};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -191,6 +196,12 @@ pub enum DeploymentIntent {
         target: DeploymentTarget,
         observation_token: String,
     },
+    Recover {
+        library_skill_id: String,
+        target: DeploymentTarget,
+        observation_token: String,
+        confirmed: bool,
+    },
     ReplaceForeignLink {
         library_skill_id: String,
         target: DeploymentTarget,
@@ -215,6 +226,11 @@ impl DeploymentIntent {
                 target,
             }
             | Self::Repair {
+                library_skill_id,
+                target,
+                ..
+            }
+            | Self::Recover {
                 library_skill_id,
                 target,
                 ..
@@ -282,6 +298,8 @@ pub struct DeploymentBatchResult {
 static DEPLOYMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[cfg(debug_assertions)]
 static FORCE_COMPENSATION_FAILURE: AtomicBool = AtomicBool::new(false);
+#[cfg(debug_assertions)]
+static FORCE_RECOVERY_WORKSPACE_ARCHIVE_BEFORE_COMMIT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
@@ -457,6 +475,12 @@ impl SkillDeploymentService {
         FORCE_COMPENSATION_FAILURE.store(enabled, Ordering::SeqCst);
     }
 
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn force_recovery_workspace_archive_before_commit_for_test(enabled: bool) {
+        FORCE_RECOVERY_WORKSPACE_ARCHIVE_BEFORE_COMMIT.store(enabled, Ordering::SeqCst);
+    }
+
     pub fn inspect(&self, query: DeploymentQuery) -> Result<DeploymentInspectionResult> {
         let target = query.target();
         #[cfg(not(target_os = "macos"))]
@@ -564,6 +588,10 @@ impl SkillDeploymentService {
 
     pub fn apply(&self, batch: DeploymentBatch) -> Result<DeploymentBatchResult> {
         Self::ensure_supported_platform()?;
+        let needs_library_lock = batch
+            .intents
+            .iter()
+            .any(|intent| matches!(intent, DeploymentIntent::Recover { .. }));
         let item_count = u32::try_from(batch.intents.len())
             .map_err(|_| anyhow!("Deployment batch is too large"))?;
         let batch_id = (item_count > 1).then(|| uuid::Uuid::new_v4().to_string());
@@ -596,6 +624,14 @@ impl SkillDeploymentService {
             }
         }
 
+        // Composite Library workflows establish Library -> Deployment as the
+        // global mutation-lock order. Recovery reads Library physical identity
+        // before adopting a Deployment row, so mixed batches containing it
+        // must use the same order. Ordinary Deployment-only batches avoid the
+        // broader Library lock.
+        let _library_guard = needs_library_lock
+            .then(LibrarySkillAcquisitionService::lock_for_composite)
+            .transpose()?;
         let lock = DEPLOYMENT_LOCK.get_or_init(|| Mutex::new(()));
         let _guard = lock.lock().map_err(|error| anyhow!(error.to_string()))?;
         let mut items = Vec::with_capacity(batch.intents.len());
@@ -800,6 +836,10 @@ impl SkillDeploymentService {
                 (ActivityOperation::Deployment, ActivityReason::Deploy)
             }
             DeploymentIntent::Repair { .. } => (ActivityOperation::Repair, ActivityReason::Repair),
+            DeploymentIntent::Recover { .. } => (
+                ActivityOperation::Deployment,
+                ActivityReason::RecoverDeployment,
+            ),
             DeploymentIntent::ReplaceForeignLink { .. } => (
                 ActivityOperation::Deployment,
                 ActivityReason::ReplaceForeignLink,
@@ -887,6 +927,12 @@ impl SkillDeploymentService {
                 target,
                 observation_token,
             } => self.repair(library_skill_id, target, observation_token),
+            DeploymentIntent::Recover {
+                library_skill_id,
+                target,
+                observation_token,
+                confirmed,
+            } => self.recover(library_skill_id, target, observation_token, *confirmed),
             DeploymentIntent::ReplaceForeignLink {
                 library_skill_id,
                 target,
@@ -1141,6 +1187,200 @@ impl SkillDeploymentService {
             }
         }
         Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn recover(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+        observation_token: &str,
+        confirmed: bool,
+    ) -> Result<DeploymentItemResult> {
+        let Some(skill) = self.db.get_library_skill_by_id(library_skill_id)? else {
+            return Ok(DeploymentItemResult {
+                library_skill_id: library_skill_id.to_string(),
+                target: target.clone(),
+                outcome: DeploymentMutationOutcome::StaleObservation,
+                message: Some("Library Skill no longer exists; inspect again".to_string()),
+                inspection: None,
+            });
+        };
+        if !confirmed {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::Blocked,
+                Some("Deployment recovery requires explicit confirmation".to_string()),
+            ));
+        }
+        if self
+            .db
+            .get_skill_deployment(library_skill_id, target)?
+            .is_some()
+        {
+            return Ok(self.result(
+                &skill,
+                target,
+                DeploymentMutationOutcome::AlreadyInSync,
+                None,
+            ));
+        }
+        let fresh = DeploymentRecoveryService::new(self.db.clone())
+            .inspect_candidate(library_skill_id, target)?;
+        if fresh.disposition != DeploymentRecoveryDisposition::Recoverable
+            || fresh.observation_token.as_deref() != Some(observation_token)
+        {
+            let outcome = if matches!(
+                fresh.disposition,
+                DeploymentRecoveryDisposition::ArchivedWorkspace
+                    | DeploymentRecoveryDisposition::UnavailableWorkspace
+                    | DeploymentRecoveryDisposition::Incompatible
+            ) {
+                DeploymentMutationOutcome::Blocked
+            } else {
+                DeploymentMutationOutcome::StaleObservation
+            };
+            return Ok(self.result(
+                &skill,
+                target,
+                outcome,
+                Some("Deployment recovery observation is stale or no longer safe".to_string()),
+            ));
+        }
+
+        #[cfg(debug_assertions)]
+        if FORCE_RECOVERY_WORKSPACE_ARCHIVE_BEFORE_COMMIT.swap(false, Ordering::SeqCst)
+            && target.workspace == WorkspaceKind::Project
+        {
+            let mut workspace = self
+                .db
+                .get_project_workspace(&target.workspace_id)?
+                .ok_or_else(|| anyhow!("Project Workspace not found: {}", target.workspace_id))?;
+            workspace.lifecycle = WorkspaceLifecycle::Archived;
+            self.db.update_project_workspace(&workspace)?;
+        }
+
+        // Capture and validate the current Project Workspace immediately
+        // before the final candidate observation. The same root is then used
+        // for the Git exclude mutation, so recovery never validates one
+        // Workspace root and writes through another.
+        let commit_workspace = if target.workspace == WorkspaceKind::Project {
+            let workspace = self
+                .db
+                .get_project_workspace(&target.workspace_id)?
+                .ok_or_else(|| anyhow!("Project Workspace not found: {}", target.workspace_id))?;
+            if workspace.lifecycle != WorkspaceLifecycle::Active
+                || !workspace_root_matches_identity(&workspace)?
+            {
+                return Ok(self.result(
+                    &skill,
+                    target,
+                    DeploymentMutationOutcome::Blocked,
+                    Some("Project Workspace changed before recovery commit".to_string()),
+                ));
+            }
+            Some(workspace)
+        } else {
+            None
+        };
+
+        // This is the last read-only gate before the first side effect. It is
+        // intentionally repeated after all earlier work so a changed link,
+        // Library physical identity, or Workspace lifecycle/root cannot be
+        // adopted from a stale proposal.
+        let final_candidate = DeploymentRecoveryService::new(self.db.clone())
+            .inspect_candidate(library_skill_id, target)?;
+        if final_candidate.disposition != DeploymentRecoveryDisposition::Recoverable
+            || final_candidate.observation_token.as_deref() != Some(observation_token)
+        {
+            let outcome = if matches!(
+                final_candidate.disposition,
+                DeploymentRecoveryDisposition::ArchivedWorkspace
+                    | DeploymentRecoveryDisposition::UnavailableWorkspace
+                    | DeploymentRecoveryDisposition::Incompatible
+            ) {
+                DeploymentMutationOutcome::Blocked
+            } else {
+                DeploymentMutationOutcome::StaleObservation
+            };
+            return Ok(self.result(
+                &skill,
+                target,
+                outcome,
+                Some("Deployment recovery changed before commit; inspect again".to_string()),
+            ));
+        }
+
+        // The link is already exact. Recovery mutates only desired state and
+        // the local Git exclusion required for Project Deployments.
+        let exclude_snapshot = if let Some(workspace) = commit_workspace.as_ref() {
+            let exclude_path = project_git_exclude_path(&workspace.root_path);
+            let previous = exclude_path
+                .as_ref()
+                .map(|path| match fs::read(path) {
+                    Ok(contents) => Ok(Some(contents)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                    Err(error) => Err(error),
+                })
+                .transpose()?
+                .flatten();
+            add_git_exclude(&workspace.root_path, target.consumer, &skill.directory)?;
+            exclude_path.map(|path| (path, previous))
+        } else {
+            None
+        };
+        let now = Utc::now().timestamp();
+        let desired = DesiredDeployment {
+            id: uuid::Uuid::new_v4().to_string(),
+            library_skill_id: skill.id.clone(),
+            library_directory: skill.directory.clone(),
+            target: target.clone(),
+            created_at: now,
+            updated_at: now,
+        };
+        if let Err(error) = self.db.save_skill_deployment(&desired) {
+            if let Some((path, previous)) = exclude_snapshot {
+                #[cfg(debug_assertions)]
+                if FORCE_COMPENSATION_FAILURE.swap(false, Ordering::SeqCst) {
+                    return Err(recovery_required(format!(
+                        "Deployment recovery database save failed ({error}); Git exclude compensation failed"
+                    )));
+                }
+                let rollback = match previous {
+                    Some(previous) => fs::write(&path, previous),
+                    None => match fs::remove_file(&path) {
+                        Ok(()) => Ok(()),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                        Err(error) => Err(error),
+                    },
+                };
+                if let Err(compensation_error) = rollback {
+                    return Err(recovery_required(format!(
+                        "Deployment recovery database save failed ({error}); Git exclude compensation failed ({compensation_error})"
+                    )));
+                }
+            }
+            return Err(error.into());
+        }
+        Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn recover(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+        _observation_token: &str,
+        _confirmed: bool,
+    ) -> Result<DeploymentItemResult> {
+        Ok(DeploymentItemResult {
+            library_skill_id: library_skill_id.to_string(),
+            target: target.clone(),
+            outcome: DeploymentMutationOutcome::Blocked,
+            message: Some("Deployment recovery is supported on macOS only".to_string()),
+            inspection: None,
+        })
     }
 
     fn replace_foreign_link(
