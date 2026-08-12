@@ -11,7 +11,8 @@ use tauri::State;
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn inspect_project_workspace(
+#[allow(non_snake_case)]
+pub fn inspectProjectWorkspace(
     path: String,
     app_state: State<'_, AppState>,
 ) -> Result<crate::services::WorkspaceRegistrationScan, String> {
@@ -22,7 +23,8 @@ pub fn inspect_project_workspace(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn register_project_workspace(
+#[allow(non_snake_case)]
+pub fn registerProjectWorkspace(
     path: String,
     display_name: Option<String>,
     app_state: State<'_, AppState>,
@@ -34,7 +36,8 @@ pub fn register_project_workspace(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn list_project_workspaces(
+#[allow(non_snake_case)]
+pub fn listProjectWorkspaces(
     include_archived: bool,
     app_state: State<'_, AppState>,
 ) -> Result<Vec<crate::services::ProjectWorkspace>, String> {
@@ -45,7 +48,8 @@ pub fn list_project_workspaces(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn rename_project_workspace(
+#[allow(non_snake_case)]
+pub fn renameProjectWorkspace(
     workspace_id: String,
     display_name: String,
     app_state: State<'_, AppState>,
@@ -57,7 +61,8 @@ pub fn rename_project_workspace(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn archive_project_workspace(
+#[allow(non_snake_case)]
+pub fn archiveProjectWorkspace(
     workspace_id: String,
     app_state: State<'_, AppState>,
 ) -> Result<crate::services::ProjectWorkspace, String> {
@@ -68,7 +73,8 @@ pub fn archive_project_workspace(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn restore_project_workspace(
+#[allow(non_snake_case)]
+pub fn restoreProjectWorkspace(
     workspace_id: String,
     app_state: State<'_, AppState>,
 ) -> Result<crate::services::ProjectWorkspace, String> {
@@ -79,7 +85,8 @@ pub fn restore_project_workspace(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn relocate_project_workspace(
+#[allow(non_snake_case)]
+pub fn relocateProjectWorkspace(
     workspace_id: String,
     path: String,
     app_state: State<'_, AppState>,
@@ -91,7 +98,8 @@ pub fn relocate_project_workspace(
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn forget_project_workspace(
+#[allow(non_snake_case)]
+pub fn forgetProjectWorkspace(
     workspace_id: String,
     app_state: State<'_, AppState>,
 ) -> Result<bool, String> {

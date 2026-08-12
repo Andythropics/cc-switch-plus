@@ -20,6 +20,10 @@ const {
   inspectLibraryDeletionMock,
   deleteLibraryMock,
   deploymentStateMock,
+  projectDeploymentStateMock,
+  projectRows,
+  refreshState,
+  queryErrorState,
   toastErrorMock,
 } = vi.hoisted(() => ({
   updateMetadataMock: vi.fn(),
@@ -32,6 +36,10 @@ const {
   inspectLibraryDeletionMock: vi.fn(),
   deleteLibraryMock: vi.fn(),
   deploymentStateMock: { items: [] as unknown[] },
+  projectDeploymentStateMock: { items: [] as unknown[] },
+  projectRows: [] as unknown[],
+  refreshState: { isFetching: false },
+  queryErrorState: { project: false },
   toastErrorMock: vi.fn(),
 }));
 
@@ -58,7 +66,17 @@ const librarySkill: LibrarySkill = {
 };
 
 vi.mock("@/hooks/useSkills", () => ({
-  useLibrarySkills: () => ({ data: [librarySkill], isLoading: false }),
+  useLibrarySkills: () => ({
+    data: [librarySkill],
+    isLoading: false,
+    isFetching: refreshState.isFetching,
+  }),
+  useProjectWorkspaces: () => ({
+    data: projectRows,
+    isLoading: false,
+    isError: queryErrorState.project,
+    isFetching: refreshState.isFetching,
+  }),
   useUpdateLibrarySkillMetadata: () => ({
     mutateAsync: updateMetadataMock,
     isPending: false,
@@ -67,7 +85,13 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: acquireZipMock,
     isPending: false,
   }),
-  useSkillDeployments: () => ({ data: deploymentStateMock }),
+  useSkillDeployments: ({ workspace }: { workspace?: string } = {}) => ({
+    data:
+      workspace === "project"
+        ? projectDeploymentStateMock
+        : deploymentStateMock,
+    isFetching: refreshState.isFetching,
+  }),
   useApplySkillDeployments: () => ({
     mutateAsync: applyDeploymentsMock,
     isPending: false,
@@ -127,6 +151,10 @@ describe("LibrarySkillsPanel", () => {
     });
     toastErrorMock.mockReset();
     deploymentStateMock.items = [];
+    projectDeploymentStateMock.items = [];
+    projectRows.length = 0;
+    refreshState.isFetching = false;
+    queryErrorState.project = false;
     librarySkill.source = {
       kind: "marketplace",
       repoOwner: "owner",
@@ -229,6 +257,119 @@ describe("LibrarySkillsPanel", () => {
     await user.click(screen.getByRole("button", { name: "skills.refresh" }));
 
     expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows and locks the refresh control while reconciliation is pending", () => {
+    refreshState.isFetching = true;
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("skills.refreshing");
+    expect(
+      screen.getByRole("button", { name: "skills.refresh" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.batch.deploy" }),
+    ).toBeDisabled();
+  });
+
+  it("blocks local navigation while a batch dialog is open", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(
+      <LibrarySkillsPanel
+        onOpenDiscovery={vi.fn()}
+        onOpenProjects={vi.fn()}
+        onOpenGlobal={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.batch.deploy" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "skills.discover", hidden: true }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "skills.projects.title",
+        hidden: true,
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "skills.global.title",
+        hidden: true,
+      }),
+    ).toBeDisabled();
+  });
+
+  it("surfaces Project Workspace query failures alongside Library state", () => {
+    queryErrorState.project = true;
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "skills.global.loadError",
+    );
+  });
+
+  it("refreshes batch target inspections so Project drift status and undeploy selection are visible", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const project = {
+      id: "workspace-project",
+      displayName: "Project target",
+      rootPath: "/tmp/project-target",
+      rootKind: "git_repository",
+      lifecycle: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    projectRows.push(project);
+    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.batch.deploy" }),
+    );
+    await user.click(
+      screen.getByRole("combobox", { name: "skills.batch.target" }),
+    );
+    await user.click(screen.getByRole("option", { name: /Project target/ }));
+
+    await user.click(
+      screen.getByRole("combobox", { name: "skills.batch.action" }),
+    );
+    await user.click(
+      screen.getByRole("option", { name: "skills.batch.undeploy" }),
+    );
+
+    projectDeploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        libraryDirectory: "review-skill",
+        target: {
+          consumer: "claude",
+          workspace: "project",
+          workspaceId: project.id,
+        },
+        desired: { id: "desired-project" },
+        observed: { state: "missing" },
+        observationToken: "project-token",
+        status: "drift",
+      },
+    ];
+    // Simulate the target inspection resolving after the user has already
+    // switched the dialog to undeploy. The desired row must be selected
+    // without resetting the target or wiping the decision point.
+    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(
+      await screen.findByText("skills.library.deploymentStatus.drift"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "Careful review skills.library.consumerClaude",
+      }),
+    ).toBeChecked();
   });
 
   it("deploys an acquired Library Skill to Codex Global through the apply seam", async () => {

@@ -146,50 +146,50 @@ export interface WorkspaceRelocation {
 
 export const projectWorkspacesApi = {
   async inspect(path: string): Promise<WorkspaceRegistrationScan> {
-    return await invoke("inspect_project_workspace", { path });
+    return await invoke("inspectProjectWorkspace", { path });
   },
 
   async register(
     path: string,
     displayName?: string,
   ): Promise<WorkspaceRegistration> {
-    return await invoke("register_project_workspace", {
+    return await invoke("registerProjectWorkspace", {
       path,
       displayName: displayName?.trim() || null,
     });
   },
 
   async list(includeArchived = false): Promise<ProjectWorkspace[]> {
-    return await invoke("list_project_workspaces", { includeArchived });
+    return await invoke("listProjectWorkspaces", { includeArchived });
   },
 
   async rename(
     workspaceId: string,
     displayName: string,
   ): Promise<ProjectWorkspace> {
-    return await invoke("rename_project_workspace", {
+    return await invoke("renameProjectWorkspace", {
       workspaceId,
       displayName: displayName.trim(),
     });
   },
 
   async archive(workspaceId: string): Promise<ProjectWorkspace> {
-    return await invoke("archive_project_workspace", { workspaceId });
+    return await invoke("archiveProjectWorkspace", { workspaceId });
   },
 
   async restore(workspaceId: string): Promise<ProjectWorkspace> {
-    return await invoke("restore_project_workspace", { workspaceId });
+    return await invoke("restoreProjectWorkspace", { workspaceId });
   },
 
   async relocate(
     workspaceId: string,
     path: string,
   ): Promise<WorkspaceRelocation> {
-    return await invoke("relocate_project_workspace", { workspaceId, path });
+    return await invoke("relocateProjectWorkspace", { workspaceId, path });
   },
 
   async forget(workspaceId: string): Promise<boolean> {
-    return await invoke("forget_project_workspace", { workspaceId });
+    return await invoke("forgetProjectWorkspace", { workspaceId });
   },
 
   async inspectSkillImports(

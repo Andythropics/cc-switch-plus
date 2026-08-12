@@ -26,7 +26,7 @@ describe("Skills Library API", () => {
   it("acquires a discovered Skill without passing a consumer app", async () => {
     await skillsApi.acquireLibrary(skill, "marketplace", "review-2");
 
-    expect(invokeMock).toHaveBeenCalledWith("acquire_library_skill", {
+    expect(invokeMock).toHaveBeenCalledWith("acquireLibrarySkill", {
       skill,
       sourceKind: "marketplace",
       directoryName: "review-2",
@@ -39,7 +39,7 @@ describe("Skills Library API", () => {
       review: "review-2",
     });
 
-    expect(invokeMock).toHaveBeenCalledWith("acquire_library_skills_from_zip", {
+    expect(invokeMock).toHaveBeenCalledWith("acquireLibrarySkillsFromZip", {
       filePath: "/tmp/skills.zip",
       directoryNames: { review: "review-2" },
     });
@@ -52,7 +52,7 @@ describe("Skills Library API", () => {
       "Notes",
     );
 
-    expect(invokeMock).toHaveBeenCalledWith("update_library_skill_metadata", {
+    expect(invokeMock).toHaveBeenCalledWith("updateLibrarySkillMetadata", {
       id: "library-id",
       displayName: "Careful review",
       description: "Notes",
@@ -65,7 +65,7 @@ describe("Skills Library API", () => {
       consumer: "claude",
       workspace: "global",
     });
-    expect(invokeMock).toHaveBeenLastCalledWith("inspect_skill_deployments", {
+    expect(invokeMock).toHaveBeenLastCalledWith("inspectSkillDeployments", {
       query: { consumer: "claude", workspace: "global" },
     });
 
@@ -78,7 +78,7 @@ describe("Skills Library API", () => {
         },
       ],
     });
-    expect(invokeMock).toHaveBeenLastCalledWith("apply_skill_deployments", {
+    expect(invokeMock).toHaveBeenLastCalledWith("applySkillDeployments", {
       batch: {
         intents: [
           {
@@ -96,7 +96,7 @@ describe("Skills Library API", () => {
       consumer: "codex",
       workspace: "global",
     });
-    expect(invokeMock).toHaveBeenLastCalledWith("inspect_skill_deployments", {
+    expect(invokeMock).toHaveBeenLastCalledWith("inspectSkillDeployments", {
       query: { consumer: "codex", workspace: "global" },
     });
 
@@ -109,7 +109,7 @@ describe("Skills Library API", () => {
         },
       ],
     });
-    expect(invokeMock).toHaveBeenLastCalledWith("apply_skill_deployments", {
+    expect(invokeMock).toHaveBeenLastCalledWith("applySkillDeployments", {
       batch: {
         intents: [
           {
@@ -165,7 +165,7 @@ describe("Skills Library API", () => {
       ],
     });
 
-    expect(invokeMock).toHaveBeenLastCalledWith("apply_skill_deployments", {
+    expect(invokeMock).toHaveBeenLastCalledWith("applySkillDeployments", {
       batch: {
         intents: [
           {

@@ -47,7 +47,8 @@ pub fn get_installed_skills(app_state: State<'_, AppState>) -> Result<Vec<Instal
 /// List private Library snapshots. This is intentionally separate from the
 /// legacy installed/deployed Skill list.
 #[tauri::command]
-pub fn get_library_skills(app_state: State<'_, AppState>) -> Result<Vec<LibrarySkill>, String> {
+#[allow(non_snake_case)]
+pub fn getLibrarySkills(app_state: State<'_, AppState>) -> Result<Vec<LibrarySkill>, String> {
     LibrarySkillAcquisitionService::ensure_supported_platform()
         .map_err(|error| error.to_string())?;
     app_state
@@ -57,7 +58,8 @@ pub fn get_library_skills(app_state: State<'_, AppState>) -> Result<Vec<LibraryS
 }
 
 #[tauri::command]
-pub fn inspect_skill_deployments(
+#[allow(non_snake_case)]
+pub fn inspectSkillDeployments(
     query: Option<DeploymentQuery>,
     app_state: State<'_, AppState>,
 ) -> Result<DeploymentInspectionResult, String> {
@@ -67,7 +69,8 @@ pub fn inspect_skill_deployments(
 }
 
 #[tauri::command]
-pub fn apply_skill_deployments(
+#[allow(non_snake_case)]
+pub fn applySkillDeployments(
     batch: DeploymentBatch,
     app_state: State<'_, AppState>,
 ) -> Result<DeploymentBatchResult, String> {
@@ -101,7 +104,8 @@ pub fn applyProjectSkillImport(
 }
 
 #[tauri::command]
-pub async fn acquire_library_skill(
+#[allow(non_snake_case)]
+pub async fn acquireLibrarySkill(
     skill: DiscoverableSkill,
     source_kind: LibrarySourceKind,
     directory_name: Option<String>,
@@ -118,7 +122,8 @@ pub async fn acquire_library_skill(
 }
 
 #[tauri::command]
-pub fn acquire_library_skills_from_zip(
+#[allow(non_snake_case)]
+pub fn acquireLibrarySkillsFromZip(
     file_path: String,
     directory_names: HashMap<String, String>,
     app_state: State<'_, AppState>,
@@ -132,7 +137,8 @@ pub fn acquire_library_skills_from_zip(
 }
 
 #[tauri::command]
-pub fn update_library_skill_metadata(
+#[allow(non_snake_case)]
+pub fn updateLibrarySkillMetadata(
     id: String,
     display_name: String,
     description: Option<String>,

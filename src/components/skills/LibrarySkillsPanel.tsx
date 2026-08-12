@@ -42,6 +42,7 @@ import {
   useDeleteLibrarySkill,
   useInspectLibrarySkillDeletion,
   useLibrarySkills,
+  useProjectWorkspaces,
   useRefreshSkillDeployments,
   useSkillDeployments,
   useUpdateLibrarySkillMetadata,
@@ -49,6 +50,7 @@ import {
 import { skillsApi } from "@/lib/api";
 import type {
   ConsumerCompatibility,
+  DeploymentBatch,
   DeploymentConsumer,
   DeploymentIntent,
   DeploymentItemResult,
@@ -58,10 +60,15 @@ import type {
 } from "@/lib/api/skills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
+import {
+  BatchDeploymentDialog,
+  type BatchDeploymentTarget,
+} from "@/components/skills/BatchDeploymentDialog";
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
   onOpenProjects?: () => void;
+  onOpenGlobal?: () => void;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
 }
@@ -135,21 +142,75 @@ export const LibrarySkillsPanel = forwardRef<
     {
       onOpenDiscovery,
       onOpenProjects,
+      onOpenGlobal,
       onInteractionBlockedChange,
       onNavigationBlockedChange,
     },
     ref,
   ) => {
     const { t } = useTranslation();
-    const { data: skills = [], isLoading } = useLibrarySkills();
-    const { data: deploymentState } = useSkillDeployments({
+    const libraryQuery = useLibrarySkills();
+    const {
+      data: skills = [],
+      isLoading,
+      isError: libraryError,
+      isFetching: libraryFetching,
+    } = libraryQuery;
+    const projectQuery = useProjectWorkspaces();
+    const { data: projects = [], isFetching: projectsFetching } = projectQuery;
+    const refetchLibrary =
+      libraryQuery.refetch ?? (async () => ({ data: skills }));
+    const refetchProjects =
+      projectQuery.refetch ?? (async () => ({ data: projects }));
+    const {
+      data: deploymentState,
+      isError: claudeDeploymentError,
+      isFetching: claudeDeploymentFetching,
+    } = useSkillDeployments({
       consumer: "claude",
       workspace: "global",
     });
-    const { data: codexDeploymentState } = useSkillDeployments({
+    const {
+      data: codexDeploymentState,
+      isError: codexDeploymentError,
+      isFetching: codexDeploymentFetching,
+    } = useSkillDeployments({
       consumer: "codex",
       workspace: "global",
     });
+    const [batchTarget, setBatchTarget] = useState<BatchDeploymentTarget>({
+      workspace: "global",
+    });
+    const batchClaudeDeploymentQuery = useSkillDeployments(
+      batchTarget.workspace === "global"
+        ? { consumer: "claude", workspace: "global" }
+        : {
+            consumer: "claude",
+            workspace: "project",
+            workspaceId: batchTarget.workspaceId,
+          },
+    );
+    const batchCodexDeploymentQuery = useSkillDeployments(
+      batchTarget.workspace === "global"
+        ? { consumer: "codex", workspace: "global" }
+        : {
+            consumer: "codex",
+            workspace: "project",
+            workspaceId: batchTarget.workspaceId,
+          },
+    );
+    const deploymentError =
+      claudeDeploymentError ||
+      codexDeploymentError ||
+      batchClaudeDeploymentQuery.isError ||
+      batchCodexDeploymentQuery.isError;
+    const isRefreshing =
+      libraryFetching ||
+      projectsFetching ||
+      claudeDeploymentFetching ||
+      codexDeploymentFetching ||
+      batchClaudeDeploymentQuery.isFetching ||
+      batchCodexDeploymentQuery.isFetching;
     const updateMetadata = useUpdateLibrarySkillMetadata();
     const acquireZip = useAcquireLibrarySkillsFromZip();
     const applyDeployments = useApplySkillDeployments();
@@ -194,6 +255,7 @@ export const LibrarySkillsPanel = forwardRef<
       message?: string;
       items: DeploymentItemResult[];
     } | null>(null);
+    const [batchDialogOpen, setBatchDialogOpen] = useState(false);
 
     const blocked =
       updateMetadata.isPending ||
@@ -206,7 +268,8 @@ export const LibrarySkillsPanel = forwardRef<
       editing !== null ||
       zipCollision !== null ||
       updateConfirmation !== null;
-    const navigationBlocked = blocked || deletionInspection !== null;
+    const navigationBlocked =
+      blocked || deletionInspection !== null || batchDialogOpen;
 
     useEffect(() => {
       onInteractionBlockedChange?.(navigationBlocked);
@@ -438,6 +501,24 @@ export const LibrarySkillsPanel = forwardRef<
       }
     };
 
+    const applyBatch = async (batch: DeploymentBatch) => {
+      const result = await applyDeployments.mutateAsync(batch);
+      await Promise.all([
+        refreshDeployments(),
+        refetchLibrary(),
+        refetchProjects(),
+      ]);
+      return result;
+    };
+
+    const refreshAll = async () => {
+      await Promise.all([
+        refreshDeployments(),
+        refetchLibrary(),
+        refetchProjects(),
+      ]);
+    };
+
     const renderDeploymentControl = (
       skill: LibrarySkill,
       consumer: DeploymentConsumer,
@@ -500,7 +581,7 @@ export const LibrarySkillsPanel = forwardRef<
     useImperativeHandle(ref, () => ({
       openDiscovery: onOpenDiscovery,
       openAcquireFromZip,
-      refresh: refreshDeployments,
+      refresh: refreshAll,
     }));
 
     const filtered = useMemo(() => {
@@ -530,24 +611,70 @@ export const LibrarySkillsPanel = forwardRef<
               {t("skills.library.privateDescription")}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={onOpenDiscovery}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={navigationBlocked}
+            onClick={onOpenDiscovery}
+          >
             {t("skills.discover")}
           </Button>
           {onOpenProjects && (
-            <Button variant="outline" size="sm" onClick={onOpenProjects}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={navigationBlocked}
+              onClick={onOpenProjects}
+            >
               {t("skills.projects.title")}
             </Button>
           )}
+          {onOpenGlobal && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={navigationBlocked}
+              onClick={onOpenGlobal}
+            >
+              {t("skills.global.title")}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={blocked || isRefreshing || skills.length === 0}
+            onClick={() => setBatchDialogOpen(true)}
+          >
+            {t("skills.batch.deploy")}
+          </Button>
           <Button
             variant="ghost"
             size="icon"
             aria-label={t("skills.refresh")}
             title={t("skills.refresh")}
-            onClick={() => void refreshDeployments()}
+            disabled={blocked || isRefreshing}
+            onClick={() => void refreshAll()}
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw
+              className={`h-4 w-4${isRefreshing ? " animate-spin" : ""}`}
+            />
           </Button>
         </div>
+
+        {isRefreshing && (
+          <p role="status" className="px-5 pt-2 text-xs text-muted-foreground">
+            {t("skills.refreshing")}
+          </p>
+        )}
+
+        {(libraryError || projectQuery.isError || deploymentError) && (
+          <p
+            role="alert"
+            className="mx-5 mt-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {t("skills.global.loadError")}
+          </p>
+        )}
 
         <div className="px-5 py-3">
           <div className="relative">
@@ -756,6 +883,7 @@ export const LibrarySkillsPanel = forwardRef<
                                     <button
                                       type="button"
                                       className="underline underline-offset-2"
+                                      disabled={navigationBlocked}
                                       onClick={() => {
                                         setUpdateConfirmation(null);
                                         setDeletionInspection(null);
@@ -832,6 +960,21 @@ export const LibrarySkillsPanel = forwardRef<
             </div>
           )}
         </ScrollArea>
+
+        <BatchDeploymentDialog
+          open={batchDialogOpen}
+          onOpenChange={setBatchDialogOpen}
+          skills={filtered}
+          projects={projects}
+          defaultTarget={batchTarget}
+          onTargetChange={setBatchTarget}
+          inspections={[
+            ...(batchClaudeDeploymentQuery.data?.items ?? []),
+            ...(batchCodexDeploymentQuery.data?.items ?? []),
+          ]}
+          isPending={applyDeployments.isPending || isRefreshing}
+          onApply={applyBatch}
+        />
 
         <Dialog
           open={updateConfirmation !== null}
@@ -951,6 +1094,7 @@ export const LibrarySkillsPanel = forwardRef<
                             <button
                               type="button"
                               className="underline underline-offset-2"
+                              disabled={navigationBlocked}
                               onClick={() => {
                                 setDeletionInspection(null);
                                 onOpenProjects();

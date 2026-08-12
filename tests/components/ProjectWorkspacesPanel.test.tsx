@@ -19,6 +19,7 @@ const {
   claudeState,
   codexState,
   workspaceRows,
+  queryState,
   toastSuccessMock,
   toastErrorMock,
 } = vi.hoisted(() => ({
@@ -34,6 +35,13 @@ const {
   claudeState: { items: [] as unknown[] },
   codexState: { items: [] as unknown[] },
   workspaceRows: [] as unknown[],
+  queryState: {
+    projectError: false,
+    libraryError: false,
+    projectFetching: false,
+    deploymentFetching: false,
+    applyPending: false,
+  },
   toastSuccessMock: vi.fn(),
   toastErrorMock: vi.fn(),
 }));
@@ -74,6 +82,8 @@ vi.mock("@/hooks/useSkills", () => ({
   useProjectWorkspaces: () => ({
     data: workspaceRows.length ? workspaceRows : [workspace],
     isLoading: false,
+    isError: queryState.projectError,
+    isFetching: queryState.projectFetching,
   }),
   useRegisterProjectWorkspace: () => ({
     mutateAsync: registerWorkspaceMock,
@@ -113,13 +123,19 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
-  useLibrarySkills: () => ({ data: [librarySkill], isLoading: false }),
+  useLibrarySkills: () => ({
+    data: [librarySkill],
+    isLoading: false,
+    isError: queryState.libraryError,
+    isFetching: queryState.projectFetching,
+  }),
   useSkillDeployments: ({ consumer }: { consumer: "claude" | "codex" }) => ({
     data: consumer === "claude" ? claudeState : codexState,
+    isFetching: queryState.deploymentFetching,
   }),
   useApplySkillDeployments: () => ({
     mutateAsync: applyDeploymentsMock,
-    isPending: false,
+    isPending: queryState.applyPending,
   }),
   useRefreshSkillDeployments: () => refreshDeploymentsMock,
 }));
@@ -176,6 +192,11 @@ describe("ProjectWorkspacesPanel", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     workspaceRows.length = 0;
+    queryState.projectError = false;
+    queryState.libraryError = false;
+    queryState.projectFetching = false;
+    queryState.deploymentFetching = false;
+    queryState.applyPending = false;
     claudeState.items = [];
     codexState.items = [];
     librarySkill.compatibility.claude = { compatible: true, issues: [] };
@@ -221,6 +242,46 @@ describe("ProjectWorkspacesPanel", () => {
     });
   });
 
+  it("Add Skills batches both consumers to the selected stable workspaceId", async () => {
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.addSkills" }),
+    );
+    expect(
+      screen.getByRole("combobox", { name: "skills.batch.target" }),
+    ).toBeDisabled();
+    await user.click(screen.getByTestId("batch-apply"));
+
+    await waitFor(() => expect(applyDeploymentsMock).toHaveBeenCalledTimes(1));
+    expect(applyDeploymentsMock).toHaveBeenCalledWith({
+      intents: [
+        {
+          action: "deploy",
+          librarySkillId: "library-1",
+          target: {
+            consumer: "claude",
+            workspace: "project",
+            workspaceId: "workspace-1",
+          },
+        },
+        {
+          action: "deploy",
+          librarySkillId: "library-1",
+          target: {
+            consumer: "codex",
+            workspace: "project",
+            workspaceId: "workspace-1",
+          },
+        },
+      ],
+    });
+    expect(
+      applyDeploymentsMock.mock.calls[0][0].intents[0].target,
+    ).not.toHaveProperty("path");
+  });
+
   it("reconciles active deployment observations from the manual refresh control", async () => {
     render(<ProjectWorkspacesPanel />);
 
@@ -228,6 +289,82 @@ describe("ProjectWorkspacesPanel", () => {
     await user.click(screen.getByRole("button", { name: "skills.refresh" }));
 
     expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a visible refresh state and disables project batch actions while deployment reconciliation runs", () => {
+    queryState.projectFetching = true;
+    queryState.deploymentFetching = true;
+    render(<ProjectWorkspacesPanel />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("skills.refreshing");
+    expect(
+      screen.getByRole("button", { name: "skills.projects.addSkills" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.batch.undeploy" }),
+    ).toBeDisabled();
+  });
+
+  it("includes Library query failures in the project load alert", () => {
+    queryState.libraryError = true;
+    render(<ProjectWorkspacesPanel />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "skills.projects.loadError",
+    );
+  });
+
+  it("aggregates child deployment busy state and clears navigation block on unmount", async () => {
+    const onInteractionBlockedChange = vi.fn();
+    const onNavigationBlockedChange = vi.fn();
+    const view = render(
+      <ProjectWorkspacesPanel
+        onInteractionBlockedChange={onInteractionBlockedChange}
+        onNavigationBlockedChange={onNavigationBlockedChange}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.addSkills" }),
+    );
+    await waitFor(() => {
+      expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
+      expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
+    });
+
+    view.unmount();
+    expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(false);
+    expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("blocks local navigation and workspace switching while a child batch is open", async () => {
+    render(
+      <ProjectWorkspacesPanel onOpenLibrary={vi.fn()} onOpenGlobal={vi.fn()} />,
+    );
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.addSkills" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "skills.projects.library",
+          hidden: true,
+        }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", {
+          name: "skills.global.title",
+          hidden: true,
+        }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Demo workspace/, hidden: true }),
+      ).toBeDisabled();
+    });
+    expect(screen.getByTestId("batch-apply")).toBeInTheDocument();
   });
 
   it("repairs a project drift with the inspection token through the shared resolution controls", async () => {

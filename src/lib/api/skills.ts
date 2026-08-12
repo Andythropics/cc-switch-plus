@@ -403,14 +403,14 @@ export const skillsApi = {
 
   /** List snapshots in the private Library (never consumer deployments). */
   async getLibrary(): Promise<LibrarySkill[]> {
-    return await invoke("get_library_skills");
+    return await invoke("getLibrarySkills");
   },
 
   /** Inspect desired and observed Claude/Codex deployment state. */
   async inspectDeployments(
     query?: DeploymentQuery,
   ): Promise<DeploymentInspectionResult> {
-    return await invoke("inspect_skill_deployments", {
+    return await invoke("inspectSkillDeployments", {
       query: query ?? null,
     });
   },
@@ -419,7 +419,7 @@ export const skillsApi = {
   async applyDeployments(
     batch: DeploymentBatch,
   ): Promise<DeploymentBatchResult> {
-    return await invoke("apply_skill_deployments", { batch });
+    return await invoke("applySkillDeployments", { batch });
   },
 
   /** Acquire a Git or marketplace Skill without enabling any consumer. */
@@ -428,7 +428,7 @@ export const skillsApi = {
     sourceKind: RemoteLibrarySourceKind,
     directoryName?: string,
   ): Promise<LibrarySkill> {
-    return await invoke("acquire_library_skill", {
+    return await invoke("acquireLibrarySkill", {
       skill,
       sourceKind,
       directoryName,
@@ -440,7 +440,7 @@ export const skillsApi = {
     filePath: string,
     directoryNames: Record<string, string> = {},
   ): Promise<LibrarySkill[]> {
-    return await invoke("acquire_library_skills_from_zip", {
+    return await invoke("acquireLibrarySkillsFromZip", {
       filePath,
       directoryNames,
     });
@@ -452,7 +452,7 @@ export const skillsApi = {
     displayName: string,
     description?: string,
   ): Promise<LibrarySkill> {
-    return await invoke("update_library_skill_metadata", {
+    return await invoke("updateLibrarySkillMetadata", {
       id,
       displayName,
       description,

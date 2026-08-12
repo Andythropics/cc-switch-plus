@@ -1,4 +1,10 @@
-import { forwardRef, useImperativeHandle, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -8,6 +14,7 @@ import {
   MapPin,
   Pencil,
   RefreshCw,
+  Search,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,8 +47,10 @@ import {
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import { ProjectSkillImportPanel } from "@/components/skills/ProjectSkillImportPanel";
+import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { settingsApi } from "@/lib/api/settings";
 import type {
+  DeploymentBatch,
   DeploymentConsumer,
   DeploymentIntent,
   LibrarySkill,
@@ -50,6 +59,9 @@ import type { ProjectWorkspace } from "@/lib/api/projectWorkspaces";
 
 interface ProjectWorkspacesPanelProps {
   onOpenLibrary?: () => void;
+  onOpenGlobal?: () => void;
+  onInteractionBlockedChange?: (blocked: boolean) => void;
+  onNavigationBlockedChange?: (blocked: boolean) => void;
 }
 
 export interface ProjectWorkspacesPanelHandle {
@@ -58,22 +70,50 @@ export interface ProjectWorkspacesPanelHandle {
 
 function ProjectWorkspaceDeployments({
   workspace,
+  projects,
+  onBusyChange,
 }: {
   workspace: ProjectWorkspace;
+  projects: ProjectWorkspace[];
+  onBusyChange?: (workspaceId: string, busy: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const { data: skills = [] } = useLibrarySkills();
-  const { data: claudeState } = useSkillDeployments({
+  const libraryQuery = useLibrarySkills();
+  const { data: skills = [] } = libraryQuery;
+  const refetchLibrary =
+    libraryQuery.refetch ?? (async () => ({ data: skills }));
+  const {
+    data: claudeState,
+    isError: claudeError,
+    isFetching: claudeFetching,
+  } = useSkillDeployments({
     consumer: "claude",
     workspace: "project",
     workspaceId: workspace.id,
   });
-  const { data: codexState } = useSkillDeployments({
+  const {
+    data: codexState,
+    isError: codexError,
+    isFetching: codexFetching,
+  } = useSkillDeployments({
     consumer: "codex",
     workspace: "project",
     workspaceId: workspace.id,
   });
   const apply = useApplySkillDeployments();
+  const refreshDeployments = useRefreshSkillDeployments();
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
+    "deploy",
+  );
+  const deploymentError = claudeError || codexError;
+  const deploymentFetching = claudeFetching || codexFetching;
+  const deploymentBusy = apply.isPending || batchDialogOpen;
+
+  useEffect(() => {
+    onBusyChange?.(workspace.id, deploymentBusy);
+    return () => onBusyChange?.(workspace.id, false);
+  }, [deploymentBusy, onBusyChange, workspace.id]);
 
   const applyDeployment = async (intent: DeploymentIntent) => {
     try {
@@ -118,6 +158,12 @@ function ProjectWorkspaceDeployments({
     } catch (error) {
       toast.error(String(error));
     }
+  };
+
+  const applyBatch = async (batch: DeploymentBatch) => {
+    const result = await apply.mutateAsync(batch);
+    await Promise.all([refreshDeployments(), refetchLibrary()]);
+    return result;
   };
 
   const renderControl = (skill: LibrarySkill, consumer: DeploymentConsumer) => {
@@ -172,9 +218,58 @@ function ProjectWorkspaceDeployments({
 
   return (
     <div className="space-y-2 border-t pt-3">
-      <h3 className="text-sm font-semibold">
-        {t("skills.projects.deployments")}
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">
+          {t("skills.projects.deployments")}
+        </h3>
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={
+              workspace.lifecycle !== "active" ||
+              deploymentFetching ||
+              apply.isPending ||
+              skills.length === 0
+            }
+            onClick={() => {
+              setBatchAction("deploy");
+              setBatchDialogOpen(true);
+            }}
+          >
+            {t("skills.projects.addSkills")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={
+              !["active", "archived"].includes(workspace.lifecycle) ||
+              deploymentFetching ||
+              apply.isPending ||
+              skills.length === 0
+            }
+            onClick={() => {
+              setBatchAction("undeploy");
+              setBatchDialogOpen(true);
+            }}
+          >
+            {t("skills.batch.undeploy")}
+          </Button>
+        </div>
+      </div>
+      {deploymentError && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {t("skills.projects.deploymentLoadError")}
+        </p>
+      )}
+      {deploymentFetching && (
+        <p className="text-xs text-muted-foreground">
+          {t("skills.refreshing")}
+        </p>
+      )}
       {skills.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {t("skills.projects.noLibrarySkills")}
@@ -195,6 +290,21 @@ function ProjectWorkspaceDeployments({
           </div>
         ))
       )}
+      <BatchDeploymentDialog
+        open={batchDialogOpen}
+        onOpenChange={setBatchDialogOpen}
+        skills={skills}
+        projects={projects}
+        defaultTarget={{ workspace: "project", workspaceId: workspace.id }}
+        targetLocked
+        defaultAction={batchAction}
+        inspections={[
+          ...(claudeState?.items ?? []),
+          ...(codexState?.items ?? []),
+        ]}
+        isPending={apply.isPending || deploymentFetching}
+        onApply={applyBatch}
+      />
     </div>
   );
 }
@@ -202,13 +312,25 @@ function ProjectWorkspaceDeployments({
 export const ProjectWorkspacesPanel = forwardRef<
   ProjectWorkspacesPanelHandle,
   ProjectWorkspacesPanelProps
->(function ProjectWorkspacesPanel({ onOpenLibrary }, ref) {
+>(function ProjectWorkspacesPanel(
+  {
+    onOpenLibrary,
+    onOpenGlobal,
+    onInteractionBlockedChange,
+    onNavigationBlockedChange,
+  },
+  ref,
+) {
   const { t } = useTranslation();
   const projectQuery = useProjectWorkspaces();
   const workspaces = projectQuery.data ?? [];
   const isLoading = projectQuery.isLoading;
+  const isFetching = projectQuery.isFetching;
   const refetchWorkspaces =
     projectQuery.refetch ?? (async () => ({ data: workspaces }));
+  const libraryQuery = useLibrarySkills();
+  const refetchLibrary =
+    libraryQuery.refetch ?? (async () => ({ data: libraryQuery.data ?? [] }));
   const register = useRegisterProjectWorkspace();
   const rename = useRenameProjectWorkspace();
   const archive = useArchiveProjectWorkspace();
@@ -218,6 +340,7 @@ export const ProjectWorkspacesPanel = forwardRef<
   const refreshDeployments = useRefreshSkillDeployments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [query, setQuery] = useState("");
   const [renameTarget, setRenameTarget] = useState<ProjectWorkspace | null>(
     null,
   );
@@ -232,11 +355,21 @@ export const ProjectWorkspacesPanel = forwardRef<
   const [forgetTarget, setForgetTarget] = useState<ProjectWorkspace | null>(
     null,
   );
+  const [childDeploymentBusyIds, setChildDeploymentBusyIds] = useState<
+    Set<string>
+  >(new Set());
 
-  const activeWorkspaces = workspaces.filter(
+  const filteredWorkspaces = workspaces.filter((workspace) => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return true;
+    return [workspace.displayName, workspace.id, workspace.rootPath].some(
+      (value) => value.toLocaleLowerCase().includes(needle),
+    );
+  });
+  const activeWorkspaces = filteredWorkspaces.filter(
     (workspace) => workspace.lifecycle !== "archived",
   );
-  const archivedWorkspaces = workspaces.filter(
+  const archivedWorkspaces = filteredWorkspaces.filter(
     (workspace) => workspace.lifecycle === "archived",
   );
   const lifecycleBusy =
@@ -246,6 +379,32 @@ export const ProjectWorkspacesPanel = forwardRef<
     restore.isPending ||
     relocate.isPending ||
     forget.isPending;
+  const managementBusy = lifecycleBusy || childDeploymentBusyIds.size > 0;
+
+  const onChildBusyChange = useCallback(
+    (workspaceId: string, busy: boolean) => {
+      setChildDeploymentBusyIds((current) => {
+        const next = new Set(current);
+        if (busy) next.add(workspaceId);
+        else next.delete(workspaceId);
+        return next;
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    onInteractionBlockedChange?.(managementBusy);
+    onNavigationBlockedChange?.(managementBusy);
+  }, [managementBusy, onInteractionBlockedChange, onNavigationBlockedChange]);
+
+  useEffect(
+    () => () => {
+      onInteractionBlockedChange?.(false);
+      onNavigationBlockedChange?.(false);
+    },
+    [onInteractionBlockedChange, onNavigationBlockedChange],
+  );
 
   const selected =
     workspaces.find((workspace) => workspace.id === selectedId) ??
@@ -253,7 +412,11 @@ export const ProjectWorkspacesPanel = forwardRef<
     (showArchived ? archivedWorkspaces[0] : undefined);
 
   const refreshAll = async () => {
-    await Promise.all([refetchWorkspaces(), refreshDeployments()]);
+    await Promise.all([
+      refetchWorkspaces(),
+      refetchLibrary(),
+      refreshDeployments(),
+    ]);
   };
 
   const registerDirectory = async () => {
@@ -364,6 +527,7 @@ export const ProjectWorkspacesPanel = forwardRef<
         <div className="flex items-start gap-3">
           <button
             className="min-w-0 flex-1 text-left"
+            disabled={managementBusy}
             onClick={() => setSelectedId(workspace.id)}
           >
             <div className="flex flex-wrap items-center gap-2">
@@ -389,7 +553,7 @@ export const ProjectWorkspacesPanel = forwardRef<
               size="icon"
               aria-label={t("skills.projects.rename")}
               title={t("skills.projects.rename")}
-              disabled={lifecycleBusy}
+              disabled={managementBusy}
               onClick={() => openRename(workspace)}
             >
               <Pencil className="h-4 w-4" />
@@ -398,7 +562,7 @@ export const ProjectWorkspacesPanel = forwardRef<
               <Button
                 variant="outline"
                 size="sm"
-                disabled={lifecycleBusy}
+                disabled={managementBusy}
                 onClick={() => setArchiveTarget(workspace)}
               >
                 <Archive className="mr-1 h-3.5 w-3.5" />
@@ -410,7 +574,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={lifecycleBusy}
+                  disabled={managementBusy}
                   onClick={() => void restoreWorkspace(workspace)}
                 >
                   <ArchiveRestore className="mr-1 h-3.5 w-3.5" />
@@ -419,7 +583,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={lifecycleBusy}
+                  disabled={managementBusy}
                   onClick={() => setForgetTarget(workspace)}
                 >
                   <Trash2 className="mr-1 h-3.5 w-3.5" />
@@ -431,7 +595,7 @@ export const ProjectWorkspacesPanel = forwardRef<
               <Button
                 variant="outline"
                 size="sm"
-                disabled={lifecycleBusy}
+                disabled={managementBusy}
                 onClick={() => void openRelocate(workspace)}
               >
                 <MapPin className="mr-1 h-3.5 w-3.5" />
@@ -445,7 +609,11 @@ export const ProjectWorkspacesPanel = forwardRef<
             {workspace.lifecycle === "active" && (
               <ProjectSkillImportPanel workspaceId={workspace.id} />
             )}
-            <ProjectWorkspaceDeployments workspace={workspace} />
+            <ProjectWorkspaceDeployments
+              workspace={workspace}
+              projects={workspaces}
+              onBusyChange={onChildBusyChange}
+            />
           </>
         )}
       </article>
@@ -465,14 +633,29 @@ export const ProjectWorkspacesPanel = forwardRef<
           </p>
         </div>
         {onOpenLibrary && (
-          <Button variant="outline" size="sm" onClick={onOpenLibrary}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={managementBusy}
+            onClick={onOpenLibrary}
+          >
             {t("skills.projects.library")}
+          </Button>
+        )}
+        {onOpenGlobal && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={managementBusy}
+            onClick={onOpenGlobal}
+          >
+            {t("skills.global.title")}
           </Button>
         )}
         <Button
           size="sm"
           onClick={() => void registerDirectory()}
-          disabled={lifecycleBusy}
+          disabled={managementBusy}
         >
           {register.isPending && (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -484,21 +667,55 @@ export const ProjectWorkspacesPanel = forwardRef<
           size="icon"
           aria-label={t("skills.refresh")}
           title={t("skills.refresh")}
+          disabled={managementBusy || isFetching}
           onClick={() => void refreshAll()}
         >
-          <RefreshCw className="h-4 w-4" />
+          <RefreshCw
+            className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+          />
         </Button>
+      </div>
+      {isFetching && (
+        <p role="status" className="px-5 pt-2 text-xs text-muted-foreground">
+          {t("skills.refreshing")}
+        </p>
+      )}
+      {(projectQuery.isError || libraryQuery.isError) && (
+        <p
+          role="alert"
+          className="mx-5 mt-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {t("skills.projects.loadError")}
+        </p>
+      )}
+      <div className="px-5 py-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("skills.searchPlaceholder")}
+            aria-label={t("skills.searchPlaceholder")}
+            className="pl-9"
+          />
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
         {isLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
-        ) : workspaces.length === 0 ? (
+        ) : filteredWorkspaces.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
-            <p className="font-medium">{t("skills.projects.empty")}</p>
+            <p className="font-medium">
+              {workspaces.length === 0
+                ? t("skills.projects.empty")
+                : t("skills.noResults")}
+            </p>
             <p className="mt-1 text-sm">
-              {t("skills.projects.emptyDescription")}
+              {workspaces.length === 0
+                ? t("skills.projects.emptyDescription")
+                : t("skills.projects.searchNoResults")}
             </p>
           </div>
         ) : (

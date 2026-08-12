@@ -1486,9 +1486,9 @@ pub fn run() {
             commands::restore_env_backup,
             // Skill management (v3.10.0+ unified)
             commands::get_installed_skills,
-            commands::get_library_skills,
-            commands::inspect_skill_deployments,
-            commands::apply_skill_deployments,
+            commands::getLibrarySkills,
+            commands::inspectSkillDeployments,
+            commands::applySkillDeployments,
             #[cfg(target_os = "macos")]
             commands::inspectProjectSkillImports,
             #[cfg(target_os = "macos")]
@@ -1501,25 +1501,25 @@ pub fn run() {
             commands::inspectLibrarySkillDeletion,
             #[cfg(target_os = "macos")]
             commands::deleteLibrarySkill,
-            commands::acquire_library_skill,
-            commands::acquire_library_skills_from_zip,
-            commands::update_library_skill_metadata,
+            commands::acquireLibrarySkill,
+            commands::acquireLibrarySkillsFromZip,
+            commands::updateLibrarySkillMetadata,
             #[cfg(target_os = "macos")]
-            commands::inspect_project_workspace,
+            commands::inspectProjectWorkspace,
             #[cfg(target_os = "macos")]
-            commands::register_project_workspace,
+            commands::registerProjectWorkspace,
             #[cfg(target_os = "macos")]
-            commands::list_project_workspaces,
+            commands::listProjectWorkspaces,
             #[cfg(target_os = "macos")]
-            commands::rename_project_workspace,
+            commands::renameProjectWorkspace,
             #[cfg(target_os = "macos")]
-            commands::archive_project_workspace,
+            commands::archiveProjectWorkspace,
             #[cfg(target_os = "macos")]
-            commands::restore_project_workspace,
+            commands::restoreProjectWorkspace,
             #[cfg(target_os = "macos")]
-            commands::relocate_project_workspace,
+            commands::relocateProjectWorkspace,
             #[cfg(target_os = "macos")]
-            commands::forget_project_workspace,
+            commands::forgetProjectWorkspace,
             commands::get_skill_backups,
             commands::delete_skill_backup,
             commands::install_skill_unified,

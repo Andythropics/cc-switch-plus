@@ -1,0 +1,178 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
+import type { LibrarySkill } from "@/lib/api/skills";
+
+const { libraryRefetch, projectRefetch, refreshMock, state } = vi.hoisted(
+  () => ({
+    libraryRefetch: vi.fn(),
+    projectRefetch: vi.fn(),
+    refreshMock: vi.fn(),
+    state: {
+      libraryError: false,
+      projectError: false,
+      refreshing: false,
+    },
+  }),
+);
+
+const skills: LibrarySkill[] = [
+  {
+    id: "skill-a",
+    directory: "alpha",
+    displayName: "Alpha",
+    description: "First skill",
+    source: { kind: "local_import" },
+    compatibility: {
+      claude: { compatible: true, issues: [] },
+      codex: { compatible: true, issues: [] },
+    },
+    contentHash: "a",
+    acquiredAt: 1,
+    updatedAt: 1,
+  },
+  {
+    id: "skill-b",
+    directory: "beta",
+    displayName: "Beta",
+    description: "Second skill",
+    source: { kind: "local_import" },
+    compatibility: {
+      claude: { compatible: false, issues: ["unsupported"] },
+      codex: { compatible: true, issues: [] },
+    },
+    contentHash: "b",
+    acquiredAt: 1,
+    updatedAt: 1,
+  },
+];
+
+vi.mock("@/hooks/useSkills", () => ({
+  useLibrarySkills: () => ({
+    data: skills,
+    isLoading: false,
+    isError: state.libraryError,
+    isFetching: state.refreshing,
+    refetch: libraryRefetch,
+  }),
+  useProjectWorkspaces: () => ({
+    data: [],
+    isLoading: false,
+    isError: state.projectError,
+    isFetching: state.refreshing,
+    refetch: projectRefetch,
+  }),
+  useSkillDeployments: () => ({
+    data: { items: [] },
+    isError: false,
+    isFetching: state.refreshing,
+  }),
+  useApplySkillDeployments: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ items: [] }),
+    isPending: false,
+  }),
+  useRefreshSkillDeployments: () => refreshMock,
+}));
+
+describe("GlobalSkillsPanel", () => {
+  beforeEach(() => {
+    state.libraryError = false;
+    state.projectError = false;
+    state.refreshing = false;
+    libraryRefetch.mockReset().mockResolvedValue(undefined);
+    projectRefetch.mockReset().mockResolvedValue(undefined);
+    refreshMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("keeps Library identity and filters the global decision list", async () => {
+    const user = userEvent.setup();
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText("skills.searchPlaceholder"),
+      "alpha",
+    );
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+    expect(libraryRefetch).toHaveBeenCalledTimes(1);
+    expect(projectRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a structured load error instead of silently hiding state", () => {
+    state.libraryError = true;
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "skills.global.loadError",
+    );
+  });
+
+  it("includes auxiliary Project Workspace failures in the global load alert", () => {
+    state.projectError = true;
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "skills.global.loadError",
+    );
+  });
+
+  it("shows and locks the refresh control while reconciliation is pending", () => {
+    state.refreshing = true;
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("skills.refreshing");
+    expect(
+      screen.getByRole("button", { name: "skills.refresh" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
+    ).toBeDisabled();
+  });
+
+  it("reports navigation busy while its batch dialog is open", async () => {
+    const onInteractionBlockedChange = vi.fn();
+    const onNavigationBlockedChange = vi.fn();
+    const onOpenLibrary = vi.fn();
+    const onOpenProjects = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <GlobalSkillsPanel
+        onOpenLibrary={onOpenLibrary}
+        onOpenProjects={onOpenProjects}
+        onInteractionBlockedChange={onInteractionBlockedChange}
+        onNavigationBlockedChange={onNavigationBlockedChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
+    );
+
+    await waitFor(() => {
+      expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
+      expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
+    });
+    expect(
+      screen.getByRole("button", {
+        name: "skills.global.library",
+        hidden: true,
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "skills.global.projects",
+        hidden: true,
+      }),
+    ).toBeDisabled();
+  });
+});

@@ -21,6 +21,8 @@ import {
   FolderArchive,
   Search,
   FolderOpen,
+  Globe2,
+  Library,
   KeyRound,
   Shield,
   Cpu,
@@ -82,6 +84,7 @@ import {
   type LibrarySkillsPanelHandle,
 } from "@/components/skills/LibrarySkillsPanel";
 import { ProjectWorkspacesPanel } from "@/components/skills/ProjectWorkspacesPanel";
+import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
@@ -107,6 +110,7 @@ type View =
   | "skills"
   | "skillsDiscovery"
   | "skillsProjects"
+  | "skillsGlobal"
   | "mcp"
   | "agents"
   | "universal"
@@ -171,6 +175,7 @@ const VALID_VIEWS: View[] = [
   "skills",
   "skillsDiscovery",
   "skillsProjects",
+  "skillsGlobal",
   "mcp",
   "agents",
   "universal",
@@ -923,6 +928,7 @@ function App() {
   };
 
   const handleOpenSkillsProjects = () => setCurrentView("skillsProjects");
+  const handleOpenSkillsGlobal = () => setCurrentView("skillsGlobal");
 
   const renderContent = () => {
     const content = (() => {
@@ -955,6 +961,18 @@ function App() {
               ref={librarySkillsPanelRef}
               onOpenDiscovery={handleOpenSkillsDiscovery}
               onOpenProjects={handleOpenSkillsProjects}
+              onOpenGlobal={handleOpenSkillsGlobal}
+              onInteractionBlockedChange={setSkillsManagementBusy}
+              onNavigationBlockedChange={setSkillsNavigationBusy}
+            />
+          ) : (
+            <UnsupportedSkillsLibrary />
+          );
+        case "skillsGlobal":
+          return isMac() ? (
+            <GlobalSkillsPanel
+              onOpenLibrary={() => setCurrentView("skills")}
+              onOpenProjects={handleOpenSkillsProjects}
               onInteractionBlockedChange={setSkillsManagementBusy}
               onNavigationBlockedChange={setSkillsNavigationBusy}
             />
@@ -965,6 +983,9 @@ function App() {
           return isMac() ? (
             <ProjectWorkspacesPanel
               onOpenLibrary={() => setCurrentView("skills")}
+              onOpenGlobal={handleOpenSkillsGlobal}
+              onInteractionBlockedChange={setSkillsManagementBusy}
+              onNavigationBlockedChange={setSkillsNavigationBusy}
             />
           ) : (
             <UnsupportedSkillsLibrary />
@@ -1202,11 +1223,13 @@ function App() {
                 <Button
                   variant="outline"
                   size="icon"
+                  aria-label={t("common.back")}
                   disabled={managementBusy}
                   onClick={() =>
                     setCurrentView(
                       currentView === "skillsDiscovery" ||
-                        currentView === "skillsProjects"
+                        currentView === "skillsProjects" ||
+                        currentView === "skillsGlobal"
                         ? "skills"
                         : "providers",
                     )
@@ -1229,6 +1252,7 @@ function App() {
                     t("skills.library.discoveryTitle")}
                   {currentView === "skillsProjects" &&
                     t("skills.projects.title")}
+                  {currentView === "skillsGlobal" && t("skills.global.title")}
                   {currentView === "mcp" && t("mcp.unifiedPanel.title")}
                   {currentView === "agents" && t("agents.title")}
                   {currentView === "universal" &&
@@ -1411,6 +1435,16 @@ function App() {
                       variant="ghost"
                       size="sm"
                       disabled={skillsManagementBusy}
+                      onClick={handleOpenSkillsGlobal}
+                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                    >
+                      <Globe2 className="w-4 h-4 mr-2" />
+                      {t("skills.global.title")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={skillsManagementBusy}
                       onClick={() =>
                         librarySkillsPanelRef.current?.openDiscovery()
                       }
@@ -1437,6 +1471,30 @@ function App() {
                         </Button>
                       ),
                     )}
+                  </>
+                )}
+                {currentView === "skillsGlobal" && isMac() && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={skillsManagementBusy}
+                      onClick={() => setCurrentView("skills")}
+                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                    >
+                      <Library className="w-4 h-4 mr-2" />
+                      {t("skills.global.library")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={skillsManagementBusy}
+                      onClick={handleOpenSkillsProjects}
+                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                    >
+                      <FolderOpen className="w-4 h-4 mr-2" />
+                      {t("skills.global.projects")}
+                    </Button>
                   </>
                 )}
                 {currentView === "providers" && (
