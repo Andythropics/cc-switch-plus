@@ -1,9 +1,9 @@
-//! Skills 服务层
+//! Skills acquisition, migration evidence, and legacy compatibility.
 //!
-//! v3.10.0+ 统一管理架构：
-//! - SSOT（单一事实源）：`~/.cc-switch/skills/`
-//! - 安装时下载到 SSOT，按需同步到各应用目录
-//! - 数据库存储安装记录和启用状态
+//! On macOS, the redesigned Library and Deployment modules own all active
+//! Skill mutations. The legacy install/toggle/copy helpers in this private
+//! module remain only for guided-migration evidence and non-macOS behavior;
+//! they are not exposed through the macOS command surface.
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
@@ -14,10 +14,17 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+#[cfg(not(target_os = "macos"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
 
-use crate::app_config::{AppType, InstalledSkill, SkillApps, UnmanagedSkill};
+use crate::app_config::AppType;
+#[cfg(not(target_os = "macos"))]
+use crate::app_config::InstalledSkill;
+#[cfg(not(target_os = "macos"))]
+use crate::app_config::SkillApps;
+#[cfg(not(target_os = "macos"))]
+use crate::app_config::UnmanagedSkill;
 use crate::config::get_app_config_dir;
 use crate::database::Database;
 use crate::error::{format_skill_error, AppError};
@@ -172,6 +179,7 @@ impl Default for SkillStore {
 }
 
 /// Skill 卸载结果
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillUninstallResult {
@@ -180,6 +188,7 @@ pub struct SkillUninstallResult {
 }
 
 /// Skill 更新检测结果
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillUpdateInfo {
@@ -194,6 +203,7 @@ pub struct SkillUpdateInfo {
 }
 
 /// Skill 存储位置迁移结果
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MigrationResult {
@@ -254,6 +264,7 @@ pub struct SkillsShDiscoverableSkill {
     pub readme_url: Option<String>,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillBackupEntry {
@@ -263,6 +274,7 @@ pub struct SkillBackupEntry {
     pub skill: InstalledSkill,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SkillBackupMetadata {
@@ -271,6 +283,7 @@ struct SkillBackupMetadata {
     source_path: String,
 }
 
+#[cfg(not(target_os = "macos"))]
 const SKILL_BACKUP_RETAIN_COUNT: usize = 20;
 
 /// 仓库归档解压上限：条目数与解压后总字节数。
@@ -356,6 +369,7 @@ pub struct LibrarySkill {
 }
 
 /// 导入已有 Skill 时，前端显式提交的启用应用选择
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSkillSelection {
@@ -364,22 +378,17 @@ pub struct ImportSkillSelection {
     pub apps: SkillApps,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)] // Kept for the journaled cutover implemented by Issue #15.
-struct LegacySkillMigrationRow {
-    directory: String,
-    app_type: String,
-}
-
 // ========== ~/.agents/ lock 文件解析 ==========
 
 /// `~/.agents/.skill-lock.json` 文件结构
+#[cfg(not(target_os = "macos"))]
 #[derive(Deserialize)]
 struct AgentsLockFile {
     skills: HashMap<String, AgentsLockSkill>,
 }
 
 /// lock 文件中单个 skill 的信息
+#[cfg(not(target_os = "macos"))]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentsLockSkill {
@@ -391,6 +400,7 @@ struct AgentsLockSkill {
     source_branch: Option<String>,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone)]
 struct LockRepoInfo {
     owner: String,
@@ -399,6 +409,7 @@ struct LockRepoInfo {
     branch: Option<String>,
 }
 
+#[cfg(not(target_os = "macos"))]
 fn normalize_optional_branch(branch: Option<String>) -> Option<String> {
     branch.and_then(|b| {
         let trimmed = b.trim();
@@ -410,6 +421,7 @@ fn normalize_optional_branch(branch: Option<String>) -> Option<String> {
     })
 }
 
+#[cfg(not(target_os = "macos"))]
 fn parse_branch_from_source_url(source_url: Option<&str>) -> Option<String> {
     let source_url = source_url?;
     let source_url = source_url.trim();
@@ -456,12 +468,14 @@ fn parse_branch_from_source_url(source_url: Option<&str>) -> Option<String> {
 }
 
 /// 获取 `~/.agents/skills/` 目录（存在时返回）
+#[cfg(not(target_os = "macos"))]
 fn get_agents_skills_dir() -> Option<PathBuf> {
     let dir = crate::config::get_home_dir().join(".agents").join("skills");
     dir.exists().then_some(dir)
 }
 
 /// 解析 `~/.agents/.skill-lock.json`，返回 skill_name -> 仓库信息
+#[cfg(not(target_os = "macos"))]
 fn parse_agents_lock() -> HashMap<String, LockRepoInfo> {
     let path = crate::config::get_home_dir()
         .join(".agents")
@@ -549,6 +563,7 @@ impl SkillService {
     }
 
     /// 从旧 readme_url 中提取仓库内文档路径，兼容 `blob`/`tree` 两种格式
+    #[cfg(not(target_os = "macos"))]
     fn extract_doc_path_from_url(url: &str) -> Option<String> {
         let marker = if url.contains("/blob/") {
             "/blob/"
@@ -569,6 +584,7 @@ impl SkillService {
     // ========== 路径管理 ==========
 
     /// 获取 SSOT 目录（根据设置返回 ~/.cc-switch/skills/ 或 ~/.agents/skills/）
+    #[cfg(not(target_os = "macos"))]
     pub fn get_ssot_dir() -> Result<PathBuf> {
         let location = crate::settings::get_skill_storage_location();
         let dir = match location {
@@ -582,6 +598,7 @@ impl SkillService {
     }
 
     /// 获取 Skill 卸载备份目录（~/.cc-switch/skill-backups/）
+    #[cfg(not(target_os = "macos"))]
     fn get_backup_dir() -> Result<PathBuf> {
         let dir = get_app_config_dir().join("skill-backups");
         fs::create_dir_all(&dir)?;
@@ -650,6 +667,7 @@ impl SkillService {
     // ========== 统一管理方法 ==========
 
     /// 获取所有已安装的 Skills
+    #[cfg(not(target_os = "macos"))]
     pub fn get_all_installed(db: &Arc<Database>) -> Result<Vec<InstalledSkill>> {
         let skills = db.get_all_installed_skills()?;
         Ok(skills.into_values().collect())
@@ -661,6 +679,7 @@ impl SkillService {
     /// 1. 下载到 SSOT 目录
     /// 2. 保存到数据库
     /// 3. 同步到启用的应用目录
+    #[cfg(not(target_os = "macos"))]
     pub async fn install(
         &self,
         db: &Arc<Database>,
@@ -871,6 +890,7 @@ impl SkillService {
     /// 1. 从所有应用目录删除
     /// 2. 从 SSOT 删除
     /// 3. 从数据库删除
+    #[cfg(not(target_os = "macos"))]
     pub fn uninstall(db: &Arc<Database>, id: &str) -> Result<SkillUninstallResult> {
         // 获取 skill 信息
         let skill = db
@@ -933,6 +953,7 @@ impl SkillService {
     ///
     /// 递归遍历目录下所有非隐藏文件，按相对路径字典序排列，
     /// 将 "相对路径\0内容\0" 逐文件 feed 给同一个 hasher。
+    #[cfg(not(target_os = "macos"))]
     pub fn compute_dir_hash(dir: &Path) -> Result<String> {
         use sha2::{Digest, Sha256};
 
@@ -957,6 +978,7 @@ impl SkillService {
 
     /// 递归收集目录下所有非隐藏文件
     #[allow(clippy::only_used_in_recursion)]
+    #[cfg(not(target_os = "macos"))]
     fn collect_files_for_hash(base: &Path, current: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         let entries = fs::read_dir(current)
             .with_context(|| format!("读取目录失败: {}", current.display()))?;
@@ -986,6 +1008,7 @@ impl SkillService {
     ///
     /// 返回 `(hash, freshly_computed)`；freshly_computed 表示哈希是现场算出的，
     /// 调用方应回填数据库缓存。
+    #[cfg(not(target_os = "macos"))]
     fn local_hash_for_update_check(
         ssot_dir: &Path,
         raw_directory: &str,
@@ -1021,6 +1044,7 @@ impl SkillService {
     ///
     /// 仅检查有 repo_owner 的 Skill（本地 Skill 跳过），
     /// 按仓库分组下载，避免重复下载同一仓库。
+    #[cfg(not(target_os = "macos"))]
     pub async fn check_updates(&self, db: &Arc<Database>) -> Result<Vec<SkillUpdateInfo>> {
         let skills = db.get_all_installed_skills()?;
         let mut updates = Vec::new();
@@ -1133,6 +1157,7 @@ impl SkillService {
     /// 更新过程包含网络下载，期间用户可能切换启用状态或卸载 Skill。这里必须
     /// 使用只更新现有记录的 DAO，避免旧快照覆盖 `enabled_*`，也避免已卸载记录
     /// 被重新插入。
+    #[cfg(not(target_os = "macos"))]
     fn persist_updated_skill_metadata(
         db: &Arc<Database>,
         updated_skill: &InstalledSkill,
@@ -1146,6 +1171,7 @@ impl SkillService {
     }
 
     /// 更新单个 Skill（重新下载并替换本地文件）
+    #[cfg(not(target_os = "macos"))]
     pub async fn update_skill(&self, db: &Arc<Database>, skill_id: &str) -> Result<InstalledSkill> {
         let skill = db
             .get_installed_skill(skill_id)?
@@ -1289,6 +1315,7 @@ impl SkillService {
     }
 
     /// 为缺少 content_hash 的已安装 Skill 补算哈希
+    #[cfg(not(target_os = "macos"))]
     pub fn backfill_content_hashes(db: &Arc<Database>) -> Result<usize> {
         let skills = db.get_all_installed_skills()?;
         let ssot_dir = Self::get_ssot_dir()?;
@@ -1326,6 +1353,7 @@ impl SkillService {
     /// 迁移 Skill 存储位置（在两个 SSOT 目录间移动文件）
     ///
     /// 安全策略：先移文件，后改设置。中途崩溃时设置仍指向旧目录。
+    #[cfg(not(target_os = "macos"))]
     pub fn migrate_storage(
         db: &Arc<Database>,
         target: SkillStorageLocation,
@@ -1415,6 +1443,7 @@ impl SkillService {
         Ok(result)
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub fn list_backups() -> Result<Vec<SkillBackupEntry>> {
         let backup_dir = Self::get_backup_dir()?;
         let mut entries = Vec::new();
@@ -1449,6 +1478,7 @@ impl SkillService {
         Ok(entries)
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub fn delete_backup(backup_id: &str) -> Result<()> {
         let backup_path = Self::backup_path_for_id(backup_id)?;
         let metadata = fs::symlink_metadata(&backup_path)
@@ -1468,6 +1498,7 @@ impl SkillService {
         Ok(())
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub fn restore_from_backup(
         db: &Arc<Database>,
         backup_id: &str,
@@ -1547,6 +1578,7 @@ impl SkillService {
     ///
     /// 启用：复制到应用目录
     /// 禁用：从应用目录删除
+    #[cfg(not(target_os = "macos"))]
     pub fn toggle_app(db: &Arc<Database>, id: &str, app: &AppType, enabled: bool) -> Result<()> {
         // 获取当前 skill
         let mut skill = db
@@ -1574,6 +1606,7 @@ impl SkillService {
     /// 扫描未管理的 Skills
     ///
     /// 扫描各应用目录，找出未被 CC Switch 管理的 Skills
+    #[cfg(not(target_os = "macos"))]
     pub fn scan_unmanaged(db: &Arc<Database>) -> Result<Vec<UnmanagedSkill>> {
         let managed_skills = db.get_all_installed_skills()?;
         let managed_dirs: HashSet<String> = managed_skills
@@ -1637,6 +1670,7 @@ impl SkillService {
     /// 从应用目录导入 Skills
     ///
     /// 将未管理的 Skills 导入到 CC Switch 统一管理
+    #[cfg(not(target_os = "macos"))]
     pub fn import_from_apps(
         db: &Arc<Database>,
         imports: Vec<ImportSkillSelection>,
@@ -1755,19 +1789,20 @@ impl SkillService {
     ///
     /// - Unix: 使用 std::os::unix::fs::symlink
     /// - Windows: 使用 std::os::windows::fs::symlink_dir
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn create_symlink(src: &Path, dest: &Path) -> Result<()> {
         std::os::unix::fs::symlink(src, dest)
             .with_context(|| format!("创建符号链接失败: {} -> {}", src.display(), dest.display()))
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, not(target_os = "macos")))]
     fn create_symlink(src: &Path, dest: &Path) -> Result<()> {
         std::os::windows::fs::symlink_dir(src, dest)
             .with_context(|| format!("创建符号链接失败: {} -> {}", src.display(), dest.display()))
     }
 
     /// 检查路径是否为符号链接
+    #[cfg(not(target_os = "macos"))]
     fn is_symlink(path: &Path) -> bool {
         path.symlink_metadata()
             .map(|m| m.file_type().is_symlink())
@@ -1775,6 +1810,7 @@ impl SkillService {
     }
 
     /// 获取当前同步方式配置
+    #[cfg(not(target_os = "macos"))]
     fn get_sync_method() -> SyncMethod {
         crate::settings::get_skill_sync_method()
     }
@@ -1785,6 +1821,7 @@ impl SkillService {
     /// - Auto: 优先尝试 symlink，失败时回退到 copy
     /// - Symlink: 仅使用 symlink
     /// - Copy: 仅使用文件复制
+    #[cfg(not(target_os = "macos"))]
     pub fn sync_to_app_dir(directory: &str, app: &AppType) -> Result<()> {
         if matches!(app, AppType::ClaudeDesktop) {
             return Ok(());
@@ -1853,11 +1890,13 @@ impl SkillService {
 
     /// 复制 Skill 到应用目录（保留用于向后兼容）
     #[deprecated(note = "请使用 sync_to_app_dir() 代替")]
+    #[cfg(not(target_os = "macos"))]
     pub fn copy_to_app(directory: &str, app: &AppType) -> Result<()> {
         Self::sync_to_app_dir(directory, app)
     }
 
     /// 删除路径（支持 symlink 和真实目录）
+    #[cfg(not(target_os = "macos"))]
     fn remove_path(path: &Path) -> Result<()> {
         if Self::is_symlink(path) {
             // 符号链接：仅删除链接本身，不影响源文件
@@ -1875,6 +1914,7 @@ impl SkillService {
         Ok(())
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn validate_sync_source_dir(source: &Path, directory: &str) -> Result<()> {
         if !source.is_dir() {
             return Err(anyhow!("Skill 不存在于 SSOT: {directory}"));
@@ -1891,6 +1931,7 @@ impl SkillService {
         Ok(())
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn replace_dest_with_copy(source: &Path, dest: &Path, directory: &str) -> Result<()> {
         Self::validate_sync_source_dir(source, directory)?;
 
@@ -1933,6 +1974,7 @@ impl SkillService {
     }
 
     /// 判断路径是否为指向 SSOT 目录内的符号链接。
+    #[cfg(not(target_os = "macos"))]
     fn is_symlink_to_ssot(path: &Path, ssot_dir: &Path) -> bool {
         if !Self::is_symlink(path) {
             return false;
@@ -1960,6 +2002,7 @@ impl SkillService {
     }
 
     /// 从应用目录删除 Skill（支持 symlink 和真实目录）
+    #[cfg(not(target_os = "macos"))]
     pub fn remove_from_app(directory: &str, app: &AppType) -> Result<()> {
         if matches!(app, AppType::ClaudeDesktop) {
             return Ok(());
@@ -1981,6 +2024,7 @@ impl SkillService {
     }
 
     /// 同步所有已启用的 Skills 到指定应用
+    #[cfg(not(target_os = "macos"))]
     pub fn sync_to_app(db: &Arc<Database>, app: &AppType) -> Result<()> {
         if matches!(app, AppType::ClaudeDesktop) {
             return Ok(());
@@ -2259,6 +2303,7 @@ impl SkillService {
     }
 
     /// 从 SKILL.md 读取名称和描述，不存在则用目录名兜底
+    #[cfg(not(target_os = "macos"))]
     fn read_skill_name_desc(skill_md: &Path, fallback_name: &str) -> (String, Option<String>) {
         if skill_md.exists() {
             match Self::parse_skill_metadata_static(skill_md) {
@@ -2348,6 +2393,7 @@ impl SkillService {
     /// 只校验、不归一化：`sanitize_install_name` 会 `trim()`，若拿它的返回值替换
     /// 原值，磁盘上真实带空格的目录名就再也 join 不中。所以这里要求归一化结果与
     /// 原值逐字相同，否则一律视为非法。
+    #[cfg(not(target_os = "macos"))]
     fn require_valid_directory(directory: &str) -> Result<String> {
         match Self::sanitize_install_name(directory) {
             Some(normalized) if normalized == directory => Ok(normalized),
@@ -2556,6 +2602,7 @@ impl SkillService {
     /// 旧 readme_url 中保存的路径，最后才按 directory 拼接。skills.sh 的
     /// `directory` 只是 skillId（末级目录名），嵌套目录场景直接拼接会丢路径、
     /// 文档链接 404（#6111），所以真实源目录必须排第一优先级。
+    #[cfg(not(target_os = "macos"))]
     fn choose_doc_path(
         resolved_source_doc_path: Option<String>,
         readme_url: Option<&str>,
@@ -2882,6 +2929,7 @@ impl SkillService {
     }
 
     /// 递归复制目录
+    #[cfg(not(target_os = "macos"))]
     fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
         fs::create_dir_all(dest)?;
 
@@ -2900,6 +2948,7 @@ impl SkillService {
         Ok(())
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn resolve_uninstall_backup_source(skill: &InstalledSkill) -> Result<Option<PathBuf>> {
         // 返回值会被整目录复制进 ~/.cc-switch/skill-backups/ 并由 get_skill_backups
         // 在界面上列出——脏 directory 在这里等于任意文件读取 + 外泄通道。
@@ -2924,6 +2973,7 @@ impl SkillService {
         Ok(None)
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn sanitize_backup_segment(segment: &str) -> String {
         let sanitized = segment
             .chars()
@@ -2942,6 +2992,7 @@ impl SkillService {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn cleanup_old_skill_backups(dir: &Path) -> Result<()> {
         let mut entries = fs::read_dir(dir)?
             .filter_map(|entry| entry.ok())
@@ -2968,6 +3019,7 @@ impl SkillService {
         Ok(())
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn backup_path_for_id(backup_id: &str) -> Result<PathBuf> {
         if backup_id.contains("..")
             || backup_id.contains('/')
@@ -2980,6 +3032,7 @@ impl SkillService {
         Ok(Self::get_backup_dir()?.join(backup_id))
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn read_backup_metadata(backup_path: &Path) -> Result<SkillBackupMetadata> {
         let metadata_path = backup_path.join("meta.json");
         let content = fs::read_to_string(&metadata_path)
@@ -2988,6 +3041,7 @@ impl SkillService {
             .with_context(|| format!("failed to parse {}", metadata_path.display()))
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn create_uninstall_backup(skill: &InstalledSkill) -> Result<Option<PathBuf>> {
         let Some(source_path) = Self::resolve_uninstall_backup_source(skill)? else {
             log::warn!(
@@ -3140,6 +3194,7 @@ impl SkillService {
     /// 2. 扫描目录查找包含 SKILL.md 的技能
     /// 3. 复制到 SSOT 并保存到数据库
     /// 4. 同步到当前应用目录
+    #[cfg(not(target_os = "macos"))]
     pub fn install_from_zip(
         db: &Arc<Database>,
         zip_path: &Path,
@@ -3287,6 +3342,7 @@ impl SkillService {
     /// 同步等一长串 `?`，任何一处提前返回都会把最多 512 MiB 的临时内容永久留在
     /// 磁盘上。守卫交给调用方持有，清理就变成作用域结束时自动发生，不再依赖每条
     /// 出口都记得手写 `remove_dir_all`（实测漏了不止一条）。
+    #[cfg(not(target_os = "macos"))]
     fn extract_local_zip(zip_path: &Path) -> Result<tempfile::TempDir> {
         Self::extract_local_zip_in(zip_path, &std::env::temp_dir())
     }
@@ -3294,6 +3350,7 @@ impl SkillService {
     /// 与 [`Self::extract_local_zip`] 相同，但临时目录的落点由调用方指定。
     /// 测试用它把解压根钉在私有目录里，而不是劫持进程级 `TMPDIR`——后者会把
     /// 并发测试的临时目录一起吸进被观测目录，"目录必须为空"的断言就会随机失败。
+    #[cfg(not(target_os = "macos"))]
     fn extract_local_zip_in(zip_path: &Path, base_dir: &Path) -> Result<tempfile::TempDir> {
         let file = fs::File::open(zip_path)
             .with_context(|| format!("Failed to open ZIP file: {}", zip_path.display()))?;
@@ -3375,6 +3432,7 @@ impl SkillService {
     }
 
     /// 递归扫描目录查找包含 SKILL.md 的技能目录
+    #[cfg(not(target_os = "macos"))]
     fn scan_skills_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
         let mut skill_dirs = Vec::new();
         Self::scan_skills_recursive(dir, &mut skill_dirs)?;
@@ -3382,6 +3440,7 @@ impl SkillService {
     }
 
     /// 递归扫描辅助函数
+    #[cfg(not(target_os = "macos"))]
     fn scan_skills_recursive(current: &Path, results: &mut Vec<PathBuf>) -> Result<()> {
         // 检查当前目录是否包含 SKILL.md
         let skill_md = current.join("SKILL.md");
@@ -4849,6 +4908,7 @@ impl LibrarySkillAcquisitionService {
 /// 从 lock 文件信息构建 skill 的 ID、仓库字段和 readme URL
 ///
 /// 返回 (id, repo_owner, repo_name, repo_branch, readme_url)
+#[cfg(not(target_os = "macos"))]
 fn build_repo_info_from_lock(
     lock: &HashMap<String, LockRepoInfo>,
     dir_name: &str,
@@ -4881,6 +4941,7 @@ fn build_repo_info_from_lock(
 }
 
 /// 将 lock 文件中发现的仓库保存到 skill_repos（去重）
+#[cfg(not(target_os = "macos"))]
 fn save_repos_from_lock(
     db: &Arc<Database>,
     lock: &HashMap<String, LockRepoInfo>,
@@ -4935,247 +4996,6 @@ fn save_repos_from_lock(
             }
         }
     }
-}
-
-/// 首次启动迁移：扫描应用目录，重建数据库
-#[allow(dead_code)] // Startup no longer invokes this; Issue #15 will replace its write seam.
-pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
-    #[cfg(target_os = "macos")]
-    let trigger = ActivityRecorder::new(db.clone())
-        .list(crate::services::activity::ActivityQuery {
-            operation: Some(ActivityOperation::Migration),
-            reason: Some(ActivityReason::Migrate),
-            limit: Some(1),
-            ..crate::services::activity::ActivityQuery::default()
-        })
-        .ok()
-        .and_then(|page| page.entries.into_iter().next())
-        .filter(|entry| entry.outcome == ActivityOutcome::Failed)
-        .map(|_| ActivityTrigger::Resume)
-        .unwrap_or(ActivityTrigger::Startup);
-
-    #[cfg(target_os = "macos")]
-    let result = migrate_skills_to_ssot_inner(db, trigger);
-    #[cfg(not(target_os = "macos"))]
-    let result = migrate_skills_to_ssot_inner(db);
-
-    #[cfg(target_os = "macos")]
-    {
-        let (outcome, detail_code) = match &result {
-            Ok(0) => (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync),
-            Ok(_) => (ActivityOutcome::Success, ActivityDetailCode::None),
-            Err(error) => (
-                ActivityOutcome::Failed,
-                LibrarySkillAcquisitionService::activity_detail_for_error(error),
-            ),
-        };
-        record_ssot_migration_activity(
-            db,
-            ActivityReason::Migrate,
-            outcome,
-            detail_code,
-            None,
-            trigger,
-            None,
-        );
-    }
-    result
-}
-
-#[allow(dead_code)]
-fn migrate_skills_to_ssot_inner(
-    db: &Arc<Database>,
-    #[cfg(target_os = "macos")] activity_trigger: ActivityTrigger,
-) -> Result<usize> {
-    let ssot_dir = SkillService::get_ssot_dir()?;
-    let agents_lock = parse_agents_lock();
-    let snapshot: Vec<LegacySkillMigrationRow> =
-        match db.get_setting("skills_ssot_migration_snapshot")? {
-            Some(value) if !value.trim().is_empty() => match serde_json::from_str(&value) {
-                Ok(rows) => rows,
-                Err(err) => {
-                    log::warn!("解析 skills 迁移快照失败，将回退到文件系统扫描: {err}");
-                    Vec::new()
-                }
-            },
-            _ => Vec::new(),
-        };
-
-    let has_snapshot = !snapshot.is_empty();
-    let mut discovered: HashMap<String, SkillApps> = HashMap::new();
-
-    if has_snapshot {
-        for row in &snapshot {
-            // snapshot 存在 settings 表里，而 settings 在同步范围内、可被远端快照
-            // 覆盖。下面 discovered 的每个 key 都会被 join 成路径并写回 skills 表，
-            // 所以脏值必须在进入 discovered 之前就滤掉。
-            if SkillService::require_valid_directory(&row.directory).is_err() {
-                log::warn!("跳过 SSOT 迁移快照中非法的 directory: {:?}", row.directory);
-                continue;
-            }
-            if let Ok(app) = row.app_type.parse::<AppType>() {
-                discovered
-                    .entry(row.directory.clone())
-                    .or_default()
-                    .set_enabled_for(&app, true);
-            }
-        }
-    }
-
-    // 扫描各应用目录
-    for app in AppType::all() {
-        let app_dir = match SkillService::get_app_skills_dir(&app) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-
-        let entries = match fs::read_dir(&app_dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let dir_name = entry.file_name().to_string_lossy().to_string();
-            if dir_name.starts_with('.') {
-                continue;
-            }
-            if !path.join("SKILL.md").exists() {
-                continue;
-            }
-            if has_snapshot && !discovered.contains_key(&dir_name) {
-                continue;
-            }
-
-            // 复制到 SSOT（如果不存在）
-            let ssot_path = ssot_dir.join(&dir_name);
-            if !ssot_path.exists() {
-                SkillService::copy_dir_recursive(&path, &ssot_path)?;
-            }
-
-            if !has_snapshot {
-                discovered
-                    .entry(dir_name)
-                    .or_default()
-                    .set_enabled_for(&app, true);
-            }
-        }
-    }
-
-    // 重建数据库
-    db.clear_skills()?;
-
-    // 将 lock 文件中发现的仓库保存到 skill_repos
-    save_repos_from_lock(db, &agents_lock, discovered.keys());
-
-    #[cfg(target_os = "macos")]
-    let item_count = discovered.len() as u32;
-    #[cfg(target_os = "macos")]
-    let batch_id = (item_count > 0).then(|| uuid::Uuid::new_v4().to_string());
-    let mut discovered = discovered.into_iter().collect::<Vec<_>>();
-    discovered.sort_by(|left, right| left.0.cmp(&right.0));
-    let mut count = 0;
-    for (item_index, (directory, apps)) in discovered.into_iter().enumerate() {
-        let ssot_path = ssot_dir.join(&directory);
-        let skill_md = ssot_path.join("SKILL.md");
-
-        let (name, description) = SkillService::read_skill_name_desc(&skill_md, &directory);
-
-        let (id, repo_owner, repo_name, repo_branch, readme_url) =
-            build_repo_info_from_lock(&agents_lock, &directory);
-
-        let content_hash = SkillService::compute_dir_hash(&ssot_path).ok();
-
-        let skill = InstalledSkill {
-            id,
-            name,
-            description,
-            directory,
-            repo_owner,
-            repo_name,
-            repo_branch,
-            readme_url,
-            apps,
-            installed_at: chrono::Utc::now().timestamp(),
-            content_hash,
-            updated_at: 0,
-        };
-
-        if let Err(error) = db.save_skill(&skill) {
-            #[cfg(target_os = "macos")]
-            record_ssot_migration_activity(
-                db,
-                ActivityReason::MigrateItem,
-                ActivityOutcome::Failed,
-                ActivityDetailCode::DatabaseFailure,
-                activity_safe_migration_skill_id(&skill.id),
-                activity_trigger,
-                batch_id.as_ref().map(|batch_id| ActivityBatchContext {
-                    batch_id: batch_id.clone(),
-                    item_index: item_index as u32,
-                    item_count,
-                }),
-            );
-            return Err(error.into());
-        }
-        #[cfg(target_os = "macos")]
-        record_ssot_migration_activity(
-            db,
-            ActivityReason::MigrateItem,
-            ActivityOutcome::Success,
-            ActivityDetailCode::None,
-            activity_safe_migration_skill_id(&skill.id),
-            activity_trigger,
-            batch_id.as_ref().map(|batch_id| ActivityBatchContext {
-                batch_id: batch_id.clone(),
-                item_index: item_index as u32,
-                item_count,
-            }),
-        );
-        count += 1;
-    }
-
-    let _ = db.set_setting("skills_ssot_migration_snapshot", "");
-
-    log::info!("Skills 迁移完成，共 {count} 个");
-
-    Ok(count)
-}
-
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-fn activity_safe_migration_skill_id(id: &str) -> Option<String> {
-    ActivityTarget::safe_identifier(id.to_string())
-}
-
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-fn record_ssot_migration_activity(
-    db: &Arc<Database>,
-    reason: ActivityReason,
-    outcome: ActivityOutcome,
-    detail_code: ActivityDetailCode,
-    library_skill_id: Option<String>,
-    trigger: ActivityTrigger,
-    batch: Option<ActivityBatchContext>,
-) {
-    ActivityRecorder::new(db.clone()).record_best_effort(ActivityEventInput {
-        operation: ActivityOperation::Migration,
-        reason,
-        outcome,
-        actor: ActivityActor::Migration,
-        trigger,
-        target: ActivityTarget {
-            library_skill_id,
-            ..ActivityTarget::default()
-        },
-        batch,
-        detail_code,
-    });
 }
 
 #[cfg(test)]
@@ -5591,6 +5411,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn extract_local_zip_leaves_no_partial_directory_when_it_fails() {
         use std::io::Write;
@@ -5633,6 +5454,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn extract_local_zip_hands_back_a_guard_that_owns_the_tree() {
         use std::io::Write;
@@ -5677,6 +5499,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn extract_local_zip_rejects_dot_dot_entries() {
         use std::io::Write;
@@ -5705,6 +5528,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn extract_local_zip_rejects_too_many_entries() {
         // 本地 ZIP 走的是另一个解压器，条目上限曾只加在远端归档那条路径上。
@@ -5745,7 +5569,9 @@ mod tests {
 
     /// CC_SWITCH_TEST_HOME 隔离守卫（serial 测试间互斥由 #[serial] 保证，
     /// 守卫只负责在测试结束后恢复原值）。
+    #[cfg(not(target_os = "macos"))]
     struct TestHomeGuard(Option<std::ffi::OsString>);
+    #[cfg(not(target_os = "macos"))]
     impl TestHomeGuard {
         fn set(home: &Path) -> Self {
             let guard = Self(std::env::var_os("CC_SWITCH_TEST_HOME"));
@@ -5753,6 +5579,7 @@ mod tests {
             guard
         }
     }
+    #[cfg(not(target_os = "macos"))]
     impl Drop for TestHomeGuard {
         fn drop(&mut self) {
             match self.0.take() {
@@ -5762,6 +5589,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn poisoned_skill(id: &str, directory: &str) -> InstalledSkill {
         InstalledSkill {
             id: id.to_string(),
@@ -5779,6 +5607,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn persist_updated_skill_metadata_uses_database_apps() {
         let db = Arc::new(Database::memory().expect("memory db"));
@@ -5814,6 +5643,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn persist_updated_skill_metadata_does_not_restore_uninstalled_skill() {
         let db = Arc::new(Database::memory().expect("memory db"));
@@ -5838,6 +5668,7 @@ mod tests {
             .is_none());
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn require_valid_directory_accepts_single_segment_names_only() {
         assert_eq!(
@@ -5862,6 +5693,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn local_hash_for_update_check_ignores_cached_hash_when_dir_missing() {
         // 换机恢复数据库备份的现场：content_hash 还在库里，SSOT 目录已不在。
@@ -5874,6 +5706,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn local_hash_for_update_check_uses_cache_when_dir_exists() {
         let ssot = tempdir().expect("tempdir");
@@ -5884,6 +5717,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn local_hash_for_update_check_computes_and_backfills_when_cache_empty() {
         let ssot = tempdir().expect("tempdir");
@@ -5898,6 +5732,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn local_hash_for_update_check_keeps_cache_for_invalid_directory() {
         // 非法 directory 无法安全拼路径，做不了存在性检查：有缓存沿用缓存
@@ -5914,6 +5749,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[serial_test::serial]
     fn restore_from_backup_rejects_traversal_directory_in_metadata() {
@@ -5951,6 +5787,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[serial_test::serial]
     fn remove_from_app_rejects_traversal_directory() {
@@ -5969,6 +5806,7 @@ mod tests {
         assert!(victim.exists(), "victim directory must not be deleted");
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[serial_test::serial]
     fn uninstall_rejects_traversal_directory_from_db_row() {
@@ -6003,6 +5841,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[serial_test::serial]
     fn migrate_storage_skips_bad_rows_without_moving_foreign_dirs() {
@@ -6044,6 +5883,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[serial_test::serial]
     fn uninstall_backup_source_rejects_traversal_directory() {
@@ -6064,6 +5904,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[serial_test::serial]
     fn sync_to_app_skips_bad_rows_instead_of_aborting_the_whole_app() {
@@ -6163,6 +6004,7 @@ mod tests {
         assert_eq!(resolved, nested);
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn replace_dest_with_copy_rejects_empty_source_without_touching_existing_dest() {
         let temp = tempdir().expect("tempdir");
@@ -6254,6 +6096,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn choose_doc_path_prefers_resolved_source_over_stale_readme_url() {
         // #6111 现场还原：skills.sh 安装嵌套目录 skill——directory 是 skillId
@@ -6271,6 +6114,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn choose_doc_path_falls_back_to_readme_url_path_then_directory() {
         // 无解析结果（SSOT 目录已存在、未重新下载）时沿用旧 readme_url 的仓库内

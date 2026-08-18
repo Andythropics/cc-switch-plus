@@ -14,9 +14,9 @@ use tempfile::tempdir;
 use crate::error::AppError;
 
 // Re-export archive functions for use by transport layers.
-pub(crate) use super::webdav_sync::archive::{
-    backup_current_skills, restore_skills_from_backup, restore_skills_zip, zip_skills_ssot,
-};
+#[cfg(target_os = "macos")]
+pub(crate) use super::webdav_sync::archive::{backup_current_skills, restore_skills_from_backup};
+pub(crate) use super::webdav_sync::archive::{restore_skills_zip, zip_skills_ssot};
 
 // ─── Protocol constants ──────────────────────────────────────
 
@@ -24,6 +24,12 @@ pub(crate) use super::webdav_sync::archive::{
 /// Retains historic "webdav" naming for backward compatibility with existing remotes.
 pub(crate) const PROTOCOL_FORMAT: &str = "cc-switch-webdav-sync";
 pub(crate) const PROTOCOL_VERSION: u32 = 2;
+// macOS publishes the redesigned portable Library as a distinct database
+// generation. Unsupported platforms retain the legacy db-v6 namespace, so a
+// device can never download a snapshot with incompatible Skills semantics.
+#[cfg(target_os = "macos")]
+pub(crate) const DB_COMPAT_VERSION: u32 = 7;
+#[cfg(not(target_os = "macos"))]
 pub(crate) const DB_COMPAT_VERSION: u32 = 6;
 pub(crate) const LEGACY_DB_COMPAT_VERSION: u32 = 5;
 pub(crate) const REMOTE_DB_SQL: &str = "db.sql";
@@ -32,6 +38,22 @@ pub(crate) const REMOTE_MANIFEST: &str = "manifest.json";
 pub(crate) const MAX_DEVICE_NAME_LEN: usize = 64;
 pub(crate) const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_SYNC_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
+
+#[cfg(target_os = "macos")]
+const SYNC_RECOVERY_DIR: &str = ".sync-restore-recovery";
+#[cfg(target_os = "macos")]
+const SYNC_RECOVERY_MARKER: &str = "prepared.json";
+#[cfg(target_os = "macos")]
+const SYNC_RECOVERY_DATABASE: &str = "database.db";
+#[cfg(target_os = "macos")]
+const SYNC_RECOVERY_LIBRARY: &str = "library";
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncRecoveryMarker {
+    library_existed: bool,
+}
 
 // ─── Error helpers ───────────────────────────────────────────
 
@@ -105,6 +127,14 @@ impl RemoteLayout {
 pub(crate) fn build_local_snapshot(
     db: &crate::database::Database,
 ) -> Result<LocalSnapshot, AppError> {
+    // Library metadata and files form one portable snapshot. Serialize them
+    // with every other Library mutation so the SQL and ZIP cannot describe
+    // different points in time.
+    #[cfg(target_os = "macos")]
+    let _library_guard =
+        crate::services::skill::LibrarySkillAcquisitionService::lock_for_composite()
+            .map_err(|error| AppError::Lock(error.to_string()))?;
+
     // Export database to SQL string
     let sql_string = db.export_sql_string_for_sync()?;
     let db_sql = sql_string.into_bytes();
@@ -311,6 +341,18 @@ pub(crate) fn apply_snapshot(
     db_sql: &[u8],
     skills_zip: &[u8],
 ) -> Result<(), AppError> {
+    // Keep the established Library -> Deployment lock order. Restoration
+    // replaces Library files and metadata while deployment inspection must
+    // not observe the intermediate state.
+    #[cfg(target_os = "macos")]
+    let _library_guard =
+        crate::services::skill::LibrarySkillAcquisitionService::lock_for_composite()
+            .map_err(|error| AppError::Lock(error.to_string()))?;
+    #[cfg(target_os = "macos")]
+    let _deployment_guard =
+        crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()
+            .map_err(|error| AppError::Lock(error.to_string()))?;
+
     let sql_str = std::str::from_utf8(db_sql).map_err(|e| {
         localized(
             "sync.sql_not_utf8",
@@ -318,25 +360,150 @@ pub(crate) fn apply_snapshot(
             format!("SQL is not valid UTF-8: {e}"),
         )
     })?;
-    let skills_backup = backup_current_skills()?;
 
-    // Replace skills first, then import database; roll back skills on DB failure.
-    restore_skills_zip(skills_zip)?;
+    #[cfg(target_os = "macos")]
+    {
+        recover_interrupted_snapshot_locked(db)?;
+        prepare_snapshot_recovery(db)?;
 
-    if let Err(db_err) = db.import_sql_string_for_sync(sql_str) {
-        if let Err(rollback_err) = restore_skills_from_backup(&skills_backup) {
-            return Err(localized(
-                "sync.db_import_and_rollback_failed",
-                format!("导入数据库失败: {db_err}; 同时回滚 Skills 失败: {rollback_err}"),
-                format!(
-                    "Database import failed: {db_err}; skills rollback also failed: {rollback_err}"
-                ),
-            ));
+        if let Err(restore_error) = restore_skills_zip(skills_zip) {
+            return rollback_snapshot_error(db, restore_error);
         }
-        return Err(db_err);
+        if let Err(import_error) = db.import_sql_string_for_sync(sql_str) {
+            return rollback_snapshot_error(db, import_error);
+        }
+
+        commit_snapshot_recovery()?;
+        Ok(())
     }
 
+    #[cfg(not(target_os = "macos"))]
+    {
+        restore_skills_zip(skills_zip)?;
+        db.import_sql_string_for_sync(sql_str)
+    }
+}
+
+/// Complete a previously interrupted macOS Library + database replacement.
+///
+/// The recovery marker is the commit boundary. While it exists, the old
+/// database and Library remain authoritative and are restored as one pair.
+#[cfg(target_os = "macos")]
+pub(crate) fn recover_interrupted_snapshot(db: &crate::database::Database) -> Result<(), AppError> {
+    let _library_guard =
+        crate::services::skill::LibrarySkillAcquisitionService::lock_for_composite()
+            .map_err(|error| AppError::Lock(error.to_string()))?;
+    let _deployment_guard =
+        crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()
+            .map_err(|error| AppError::Lock(error.to_string()))?;
+    recover_interrupted_snapshot_locked(db)
+}
+
+#[cfg(target_os = "macos")]
+fn sync_recovery_root() -> std::path::PathBuf {
+    crate::config::get_app_config_dir().join(SYNC_RECOVERY_DIR)
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_snapshot_recovery(db: &crate::database::Database) -> Result<(), AppError> {
+    let root = sync_recovery_root();
+    if root.exists() {
+        fs::remove_dir_all(&root).map_err(|error| AppError::io(&root, error))?;
+    }
+    fs::create_dir_all(&root).map_err(|error| AppError::io(&root, error))?;
+    if let Some(parent) = root.parent() {
+        sync_directory(parent)?;
+    }
+
+    let database_backup = root.join(SYNC_RECOVERY_DATABASE);
+    let library_backup = root.join(SYNC_RECOVERY_LIBRARY);
+    let prepared = (|| {
+        db.backup_database_snapshot_file(&database_backup)?;
+        fs::File::open(&database_backup)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| AppError::io(&database_backup, error))?;
+        let library_existed = backup_current_skills(&library_backup)?;
+        let marker = SyncRecoveryMarker { library_existed };
+        let marker_bytes =
+            serde_json::to_vec(&marker).map_err(|source| AppError::JsonSerialize { source })?;
+        let staged_marker = root.join(format!("{SYNC_RECOVERY_MARKER}.tmp"));
+        fs::write(&staged_marker, marker_bytes)
+            .and_then(|()| fs::File::open(&staged_marker)?.sync_all())
+            .map_err(|error| AppError::io(&staged_marker, error))?;
+        fs::rename(&staged_marker, root.join(SYNC_RECOVERY_MARKER))
+            .map_err(|error| AppError::io(&root, error))?;
+        sync_directory(&root)?;
+        Ok(())
+    })();
+
+    if prepared.is_err() {
+        let _ = fs::remove_dir_all(&root);
+    }
+    prepared
+}
+
+#[cfg(target_os = "macos")]
+fn recover_interrupted_snapshot_locked(db: &crate::database::Database) -> Result<(), AppError> {
+    let root = sync_recovery_root();
+    let marker_path = root.join(SYNC_RECOVERY_MARKER);
+    if !marker_path.exists() {
+        if root.exists() {
+            fs::remove_dir_all(&root).map_err(|error| AppError::io(&root, error))?;
+        }
+        return Ok(());
+    }
+
+    let marker: SyncRecoveryMarker = serde_json::from_slice(
+        &fs::read(&marker_path).map_err(|error| AppError::io(&marker_path, error))?,
+    )
+    .map_err(|source| AppError::json(&marker_path, source))?;
+    let database_backup = root.join(SYNC_RECOVERY_DATABASE);
+    let library_backup = root.join(SYNC_RECOVERY_LIBRARY);
+
+    db.restore_database_snapshot_file(&database_backup)?;
+    restore_skills_from_backup(&library_backup, marker.library_existed)?;
+    commit_snapshot_recovery()
+}
+
+#[cfg(target_os = "macos")]
+fn rollback_snapshot_error(
+    db: &crate::database::Database,
+    error: AppError,
+) -> Result<(), AppError> {
+    match recover_interrupted_snapshot_locked(db) {
+        Ok(()) => Err(error),
+        Err(rollback_error) => Err(localized(
+            "sync.db_import_and_rollback_failed",
+            format!("应用同步快照失败: {error}; 同时恢复旧快照失败: {rollback_error}"),
+            format!(
+                "Applying the sync snapshot failed: {error}; restoring the previous snapshot also failed: {rollback_error}"
+            ),
+        )),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn commit_snapshot_recovery() -> Result<(), AppError> {
+    let root = sync_recovery_root();
+    let marker = root.join(SYNC_RECOVERY_MARKER);
+    if marker.exists() {
+        fs::remove_file(&marker).map_err(|error| AppError::io(&marker, error))?;
+        sync_directory(&root)?;
+    }
+    if root.exists() {
+        fs::remove_dir_all(&root).map_err(|error| AppError::io(&root, error))?;
+        if let Some(parent) = root.parent() {
+            sync_directory(parent)?;
+        }
+    }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn sync_directory(path: &std::path::Path) -> Result<(), AppError> {
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| AppError::io(path, error))
 }
 
 // ─── Utilities ───────────────────────────────────────────────
@@ -418,6 +585,134 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[serial_test::serial]
+    fn remote_library_deletion_with_local_deployment_rolls_back_the_pair() -> Result<(), AppError> {
+        let temp = tempdir().expect("tempdir");
+        let previous_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+
+        let remote = crate::database::Database::memory().expect("remote database");
+        {
+            let conn = crate::database::lock_conn!(remote.conn);
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote', '{}', '{}')",
+                [],
+            )?;
+        }
+        let remote_sql = remote
+            .export_sql_string_for_sync()
+            .expect("export remote snapshot");
+        let remote_zip_path = temp.path().join("remote-skills.zip");
+        zip_skills_ssot(&remote_zip_path).expect("archive empty remote Library");
+        let remote_zip = fs::read(&remote_zip_path).expect("read remote Library archive");
+
+        let local = crate::database::Database::memory().expect("local database");
+        {
+            let conn = crate::database::lock_conn!(local.conn);
+            conn.execute(
+                "INSERT INTO library_skills (
+                     id, directory, display_name, description, source_json,
+                     compatibility_json, content_hash, acquired_at, updated_at
+                 ) VALUES (
+                     'library-1', 'review', 'Review', NULL, '{\"kind\":\"local_import\"}',
+                     '{\"claude\":true,\"codex\":true}', 'hash-1', 1, 1
+                 )",
+                [],
+            )
+            .expect("seed local Library metadata");
+            conn.execute(
+                "INSERT INTO skill_deployments (
+                     id, library_skill_id, consumer, workspace_kind,
+                     library_directory, workspace_id, created_at, updated_at
+                 ) VALUES ('deployment-1', 'library-1', 'claude', 'global', 'review', '', 1, 1)",
+                [],
+            )
+            .expect("seed local Deployment");
+        }
+        let library = temp.path().join(".cc-switch/skills/review");
+        fs::create_dir_all(&library).expect("create local Library");
+        fs::write(library.join("SKILL.md"), "local Library").expect("write local Library");
+
+        let error = apply_snapshot(&local, remote_sql.as_bytes(), &remote_zip)
+            .expect_err("remote deletion must be rejected");
+        assert!(
+            error.to_string().contains("undeploy or Forget"),
+            "unexpected sync blocker: {error}"
+        );
+
+        let conn = crate::database::lock_conn!(local.conn);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM library_skills", [], |row| row
+                .get::<_, i64>(0))
+                .expect("count Library rows"),
+            1
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM skill_deployments", [], |row| row
+                .get::<_, i64>(0))
+                .expect("count Deployments"),
+            1
+        );
+        drop(conn);
+        assert_eq!(
+            fs::read_to_string(library.join("SKILL.md")).expect("read restored Library"),
+            "local Library"
+        );
+        assert!(!sync_recovery_root().exists());
+
+        match previous_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[serial_test::serial]
+    fn interrupted_snapshot_recovery_restores_database_and_library_pair() {
+        let temp = tempdir().expect("tempdir");
+        let previous_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+
+        let db = crate::database::Database::memory().expect("database");
+        db.set_setting("sync_recovery_probe", "old")
+            .expect("seed old database state");
+        let library = temp.path().join(".cc-switch/skills/example");
+        fs::create_dir_all(&library).expect("create old Library");
+        fs::write(library.join("SKILL.md"), "old Library").expect("write old Library content");
+
+        prepare_snapshot_recovery(&db).expect("prepare durable recovery");
+        assert!(sync_recovery_root().join(SYNC_RECOVERY_MARKER).is_file());
+
+        db.set_setting("sync_recovery_probe", "new")
+            .expect("simulate imported database");
+        fs::remove_dir_all(temp.path().join(".cc-switch/skills")).expect("remove old Library");
+        fs::create_dir_all(&library).expect("create new Library");
+        fs::write(library.join("SKILL.md"), "new Library").expect("write new Library content");
+
+        recover_interrupted_snapshot(&db).expect("recover interrupted snapshot");
+
+        assert_eq!(
+            db.get_setting("sync_recovery_probe")
+                .expect("read restored database"),
+            Some("old".to_string())
+        );
+        assert_eq!(
+            fs::read_to_string(library.join("SKILL.md")).expect("read restored Library"),
+            "old Library"
+        );
+        assert!(!sync_recovery_root().exists());
+
+        match previous_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
 
     fn artifact(sha256: &str, size: u64) -> ArtifactMeta {
         ArtifactMeta {
@@ -644,5 +939,13 @@ mod tests {
             size: data.len() as u64,
         };
         assert!(verify_artifact(data, "test.bin", &meta).is_ok());
+    }
+
+    #[test]
+    fn skills_sync_namespace_matches_platform_contract() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(DB_COMPAT_VERSION, 7);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(DB_COMPAT_VERSION, 6);
     }
 }

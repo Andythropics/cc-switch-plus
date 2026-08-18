@@ -212,6 +212,13 @@ async fn find_remote_snapshot(
     if let Some(snapshot) = fetch_remote_snapshot(settings, auth, RemoteLayout::Current).await? {
         return Ok(Some(snapshot));
     }
+    // A legacy snapshot predates the private Library and cannot represent its
+    // metadata/content boundary. Importing it on macOS would clear the local
+    // Library while rebuilding an empty table.
+    #[cfg(target_os = "macos")]
+    return Ok(None);
+
+    #[cfg(not(target_os = "macos"))]
     fetch_remote_snapshot(settings, auth, RemoteLayout::Legacy).await
 }
 
@@ -319,7 +326,15 @@ mod tests {
             ..WebDavSyncSettings::default()
         };
         let segs = remote_dir_segments(&settings, RemoteLayout::Current);
-        assert_eq!(segs, vec!["cc-switch-sync", "v2", "db-v6", "default"]);
+        assert_eq!(
+            segs,
+            vec![
+                "cc-switch-sync".to_string(),
+                "v2".to_string(),
+                format!("db-v{DB_COMPAT_VERSION}"),
+                "default".to_string()
+            ]
+        );
     }
 
     #[test]

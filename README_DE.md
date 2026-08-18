@@ -200,13 +200,13 @@ TeamoRouter bietet außerdem Enterprise-Funktionen wie zentrale Abrechnung, Team
 
 ## Warum CC Switch?
 
-Modernes KI-gestütztes Programmieren stützt sich auf Werkzeuge wie Claude Code, Claude Desktop, Codex, Gemini CLI, Grok Build, OpenCode, OpenClaw und Hermes — doch jedes hat sein eigenes Konfigurationsformat. Der Wechsel des API-Anbieters bedeutet, JSON-, TOML- oder `.env`-Dateien von Hand zu bearbeiten, und es gibt keine einheitliche Möglichkeit, MCP und Skills über mehrere Werkzeuge hinweg zu verwalten.
+Modernes KI-gestütztes Programmieren stützt sich auf Werkzeuge wie Claude Code, Claude Desktop, Codex, Gemini CLI, Grok Build, OpenCode, OpenClaw und Hermes — doch jedes hat sein eigenes Konfigurationsformat. Der Wechsel des API-Anbieters bedeutet, JSON-, TOML- oder `.env`-Dateien von Hand zu bearbeiten. Auf macOS verwaltet CC Switch Skills für Claude und Codex außerdem aus einer privaten Library mit expliziten Deployments.
 
-**CC Switch** gibt Ihnen eine einzige Desktop-App, um alle unterstützten KI-Werkzeuge zu verwalten. Statt Konfigurationsdateien von Hand zu bearbeiten, erhalten Sie eine visuelle Oberfläche, um Anbieter mit einem Klick zu importieren und sofort zwischen ihnen zu wechseln — mit 50+ integrierten Anbieter-Presets, einheitlicher MCP- und Skills-Verwaltung und schnellem Umschalten über das System-Tray. Das Ganze gestützt auf eine zuverlässige SQLite-Datenbank mit atomaren Schreibvorgängen, die Ihre Konfigurationen vor Beschädigung schützen.
+**CC Switch** gibt Ihnen eine einzige Desktop-App, um alle unterstützten KI-Werkzeuge zu verwalten. Statt Konfigurationsdateien von Hand zu bearbeiten, erhalten Sie eine visuelle Oberfläche, um Anbieter mit einem Klick zu importieren und sofort zwischen ihnen zu wechseln — mit 50+ integrierten Anbieter-Presets, einheitlicher MCP-Verwaltung, einer macOS-Skills-Library für Claude und Codex und schnellem Umschalten über das System-Tray. Das Ganze wird von einer zuverlässigen SQLite-Datenbank mit atomaren Schreibvorgängen gestützt.
 
 - **Eine App, acht Werkzeuge** — Verwalten Sie Claude Code, Claude Desktop, Codex, Gemini CLI, Grok Build, OpenCode, OpenClaw und Hermes über eine einzige Oberfläche
 - **Kein manuelles Bearbeiten mehr** — 50+ Anbieter-Presets einschließlich AWS Bedrock, NVIDIA NIM und Community-Relays; einfach auswählen und umschalten
-- **Einheitliche MCP- & Skills-Verwaltung** — Ein Panel zur Verwaltung von MCP-Servern und Skills für Claude, Codex, Gemini, Grok Build, OpenCode und Hermes mit bidirektionaler Synchronisierung
+- **MCP & Skills mit klaren Grenzen** — MCP-Server app-übergreifend verwalten; Skills auf macOS aus einer privaten Library gezielt nach Claude oder Codex deployen
 - **Schnellumschaltung über System-Tray** — Wechseln Sie Anbieter sofort über das Tray-Menü, ohne die vollständige App öffnen zu müssen
 - **Cloud-Synchronisierung** — Synchronisieren Sie Anbieterdaten geräteübergreifend über Dropbox, OneDrive, iCloud oder WebDAV-Server
 - **Plattformübergreifend** — Native Desktop-App für Windows, macOS und Linux, gebaut mit Tauri 2
@@ -215,7 +215,7 @@ Modernes KI-gestütztes Programmieren stützt sich auf Werkzeuge wie Claude Code
 ## Screenshots
 
 |                  Hauptoberfläche                   |                  Anbieter hinzufügen                  |
-| :-----------------------------------------------: | :--------------------------------------------: |
+| :------------------------------------------------: | :---------------------------------------------------: |
 | ![Hauptoberfläche](assets/screenshots/main-en.png) | ![Anbieter hinzufügen](assets/screenshots/add-en.png) |
 
 ## Funktionen
@@ -237,7 +237,7 @@ Modernes KI-gestütztes Programmieren stützt sich auf Werkzeuge wie Claude Code
 
 - **Einheitliches MCP-Panel** — Verwalten Sie MCP-Server für Claude, Codex, Gemini, Grok Build, OpenCode und Hermes mit bidirektionaler Synchronisierung und Deep-Link-Import
 - **Prompts** — Markdown-Editor mit App-übergreifender Synchronisierung (CLAUDE.md / AGENTS.md / GEMINI.md) und Backfill-Schutz
-- **Skills** — Installation mit einem Klick aus GitHub-Repositorys oder ZIP-Dateien, Verwaltung eigener Repositorys, mit Unterstützung für Symlinks und Dateikopien
+- **Skills (macOS)** — Skills aus Repositorys oder ZIP-Dateien in eine private Library aufnehmen, prüfen und anschließend explizit als verwaltete Links nach Claude oder Codex deployen
 
 ### Nutzungs- & Kostenverfolgung
 
@@ -304,8 +304,8 @@ Fügen Sie einen offiziellen Anbieter aus der Preset-Liste hinzu. Führen Sie na
 - **Datenbank**: `~/.cc-switch/cc-switch.db` (SQLite — Anbieter, MCP, Prompts, Skills)
 - **Lokale Einstellungen**: `~/.cc-switch/settings.json` (gerätebezogene UI-Einstellungen)
 - **Backups**: `~/.cc-switch/backups/` (automatisch rotiert, behält die 10 neuesten)
-- **Skills**: `~/.cc-switch/skills/` (standardmäßig per Symlink mit den entsprechenden Apps verbunden)
-- **Skill-Backups**: `~/.cc-switch/skill-backups/` (vor der Deinstallation automatisch erstellt, behält die 20 neuesten)
+- **Skills Library (macOS)**: `~/.cc-switch/skills/` (einzige verwaltete Quellkopie; Claude-/Codex-Deployments sind einzelne Links)
+- **Skills-Wiederherstellung (macOS)**: verwaltete Backups und Migrationsjournale unter `~/.cc-switch/`
 
 </details>
 
@@ -341,7 +341,7 @@ Ausführliche Anleitungen zu jeder Funktion finden Sie im **[Benutzerhandbuch](d
 
 - **MCP**: Klicken Sie auf die Schaltfläche „MCP" → Server über Vorlagen oder eigene Konfiguration hinzufügen → Synchronisierung pro App umschalten
 - **Prompts**: Klicken Sie auf „Prompts" → Presets mit dem Markdown-Editor erstellen → Aktivieren, um mit den Live-Dateien zu synchronisieren
-- **Skills**: Klicken Sie auf „Skills" → GitHub-Repositorys durchsuchen → mit einem Klick in unterstützte Apps installieren
+- **Skills (macOS)**: Öffnen Sie „Skills" → nehmen Sie einen Skill in die Library auf → wählen Sie Claude, Codex oder ein registriertes Projekt als Deployment-Ziel
 - **Sessions**: Klicken Sie auf „Sessions" → Gesprächsverlauf aus unterstützten Sitzungsquellen durchsuchen, suchen und wiederherstellen
 
 > **Hinweis**: Beim Erststart können Sie bestehende CLI-Werkzeug-Konfigurationen manuell als Standardanbieter importieren.

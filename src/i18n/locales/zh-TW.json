@@ -705,25 +705,6 @@
       "showProfileSwitcher": "顯示專案切換",
       "showProfileSwitcherDescription": "在主頁面頂部顯示專案切換入口"
     },
-    "skillStorage": {
-      "title": "Skills 儲存位置",
-      "description": "選擇 CC Switch 存放 Skills 主副本的目錄",
-      "ccSwitch": "CC Switch",
-      "unified": "~/.agents/skills",
-      "ccSwitchHint": "技能儲存在 ~/.cc-switch/skills/，由 CC Switch 統一管理並同步至各應用程式。",
-      "unifiedHint": "技能儲存在 ~/.agents/skills/，遵循 Agent Skills 開放標準。相容的工具（Claude Code、Codex、Gemini CLI 等）可直接發現此目錄中的技能。",
-      "confirmTitle": "遷移技能儲存位置",
-      "confirmMessage": "將移動 {{count}} 個技能至新位置，是否繼續？",
-      "migrationSuccess": "已成功遷移 {{count}} 個技能",
-      "migrationPartial": "遷移了 {{migrated}} 個技能，{{errors}} 個失敗，請查看日誌"
-    },
-    "skillSync": {
-      "title": "Skills 同步方式",
-      "description": "選擇 Skills 的檔案同步策略",
-      "symlink": "軟連結",
-      "copy": "檔案複製",
-      "symlinkHint": "軟連結節省磁碟空間並支援即時同步。注意：Windows 可能需要管理員權限或開啟開發者模式"
-    },
     "terminal": {
       "title": "首選終端機",
       "description": "選擇點擊終端機按鈕時使用的終端機應用程式",
@@ -1993,18 +1974,18 @@
   },
   "profiles": {
     "switcherTooltip": {
-      "claude": "專案：一鍵切換 Claude Code 的供應商 / MCP / Skills / 記憶檔案",
+      "claude": "專案：一鍵切換 Claude Code 的供應商 / MCP / 記憶檔案",
       "claude-desktop": "專案：一鍵切換 Claude Desktop 的供應商",
-      "codex": "專案：一鍵切換 Codex 的供應商 / MCP / Skills / 記憶檔案"
+      "codex": "專案：一鍵切換 Codex 的供應商 / MCP / 記憶檔案"
     },
     "none": "不使用專案",
     "searchPlaceholder": "搜尋專案",
     "empty": "尚無專案",
     "createFromCurrent": "新建專案",
     "createDescription": {
-      "claude": "把 Claude Code 目前的供應商、MCP、Skills、記憶檔案儲存為一個專案，之後可一鍵切換。",
+      "claude": "把 Claude Code 目前的供應商、MCP 和記憶檔案儲存為一個專案，之後可一鍵切換。",
       "claude-desktop": "把 Claude Desktop 目前的供應商儲存為一個專案，之後可一鍵切換。",
-      "codex": "把 Codex 目前的供應商、MCP、Skills 和記憶檔案設定儲存為一個專案，之後可一鍵切換。"
+      "codex": "把 Codex 目前的供應商、MCP 和記憶檔案設定儲存為一個專案，之後可一鍵切換。"
     },
     "manage": "管理專案…",
     "manageTitle": "管理專案",
@@ -2278,7 +2259,7 @@
   "skills": {
     "manage": "Skills",
     "title": "Skills 管理",
-    "description": "從熱門的儲存庫發現並安裝技能，擴充 Claude Code/Codex/Gemini 的能力",
+    "description": "探索技能，將其取得至私人資料庫，並部署到 Claude 或 Codex",
     "library": {
       "title": "私人技能庫",
       "discoveryTitle": "發現技能",
@@ -2429,7 +2410,7 @@
         }
       },
       "macOnlyTitle": "私人技能庫僅支援 macOS",
-      "macOnlyDescription": "私人技能庫目前僅支援在 macOS 上使用。"
+      "macOnlyDescription": "新版 Skills 系統僅支援 macOS。在 Windows 和 Linux 上，CC Switch 不會變更既有的 Skill 檔案或資料庫狀態。"
     },
     "global": {
       "title": "全域 Skills",
@@ -2847,18 +2828,18 @@
     "emptyDescription": "新增技能儲存庫以發現可用的技能",
     "addRepo": "新增技能儲存庫",
     "loading": "載入中...",
-    "installed": "已安裝",
-    "install": "安裝",
-    "installing": "安裝中...",
-    "uninstall": "解除安裝",
-    "uninstalling": "解除安裝中...",
+    "installed": "已在資料庫",
+    "install": "取得",
+    "installing": "取得中...",
+    "uninstall": "移除",
+    "uninstalling": "移除中...",
     "view": "檢視",
     "noDescription": "暫無描述",
     "loadFailed": "載入失敗",
-    "installSuccess": "技能 {{name}} 已安裝",
-    "installFailed": "安裝失敗",
-    "uninstallSuccess": "技能 {{name}} 已解除安裝",
-    "uninstallFailed": "解除安裝失敗",
+    "installSuccess": "技能 {{name}} 已取得",
+    "installFailed": "取得失敗",
+    "uninstallSuccess": "技能 {{name}} 已移除",
+    "uninstallFailed": "移除失敗",
     "update": "更新",
     "updating": "更新中...",
     "updateAvailable": "可更新",
@@ -2878,7 +2859,7 @@
       "downloadTimeoutHint": "請檢查網路連線或稍後重試",
       "skillPathNotFound": "儲存庫 {{owner}}/{{name}} 中未找到技能路徑 '{{path}}'",
       "skillDirNotFound": "技能目錄不存在：{{path}}",
-      "directoryConflict": "技能目錄 '{{directory}}' 已被 {{existing_repo}} 佔用，無法從 {{new_repo}} 安裝",
+      "directoryConflict": "技能目錄 '{{directory}}' 已被 {{existing_repo}} 佔用，無法從 {{new_repo}} 取得",
       "emptyArchive": "下載的壓縮檔為空",
       "invalidRepoRef": "倉庫位址不合法：{{owner}}/{{name}}",
       "archiveTooLarge": "壓縮檔解壓後超過 {{limit_mb}} MB 上限，已中止",
@@ -2902,7 +2883,7 @@
         "checkRepoUrl": "請檢查儲存庫位址和分支名稱",
         "checkDiskSpace": "請檢查磁碟空間",
         "checkPermission": "請檢查目錄權限",
-        "uninstallFirst": "請先解除安裝已安裝的同名技能",
+        "uninstallFirst": "請先處理資料庫中同名的技能",
         "checkZipContent": "請確認 ZIP 檔案包含有效的技能目錄（含 SKILL.md 檔案）"
       }
     },
@@ -2927,9 +2908,9 @@
     },
     "search": "搜尋技能",
     "searchPlaceholder": "搜尋技能名稱或儲存庫名稱...",
-    "installedSearchPlaceholder": "搜尋已安裝技能的名稱、描述或儲存庫...",
-    "installedSearchAriaLabel": "搜尋已安裝技能",
-    "noInstalledSearchResults": "未找到相符的已安裝技能",
+    "installedSearchPlaceholder": "搜尋資料庫技能的名稱、描述或儲存庫...",
+    "installedSearchAriaLabel": "搜尋資料庫技能",
+    "noInstalledSearchResults": "未找到相符的資料庫技能",
     "searchSource": {
       "repos": "儲存庫",
       "skillssh": "skills.sh"
@@ -2946,14 +2927,14 @@
     "filter": {
       "placeholder": "狀態篩選",
       "all": "全部",
-      "installed": "已安裝",
-      "uninstalled": "未安裝",
+      "installed": "已在資料庫",
+      "uninstalled": "不在資料庫",
       "repo": "儲存庫篩選",
       "allRepos": "全部儲存庫"
     },
     "noResults": "未找到相符的技能",
-    "noInstalled": "暫無已安裝的技能",
-    "noInstalledDescription": "從儲存庫發現並安裝技能，或匯入已有的技能",
+    "noInstalled": "資料庫中暫無技能",
+    "noInstalledDescription": "從儲存庫發現並取得技能，或匯入已有的技能",
     "discover": "發現技能",
     "import": "匯入已有",
     "importDescription": "選擇要匯入至 CC Switch 統一管理的技能",
@@ -2963,8 +2944,8 @@
     "unmanagedAvailable": "發現可匯入的技能",
     "foundIn": "發現於",
     "local": "本地",
-    "uninstallConfirm": "確定要解除安裝技能 \"{{name}}\" 嗎？這將從所有應用程式中移除該技能，並在刪除前自動建立本地備份。",
-    "uninstallInMainPanel": "請在主面板中解除安裝技能",
+    "uninstallConfirm": "確定要從資料庫移除技能 \"{{name}}\" 嗎？系統會先檢查既有部署並建立本機備份。",
+    "uninstallInMainPanel": "請在 Skills 主畫面中移除資料庫技能",
     "notFound": "未找到技能",
     "backup": {
       "location": "備份位置：{{path}}"
@@ -2995,10 +2976,10 @@
       "openclaw": "OpenClaw"
     },
     "installFromZip": {
-      "button": "從 ZIP 安裝",
-      "installing": "安裝中...",
-      "successSingle": "技能 {{name}} 已安裝",
-      "successMultiple": "成功安裝 {{count}} 個技能",
+      "button": "從 ZIP 取得",
+      "installing": "取得中...",
+      "successSingle": "技能 {{name}} 已取得",
+      "successMultiple": "成功取得 {{count}} 個技能",
       "noSkillsFound": "ZIP 檔案中未找到技能（需包含 SKILL.md 檔案）"
     }
   },
@@ -3070,7 +3051,7 @@
       "branch": "分支",
       "skillsPath": "Skills 路徑",
       "hint": "此操作將新增 Skill 儲存庫至清單。",
-      "hintDetail": "新增後，您可以在 Skills 管理介面中選擇安裝具體的 Skill。"
+      "hintDetail": "新增後，您可以在 Skills 探索畫面中取得具體的 Skill。"
     },
     "usageScript": "用量查詢",
     "usageScriptEnabled": "已啟用",
@@ -3109,10 +3090,7 @@
     "clickToSelect": "點擊選擇圖示"
   },
   "migration": {
-    "success": "設定遷移成功",
-    "skillsSuccess": "已自動匯入 {{count}} 個技能至統一管理",
-    "skillsFailed": "自動匯入技能失敗",
-    "skillsFailedDescription": "請開啟 Skills 頁面點擊「匯入現有」手動匯入（或重新啟動後再試）。"
+    "success": "設定遷移成功"
   },
   "agents": {
     "title": "Agent"

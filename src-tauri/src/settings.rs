@@ -449,11 +449,12 @@ pub struct AppSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_provider_hermes: Option<String>,
 
-    // ===== Skill 同步设置 =====
-    /// Skill 同步方式：auto（默认，优先 symlink）、symlink、copy
+    // ===== Legacy Skill migration evidence =====
+    /// Hidden legacy value retained only until guided macOS migration can
+    /// identify the user's previous storage model. It has no redesigned UI.
     #[serde(default)]
     pub skill_sync_method: SyncMethod,
-    /// Skill 存储位置：cc_switch（默认）或 unified（~/.agents/skills/）
+    /// Hidden legacy root selector retained as durable migration evidence.
     #[serde(default)]
     pub skill_storage_location: SkillStorageLocation,
 
@@ -733,8 +734,7 @@ pub fn get_settings() -> AppSettings {
         .clone()
 }
 
-pub fn get_settings_for_frontend() -> AppSettings {
-    let mut settings = get_settings();
+fn frontend_settings_value(mut settings: AppSettings) -> Result<serde_json::Value, AppError> {
     if let Some(sync) = &mut settings.webdav_sync {
         sync.password.clear();
     }
@@ -742,7 +742,36 @@ pub fn get_settings_for_frontend() -> AppSettings {
         s3.secret_access_key.clear();
     }
     settings.webdav_backup = None;
-    settings
+    let mut value = serde_json::to_value(settings)
+        .map_err(|error| AppError::JsonSerialize { source: error })?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("skillSyncMethod");
+        object.remove("skillStorageLocation");
+    }
+    Ok(value)
+}
+
+pub fn get_settings_for_frontend() -> Result<serde_json::Value, AppError> {
+    frontend_settings_value(get_settings())
+}
+
+#[cfg(test)]
+mod frontend_settings_tests {
+    use super::*;
+
+    #[test]
+    fn frontend_settings_omit_hidden_skill_migration_evidence() {
+        let value = frontend_settings_value(AppSettings {
+            skill_sync_method: SyncMethod::Copy,
+            skill_storage_location: SkillStorageLocation::Unified,
+            ..AppSettings::default()
+        })
+        .expect("serialize frontend settings");
+        let object = value.as_object().expect("settings object");
+
+        assert!(!object.contains_key("skillSyncMethod"));
+        assert!(!object.contains_key("skillStorageLocation"));
+    }
 }
 
 pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
@@ -1029,6 +1058,7 @@ pub fn get_effective_current_provider(
 // ===== Skill 同步方式管理函数 =====
 
 /// 获取 Skill 同步方式配置
+#[cfg(not(target_os = "macos"))]
 pub fn get_skill_sync_method() -> SyncMethod {
     settings_store()
         .read()
@@ -1053,6 +1083,7 @@ pub fn get_skill_storage_location() -> SkillStorageLocation {
 }
 
 /// 设置 Skill 存储位置
+#[cfg(not(target_os = "macos"))]
 pub fn set_skill_storage_location(location: SkillStorageLocation) -> Result<(), AppError> {
     mutate_settings(|s| {
         s.skill_storage_location = location;

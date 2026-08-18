@@ -71,7 +71,7 @@ fn import_authorizer(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hoo
 }
 
 /// Tables whose data rows are skipped when exporting for WebDAV sync.
-const SYNC_SKIP_TABLES: &[&str] = &[
+const SYNC_SKIP_TABLES_BASE: &[&str] = &[
     "proxy_request_logs",
     "stream_check_logs",
     "provider_health",
@@ -82,11 +82,17 @@ const SYNC_SKIP_TABLES: &[&str] = &[
     "skill_deployments",
     "skills_migration_runs",
     "skills_migration_items",
+    "skills",
 ];
+
+#[cfg(target_os = "macos")]
+const PLATFORM_LOCAL_SKILL_TABLES: &[&str] = &[];
+#[cfg(not(target_os = "macos"))]
+const PLATFORM_LOCAL_SKILL_TABLES: &[&str] = &["skill_repos"];
 
 /// Tables whose local data is preserved (restored from local snapshot) during WebDAV import.
 /// Excludes ephemeral tables like provider_health that can safely rebuild at runtime.
-const SYNC_PRESERVE_TABLES: &[&str] = &[
+const SYNC_PRESERVE_TABLES_BASE: &[&str] = &[
     "proxy_request_logs",
     "stream_check_logs",
     "proxy_live_backup",
@@ -96,7 +102,15 @@ const SYNC_PRESERVE_TABLES: &[&str] = &[
     "skill_deployments",
     "skills_migration_runs",
     "skills_migration_items",
+    "skills",
 ];
+
+fn platform_sync_tables(base: &[&'static str]) -> Vec<&'static str> {
+    base.iter()
+        .copied()
+        .chain(PLATFORM_LOCAL_SKILL_TABLES.iter().copied())
+        .collect()
+}
 
 /// Row-level sync filters for device-local values that must never leave a device.
 /// The same filters are used on export and import so local migration evidence
@@ -140,7 +154,8 @@ impl Database {
     /// Export SQL for sync (WebDAV), skipping local-only tables' data
     pub fn export_sql_string_for_sync(&self) -> Result<String, AppError> {
         let snapshot = self.snapshot_to_memory()?;
-        Self::dump_sql_with_row_filters(&snapshot, SYNC_SKIP_TABLES, SYNC_SKIP_ROWS)
+        let skip_tables = platform_sync_tables(SYNC_SKIP_TABLES_BASE);
+        Self::dump_sql_with_row_filters(&snapshot, &skip_tables, SYNC_SKIP_ROWS)
     }
 
     /// 导出为 SQLite 兼容的 SQL 文本
@@ -176,7 +191,8 @@ impl Database {
     /// Import SQL generated for sync, then restore local-only tables from the
     /// current device snapshot before replacing the main database.
     pub(crate) fn import_sql_string_for_sync(&self, sql_raw: &str) -> Result<String, AppError> {
-        self.import_sql_string_inner(sql_raw, SYNC_PRESERVE_TABLES, SYNC_PRESERVE_ROWS)
+        let preserve_tables = platform_sync_tables(SYNC_PRESERVE_TABLES_BASE);
+        self.import_sql_string_inner(sql_raw, &preserve_tables, SYNC_PRESERVE_ROWS)
     }
 
     fn import_sql_string_inner(
@@ -224,6 +240,10 @@ impl Database {
             Self::restore_tables(local_snapshot, &temp_conn, preserve_tables)?;
             Self::restore_rows(local_snapshot, &temp_conn, preserve_rows)?;
         }
+        #[cfg(target_os = "macos")]
+        if preserve_tables.contains(&"skill_deployments") {
+            Self::validate_sync_library_deployments(&temp_conn)?;
+        }
 
         // 使用 Backup 将临时库原子写回主库
         {
@@ -240,6 +260,44 @@ impl Database {
             .unwrap_or_default();
 
         Ok(backup_id)
+    }
+
+    /// Portable Library metadata may only remove a Skill after this device's
+    /// desired Deployments have been explicitly undeployed or forgotten.
+    /// Validate the fully assembled temporary snapshot before it can replace
+    /// the main database; the composite sync layer will restore Library files
+    /// from its durable backup when this rejects a remote deletion.
+    #[cfg(target_os = "macos")]
+    fn validate_sync_library_deployments(conn: &Connection) -> Result<(), AppError> {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT d.library_skill_id, d.library_directory
+             FROM skill_deployments d
+             LEFT JOIN library_skills l ON l.id = d.library_skill_id
+             WHERE l.id IS NULL
+             ORDER BY d.library_directory, d.library_skill_id",
+        )?;
+        let blockers = stmt
+            .query_map([], |row| {
+                Ok(format!(
+                    "{} ({})",
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(0)?
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if blockers.is_empty() {
+            return Ok(());
+        }
+
+        let skills = blockers.join(", ");
+        Err(AppError::localized(
+            "sync.library.deployment_blocked",
+            format!("远端 Library 删除被本机 Deployment 阻止；请先 undeploy 或 Forget：{skills}"),
+            format!(
+                "Remote Library deletion is blocked by local Deployments; undeploy or Forget them first: {skills}"
+            ),
+        ))
     }
 
     /// 创建内存快照以避免长时间持有数据库锁
@@ -1892,6 +1950,152 @@ mod tests {
         assert_eq!(
             full_target.get_setting("skills_ssot_migration_snapshot")?,
             Some(remote_snapshot.to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn sync_preserves_legacy_skill_state_at_the_platform_boundary() -> Result<(), AppError> {
+        let _test_home = TestHomeGuard::new();
+        let remote = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(remote.conn);
+            conn.execute(
+                "INSERT INTO skills (id, name, directory, installed_at)
+                 VALUES ('remote-skill', 'Remote', 'remote', 1)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO skill_repos (owner, name, branch, enabled)
+                 VALUES ('remote-owner', 'remote-repo', 'main', 1)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote', '{}', '{}')",
+                [],
+            )?;
+        }
+
+        let sync_sql = remote.export_sql_string_for_sync()?;
+        let exported = Connection::open_in_memory()?;
+        exported.execute_batch(&sync_sql)?;
+        assert_eq!(
+            exported.query_row("SELECT COUNT(*) FROM skills", [], |row| row
+                .get::<_, i64>(0))?,
+            0,
+            "legacy per-consumer Skill state must never leave its device"
+        );
+        let exported_repos = exported.query_row("SELECT COUNT(*) FROM skill_repos", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            exported_repos, 1,
+            "repository sources remain portable on macOS"
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            exported_repos, 0,
+            "unsupported platforms preserve all legacy Skill database state"
+        );
+
+        let local = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(local.conn);
+            conn.execute(
+                "INSERT INTO skills (id, name, directory, installed_at)
+                 VALUES ('local-skill', 'Local', 'local', 2)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO skill_repos (owner, name, branch, enabled)
+                 VALUES ('local-owner', 'local-repo', 'main', 1)",
+                [],
+            )?;
+        }
+        local.import_sql_string_for_sync(&sync_sql)?;
+        let conn = crate::database::lock_conn!(local.conn);
+        let skill_ids = conn
+            .prepare("SELECT id FROM skills ORDER BY id")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(skill_ids, vec!["local-skill"]);
+        let repo_owners = conn
+            .prepare("SELECT owner FROM skill_repos ORDER BY owner")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(target_os = "macos")]
+        assert_eq!(repo_owners, vec!["remote-owner"]);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(repo_owners, vec!["local-owner"]);
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[serial]
+    fn sync_rejects_remote_library_deletion_while_local_deployment_exists() -> Result<(), AppError>
+    {
+        let _test_home = TestHomeGuard::new();
+        let remote = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(remote.conn);
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('remote-provider', 'claude', 'Remote', '{}', '{}')",
+                [],
+            )?;
+        }
+        let remote_sql = remote.export_sql_string_for_sync()?;
+
+        let local = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(local.conn);
+            conn.execute(
+                "INSERT INTO library_skills (
+                     id, directory, display_name, description, source_json,
+                     compatibility_json, content_hash, acquired_at, updated_at
+                 ) VALUES (
+                     'library-1', 'review', 'Review', NULL, '{\"kind\":\"local_import\"}',
+                     '{\"claude\":true,\"codex\":true}', 'hash-1', 1, 1
+                 )",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO skill_deployments (
+                     id, library_skill_id, consumer, workspace_kind,
+                     library_directory, workspace_id, created_at, updated_at
+                 ) VALUES ('deployment-1', 'library-1', 'claude', 'global', 'review', '', 1, 1)",
+                [],
+            )?;
+        }
+
+        let error = local
+            .import_sql_string_for_sync(&remote_sql)
+            .expect_err("remote deletion must wait for local undeploy or Forget");
+        assert!(
+            error.to_string().contains("undeploy or Forget"),
+            "unexpected sync blocker: {error}"
+        );
+
+        let conn = crate::database::lock_conn!(local.conn);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM library_skills", [], |row| {
+                row.get::<_, i64>(0)
+            })?,
+            1,
+            "rejected sync must preserve the local Library row"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT library_skill_id FROM skill_deployments WHERE id = 'deployment-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?,
+            "library-1",
+            "rejected sync must preserve device-local desired state"
         );
         Ok(())
     }

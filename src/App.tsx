@@ -573,34 +573,6 @@ function App() {
   }, [t]);
 
   useEffect(() => {
-    const checkSkillsMigration = async () => {
-      try {
-        const result = await invoke<{ count: number; error?: string } | null>(
-          "get_skills_migration_result",
-        );
-        if (result?.error) {
-          toast.error(t("migration.skillsFailed"), {
-            description: t("migration.skillsFailedDescription"),
-            closeButton: true,
-          });
-          console.error("[App] Skills SSOT migration failed:", result.error);
-          return;
-        }
-        if (result && result.count > 0) {
-          toast.success(t("migration.skillsSuccess", { count: result.count }), {
-            closeButton: true,
-          });
-          await queryClient.invalidateQueries({ queryKey: ["skills"] });
-        }
-      } catch (error) {
-        console.error("[App] Failed to check skills migration result:", error);
-      }
-    };
-
-    checkSkillsMigration();
-  }, [t, queryClient]);
-
-  useEffect(() => {
     const checkEnvOnSwitch = async () => {
       try {
         const conflicts = await checkEnvConflicts(activeApp);

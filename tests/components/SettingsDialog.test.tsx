@@ -350,6 +350,17 @@ describe("SettingsPage Component", () => {
     expect(importExportMock.clearSelection).toHaveBeenCalled();
   });
 
+  it("does not expose legacy Skill storage or copy-mode settings", () => {
+    renderSettingsPage();
+
+    expect(
+      screen.queryByText("legacy-skill-storage-location"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("legacy-skill-sync-method"),
+    ).not.toBeInTheDocument();
+  });
+
   it("should reset tab content scroll position when switching settings tabs", () => {
     const { container } = renderSettingsPage();
     const scrollContainer = container.querySelector(

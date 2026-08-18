@@ -48,13 +48,18 @@ fn merge_settings_for_save(
     // 开关）后、前端 query 缓存刷新前的一次全量保存会把旧 marker 重放回来，
     // 重新开启时被"复活"的标记挡住而漏迁。
     incoming.local_migrations = existing.local_migrations.clone();
+    // The redesigned UI has no editable copy/storage mode. Preserve the
+    // hidden legacy values on every platform: macOS needs migration evidence,
+    // while unsupported platforms must keep their existing state untouched.
+    incoming.skill_sync_method = existing.skill_sync_method;
+    incoming.skill_storage_location = existing.skill_storage_location;
     incoming
 }
 
 /// 获取设置
 #[tauri::command]
-pub async fn get_settings() -> Result<crate::settings::AppSettings, String> {
-    Ok(crate::settings::get_settings_for_frontend())
+pub async fn get_settings() -> Result<serde_json::Value, String> {
+    crate::settings::get_settings_for_frontend().map_err(|error| error.to_string())
 }
 
 /// 保存设置
@@ -561,6 +566,29 @@ mod tests {
             .expect("official unify migration marker should be preserved");
         assert_eq!(unify_migration.migrated_jsonl_files, 5);
         assert_eq!(unify_migration.migrated_state_rows, 7);
+    }
+
+    #[test]
+    fn save_settings_preserves_hidden_legacy_skill_migration_evidence() {
+        let existing = AppSettings {
+            skill_sync_method: crate::services::skill::SyncMethod::Copy,
+            skill_storage_location: crate::services::skill::SkillStorageLocation::Unified,
+            ..AppSettings::default()
+        };
+        let incoming = AppSettings::default();
+
+        let merged = merge_settings_for_save(incoming, &existing);
+        assert_eq!(
+            merged.skill_sync_method,
+            crate::services::skill::SyncMethod::Copy
+        );
+        assert_eq!(
+            merged.skill_storage_location,
+            crate::services::skill::SkillStorageLocation::Unified
+        );
+        let json = serde_json::to_value(&merged).expect("serialize settings");
+        assert_eq!(json["skillSyncMethod"], "copy");
+        assert_eq!(json["skillStorageLocation"], "unified");
     }
 
     /// incoming 带有 local_migrations（哪怕是空的）也不能覆盖后端维护的标记。

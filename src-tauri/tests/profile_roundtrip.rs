@@ -8,7 +8,7 @@ use serde_json::json;
 
 use cc_switch_lib::{
     AppType, InstalledSkill, McpServer, McpService, ProfilePayload, ProfileScope, ProfileService,
-    Prompt, PromptService, Provider, ProviderService, SkillApps, SkillService,
+    Prompt, PromptService, Provider, ProviderService, SkillApps,
 };
 
 #[path = "support.rs"]
@@ -87,8 +87,9 @@ fn installed_skill(id: &str, directory: &str, claude_enabled: bool) -> Installed
 }
 
 fn write_ssot_skill(directory: &str) {
-    let dir = SkillService::get_ssot_dir()
-        .expect("resolve skills SSOT dir")
+    let dir = ensure_test_home()
+        .join(".cc-switch")
+        .join("skills")
         .join(directory);
     fs::create_dir_all(&dir).expect("create skill dir");
     fs::write(
@@ -181,9 +182,11 @@ fn profile_snapshot_apply_roundtrip_restores_configuration() {
         serde_json::from_str(&profile_a.payload).expect("parse profile A payload");
     assert_eq!(payload.providers.claude.as_deref(), Some("p1"));
     assert_eq!(payload.mcp.claude, Some(vec!["m1".to_string()]));
-    assert_eq!(
-        payload.skills.claude,
-        Some(vec!["local:test-skill".to_string()])
+    let raw_payload: serde_json::Value =
+        serde_json::from_str(&profile_a.payload).expect("parse raw profile payload");
+    assert!(
+        raw_payload.get("skills").is_none(),
+        "Profiles no longer serialize Skill assignments"
     );
     assert_eq!(payload.prompts.claude.as_deref(), Some("pr1"));
     assert_eq!(
@@ -196,15 +199,17 @@ fn profile_snapshot_apply_roundtrip_restores_configuration() {
         "claude desktop has its own profile scope"
     );
 
-    // ---- 改动全部四类配置（走真实切换路径）----
+    // ---- 改动 Profile 管理的配置，并独立改动 legacy Skill 状态 ----
     ProviderService::switch(&state, AppType::Claude, "p2").expect("switch to p2");
     // Desktop 现在有自己的项目分组；Claude 分组 apply 不应再影响 Desktop
     #[cfg(any(target_os = "macos", windows))]
     ProviderService::switch(&state, AppType::ClaudeDesktop, "d2").expect("switch desktop to d2");
     McpService::toggle_app(&state, "m1", AppType::Claude, false).expect("disable m1");
     McpService::toggle_app(&state, "m2", AppType::Claude, true).expect("enable m2");
-    SkillService::toggle_app(&state.db, "local:test-skill", &AppType::Claude, false)
-        .expect("disable skill");
+    state
+        .db
+        .save_skill(&installed_skill("local:test-skill", "test-skill", false))
+        .expect("disable legacy skill");
     PromptService::enable_prompt(&state, AppType::Claude, "pr2").expect("enable pr2");
 
     // ---- 应用项目 A（Claude 组）：只复原 Claude 侧 ----
@@ -241,8 +246,8 @@ fn profile_snapshot_apply_roundtrip_restores_configuration() {
 
     let skills = state.db.get_all_installed_skills().expect("get skills");
     assert!(
-        skills.get("local:test-skill").expect("skill").apps.claude,
-        "skill re-enabled"
+        !skills.get("local:test-skill").expect("skill").apps.claude,
+        "Profile apply must leave legacy Skill state untouched"
     );
 
     let prompts = state
@@ -426,8 +431,8 @@ fn profile_apply_reports_dangling_references_and_continues() {
         .expect("apply succeeds");
     assert_eq!(
         warnings.len(),
-        4,
-        "each dangling reference yields one warning: {warnings:?}"
+        3,
+        "legacy Skill references are ignored; other dangling references warn: {warnings:?}"
     );
 
     // 有效条目照常生效：m1 被启用
@@ -810,5 +815,59 @@ fn claude_desktop_profile_scope_is_independent() {
             .as_deref(),
         Some(project.id.as_str()),
         "desktop scope marker set"
+    );
+}
+
+#[test]
+fn legacy_profile_skill_assignments_are_ignored_and_removed_on_resnapshot() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+
+    write_ssot_skill("profile-owned-skill");
+    state
+        .db
+        .save_skill(&installed_skill(
+            "local:profile-owned-skill",
+            "profile-owned-skill",
+            true,
+        ))
+        .expect("seed enabled legacy Skill");
+
+    let mut profile = ProfileService::create(&state, "Legacy Skills", ProfileScope::Claude)
+        .expect("create legacy profile fixture");
+    let mut raw: serde_json::Value =
+        serde_json::from_str(&profile.payload).expect("parse profile payload");
+    raw["skills"]["claude"] = serde_json::json!([]);
+    profile.payload = serde_json::to_string(&raw).expect("serialize legacy payload");
+    state
+        .db
+        .save_profile(&profile)
+        .expect("save legacy profile payload");
+
+    ProfileService::apply(&state, &profile.id, ProfileScope::Claude)
+        .expect("apply profile containing legacy Skill assignments");
+
+    let skills = state
+        .db
+        .get_all_installed_skills()
+        .expect("read legacy Skills");
+    let skill = skills
+        .get("local:profile-owned-skill")
+        .expect("legacy Skill remains");
+    assert!(
+        skill.apps.claude,
+        "Profiles must not apply legacy Skill enablement after the macOS cutover"
+    );
+
+    let updated =
+        ProfileService::update(&state, &profile.id, None, true, Some(ProfileScope::Claude))
+            .expect("resnapshot profile without Skills ownership");
+    let updated: serde_json::Value =
+        serde_json::from_str(&updated.payload).expect("parse updated profile payload");
+    assert!(
+        updated.get("skills").is_none(),
+        "new Profile payloads must not serialize legacy Skill assignments"
     );
 }

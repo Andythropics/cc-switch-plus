@@ -201,13 +201,14 @@ TeamoRouter 还提供企业级功能，包括集中账单、团队管理、BYOK�
 
 ## 为什么选择 CC Switch？
 
-现代 AI 编程依赖于 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw 和 Hermes 等工具——但每个工具都有自己的配置格式。切换 API 供应商意味着手动编辑 JSON、TOML 或 `.env` 文件，而在多个工具之间缺乏一个统一管理 MCP, SKILLS 的方式。
+现代 AI 编程依赖于 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw 和 Hermes 等工具——但每个工具都有自己的配置格式。切换 API 供应商意味着手动编辑 JSON、TOML 或 `.env` 文件，而在多个工具之间缺乏一个统一管理 MCP 的方式。
 
-**CC Switch** 为你提供一个桌面应用来管理所有支持的 AI 工具。无需手动编辑配置文件，你将获得一个可视化界面，一键将供应商导入应用，一键在不同的供应商之间进行切换，内置 50+ 供应商预设、统一的 MCP, SKILLS 管理以及系统托盘即时切换功能——所有操作都基于可靠的 SQLite 数据库和原子写入机制，保护你的配置不被损坏。
+**CC Switch** 为你提供一个桌面应用来管理所有支持的 AI 工具。无需手动编辑配置文件，你将获得一个可视化界面，一键导入和切换供应商，使用 50+ 供应商预设、统一的 MCP 管理、面向 macOS Claude/Codex 的 Skills 管理以及系统托盘即时切换——所有操作都基于可靠的 SQLite 数据库和原子写入机制，保护你的配置不被损坏。
 
 - **一个应用，八个工具** — 在单一界面中管理 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw 和 Hermes
 - **告别手动编辑** — 50+ 供应商预设，包括 AWS Bedrock、NVIDIA NIM 和社区中转服务；一键即可切换
-- **统一 MCP, SKILLS 管理** — 一个面板管理 Claude、Codex、Gemini、Grok Build、OpenCode 和 Hermes 的 MCP, SKILLS, 支持双向同步
+- **统一 MCP 管理** — 一个面板管理 Claude、Codex、Gemini、Grok Build、OpenCode 和 Hermes 的 MCP，支持双向同步
+- **macOS Skills** — 私有 Library 统一管理来源，显式部署到 Claude/Codex 的 Global 与 Project 工作区，并提供引导迁移、冲突审查与恢复
 - **系统托盘快速切换** — 从托盘菜单即时切换供应商，无需打开完整应用
 - **云同步** — 通过 Dropbox、OneDrive、iCloud 或 WebDAV 服务器在不同设备之间同步供应商数据
 - **跨平台** — 基于 Tauri 2 构建的原生桌面应用，支持 Windows、macOS 和 Linux
@@ -238,7 +239,7 @@ TeamoRouter 还提供企业级功能，包括集中账单、团队管理、BYOK�
 
 - **统一 MCP 面板** — 管理 Claude、Codex、Gemini、Grok Build、OpenCode 和 Hermes 的 MCP 服务器，双向同步，支持 Deep Link 导入
 - **Prompts** — Markdown 编辑器，跨应用同步（CLAUDE.md / AGENTS.md / GEMINI.md），回填保护
-- **Skills** — 从 GitHub 仓库或 ZIP 文件一键安装，自定义仓库管理，支持软连接和文件复制
+- **Skills（macOS）** — 私有 Library 统一管理来源，向 Claude/Codex 的 Global 与 Project 工作区显式部署，并提供引导迁移与恢复
 
 ### 用量与成本追踪
 
@@ -307,8 +308,8 @@ CC Switch macOS 版本已通过 Apple 代码签名和公证，可直接下载安
 - **数据库**：`~/.cc-switch/cc-switch.db`（SQLite — 供应商、MCP、提示词、技能）
 - **本地设置**：`~/.cc-switch/settings.json`（设备级 UI 偏好设置）
 - **备份**：`~/.cc-switch/backups/`（自动轮换，保留最近 10 个）
-- **SKILLS**：`~/.cc-switch/skills/`（默认通过软链接连接到对应应用）
-- **技能备份**：`~/.cc-switch/skill-backups/`（卸载前自动创建，保留最近 20 个）
+- **Skills Library（macOS）**：`~/.cc-switch/skills/`（私有托管内容；通过显式部署创建链接）
+- **Skills 恢复备份（macOS）**：引导更新、删除和迁移流程会显示对应的受管备份位置
 
 </details>
 
@@ -344,7 +345,7 @@ CC_SWITCH_GDK_BACKEND=wayland ./CC-Switch-*.AppImage
 
 - **MCP**：点击"MCP"按钮 → 通过模板或自定义配置添加服务器 → 切换各应用同步开关
 - **Prompts**：点击"Prompts" → 使用 Markdown 编辑器创建预设 → 激活后同步到 live 文件
-- **Skills**：点击"Skills" → 浏览 GitHub 仓库 → 一键安装到支持的应用
+- **Skills（macOS）**：点击“Skills” → 获取到 Library → 选择 Claude/Codex 的 Global 或 Project 部署
 - **会话**：点击"Sessions" → 浏览、搜索和恢复支持的会话来源
 
 > **注意**：首次启动可以手动导入现有 CLI 工具配置作为默认供应商。

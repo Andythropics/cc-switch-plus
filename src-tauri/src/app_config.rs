@@ -227,6 +227,7 @@ pub struct InstalledSkill {
 /// 未管理的 Skill（在应用目录中发现但未被 CC Switch 管理）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(not(target_os = "macos"))]
 pub struct UnmanagedSkill {
     /// 目录名
     pub directory: String,

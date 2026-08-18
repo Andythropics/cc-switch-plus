@@ -1,6 +1,8 @@
+#[cfg(target_os = "macos")]
+use crate::deeplink::import_skill_from_deeplink;
 use crate::deeplink::{
     import_mcp_from_deeplink, import_prompt_from_deeplink, import_provider_from_deeplink,
-    import_skill_from_deeplink, parse_deeplink_url, DeepLinkImportRequest,
+    parse_deeplink_url, DeepLinkImportRequest,
 };
 use crate::store::AppState;
 use tauri::State;
@@ -77,12 +79,25 @@ pub async fn import_from_deeplink_unified(
             }))
         }
         "skill" => {
-            let skill_key =
-                import_skill_from_deeplink(&state, request).map_err(|e| e.to_string())?;
-            Ok(serde_json::json!({
-                "type": "skill",
-                "key": skill_key
-            }))
+            #[cfg(target_os = "macos")]
+            {
+                let skill_key =
+                    import_skill_from_deeplink(&state, request).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({
+                    "type": "skill",
+                    "key": skill_key
+                }))
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = state;
+                let _ = request;
+                Err(
+                    "Redesigned Skills are available on macOS only; existing Skills data was left unchanged."
+                        .to_string(),
+                )
+            }
         }
         _ => Err(format!("Unsupported resource type: {}", request.resource)),
     }

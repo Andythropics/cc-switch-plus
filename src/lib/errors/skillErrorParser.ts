@@ -71,13 +71,13 @@ function getSuggestionI18nKey(suggestion: string): string {
  * 格式化技能错误为用户友好的消息
  * @param errorString 后端返回的错误字符串
  * @param t i18next 翻译函数
- * @param defaultTitle 默认标题的 i18n key（如 "skills.installFailed"）
+ * @param defaultTitle 默认标题的 i18n key（如 "skills.library.acquireFailed"）
  * @returns 包含标题和描述的对象
  */
 export function formatSkillError(
   errorString: string,
   t: TFunction,
-  defaultTitle: string = "skills.installFailed",
+  defaultTitle: string = "skills.library.acquireFailed",
 ): { title: string; description: string } {
   const parsedError = parseSkillError(errorString);
 

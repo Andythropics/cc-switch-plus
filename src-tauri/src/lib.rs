@@ -61,15 +61,14 @@ pub use provider::{Provider, ProviderMeta};
 pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::reapply_current_codex_official_live,
-    skill::{migrate_skills_to_ssot, ImportSkillSelection},
     ConfigService, ConsumerCompatibility, DeploymentBatch, DeploymentBatchResult,
     DeploymentConsumer, DeploymentInspection, DeploymentInspectionResult, DeploymentIntent,
     DeploymentItemResult, DeploymentMutationOutcome, DeploymentQuery, DeploymentStatus,
     DeploymentTarget, DesiredDeployment, DiscoverableSkill, EndpointLatency, LibrarySkill,
     LibrarySkillAcquisitionService, LibrarySkillCompatibility, LibrarySkillSource,
     LibrarySourceKind, McpService, ObservedDeployment, ObservedDeploymentState, PromptService,
-    ProviderService, ProxyService, SkillDeploymentService, SkillService, SkillStorageLocation,
-    SpeedtestService, WorkspaceKind,
+    ProviderService, ProxyService, SkillDeploymentService, SkillStorageLocation, SpeedtestService,
+    WorkspaceKind,
 };
 #[cfg(target_os = "macos")]
 pub use services::{
@@ -608,6 +607,14 @@ pub fn run() {
                 }
             };
 
+            #[cfg(target_os = "macos")]
+            if let Err(error) =
+                crate::services::sync_protocol::recover_interrupted_snapshot(&db)
+            {
+                log::error!("Failed to recover an interrupted sync snapshot: {error}");
+                return Err(Box::new(error));
+            }
+
             // 数据库可用后立即应用持久化日志级别，避免后续服务初始化
             // 继续使用启动阶段的 Info 回退。损坏配置显式 fail-closed 到 Info。
             match db.get_log_config() {
@@ -1083,9 +1090,12 @@ pub fn run() {
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
 
-            // 初始化 SkillService
-            let skill_service = SkillService::new();
-            app.manage(commands::skill::SkillServiceState(Arc::new(skill_service)));
+            #[cfg(target_os = "macos")]
+            {
+                // Catalog discovery is part of the redesigned macOS Skills surface.
+                let skill_service = crate::services::skill::SkillService::new();
+                app.manage(commands::skill::SkillServiceState(Arc::new(skill_service)));
+            }
 
             // 初始化 CopilotAuthManager
             {
@@ -1333,7 +1343,6 @@ pub fn run() {
             commands::open_external,
             commands::get_init_error,
             commands::get_migration_result,
-            commands::get_skills_migration_result,
             commands::get_app_config_path,
             commands::open_app_config_folder,
             commands::get_claude_common_config_snippet,
@@ -1455,14 +1464,15 @@ pub fn run() {
             commands::check_env_conflicts,
             commands::delete_env_vars,
             commands::restore_env_backup,
-            // Skill management (v3.10.0+ unified)
-            commands::get_installed_skills,
+            // Redesigned Skills are macOS-only. Windows and Linux retain their
+            // existing legacy data without exposing partial redesigned commands.
             #[cfg(target_os = "macos")]
             commands::applySkillsMigration,
             #[cfg(target_os = "macos")]
             commands::resumeSkillsMigration,
             #[cfg(target_os = "macos")]
             commands::restoreSkillsMigrationBackup,
+            #[cfg(target_os = "macos")]
             commands::getLibrarySkills,
             #[cfg(target_os = "macos")]
             commands::listSkillActivity,
@@ -1470,7 +1480,9 @@ pub fn run() {
             commands::inspectDeploymentRecovery,
             #[cfg(target_os = "macos")]
             commands::inspectSkillsMigrationPreflight,
+            #[cfg(target_os = "macos")]
             commands::inspectSkillDeployments,
+            #[cfg(target_os = "macos")]
             commands::applySkillDeployments,
             #[cfg(target_os = "macos")]
             commands::inspectProjectSkillImports,
@@ -1484,8 +1496,11 @@ pub fn run() {
             commands::inspectLibrarySkillDeletion,
             #[cfg(target_os = "macos")]
             commands::deleteLibrarySkill,
+            #[cfg(target_os = "macos")]
             commands::acquireLibrarySkill,
+            #[cfg(target_os = "macos")]
             commands::acquireLibrarySkillsFromZip,
+            #[cfg(target_os = "macos")]
             commands::updateLibrarySkillMetadata,
             #[cfg(target_os = "macos")]
             commands::inspectProjectWorkspace,
@@ -1503,30 +1518,16 @@ pub fn run() {
             commands::relocateProjectWorkspace,
             #[cfg(target_os = "macos")]
             commands::forgetProjectWorkspace,
-            commands::get_skill_backups,
-            commands::delete_skill_backup,
-            commands::install_skill_unified,
-            commands::uninstall_skill_unified,
-            commands::restore_skill_backup,
-            commands::toggle_skill_app,
-            commands::scan_unmanaged_skills,
-            commands::import_skills_from_apps,
+            #[cfg(target_os = "macos")]
             commands::discover_available_skills,
-            commands::check_skill_updates,
-            commands::update_skill,
-            commands::migrate_skill_storage,
+            #[cfg(target_os = "macos")]
             commands::search_skills_sh,
-            // Skill management (legacy API compatibility)
-            commands::get_skills,
-            commands::get_skills_for_app,
-            commands::install_skill,
-            commands::install_skill_for_app,
-            commands::uninstall_skill,
-            commands::uninstall_skill_for_app,
+            #[cfg(target_os = "macos")]
             commands::get_skill_repos,
+            #[cfg(target_os = "macos")]
             commands::add_skill_repo,
+            #[cfg(target_os = "macos")]
             commands::remove_skill_repo,
-            commands::install_skills_from_zip,
             // Auto launch
             commands::set_auto_launch,
             commands::get_auto_launch_status,

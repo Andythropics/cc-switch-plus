@@ -705,25 +705,6 @@
       "showProfileSwitcher": "Show project switcher",
       "showProfileSwitcherDescription": "Show the project switcher in the main page header"
     },
-    "skillStorage": {
-      "title": "Skill Storage Location",
-      "description": "Choose where CC Switch stores the master copies of your skills",
-      "ccSwitch": "CC Switch",
-      "unified": "~/.agents/skills",
-      "ccSwitchHint": "Skills are stored in ~/.cc-switch/skills/ and synced to each app via symlink or copy.",
-      "unifiedHint": "Skills are stored in ~/.agents/skills/, the Agent Skills open standard. Compatible tools (Claude Code, Codex, Gemini CLI, etc.) discover skills here natively.",
-      "confirmTitle": "Migrate Skill Storage",
-      "confirmMessage": "{{count}} skill(s) will be moved to the new location. Continue?",
-      "migrationSuccess": "Successfully migrated {{count}} skill(s)",
-      "migrationPartial": "Migrated {{migrated}} skill(s), {{errors}} error(s). Check logs for details."
-    },
-    "skillSync": {
-      "title": "Skill Sync Method",
-      "description": "Choose how to sync Skills files",
-      "symlink": "Symlink",
-      "copy": "Copy Files",
-      "symlinkHint": "Symlinks save disk space and enable real-time sync. Note: May require admin privileges or Developer Mode on Windows"
-    },
     "terminal": {
       "title": "Preferred Terminal",
       "description": "Choose which terminal app to use when clicking the terminal button",
@@ -1992,18 +1973,18 @@
   },
   "profiles": {
     "switcherTooltip": {
-      "claude": "Projects: switch the Claude Code provider / MCP / Skills / memory files in one click",
+      "claude": "Projects: switch the Claude Code provider / MCP / memory files in one click",
       "claude-desktop": "Projects: switch the Claude Desktop provider in one click",
-      "codex": "Projects: switch the Codex provider / MCP / Skills / memory files in one click"
+      "codex": "Projects: switch the Codex provider / MCP / memory files in one click"
     },
     "none": "No project",
     "searchPlaceholder": "Search projects",
     "empty": "No projects yet",
     "createFromCurrent": "New project",
     "createDescription": {
-      "claude": "Save the current Claude Code provider, MCP, Skills and memory file as a project you can switch to later.",
+      "claude": "Save the current Claude Code provider, MCP, and memory file as a project you can switch to later.",
       "claude-desktop": "Save the current Claude Desktop provider as a project you can switch to later.",
-      "codex": "Save the current Codex provider, MCP, Skills and memory file configuration as a project you can switch to later."
+      "codex": "Save the current Codex provider, MCP, and memory file configuration as a project you can switch to later."
     },
     "manage": "Manage projects…",
     "manageTitle": "Manage Projects",
@@ -2277,7 +2258,7 @@
   "skills": {
     "manage": "Skills",
     "title": "Skills Management",
-    "description": "Discover and install skills from popular repositories to extend Claude Code/Codex/Gemini capabilities",
+    "description": "Discover skills, acquire them into the private Library, and deploy them to Claude or Codex",
     "library": {
       "title": "Private Skill Library",
       "discoveryTitle": "Discover Skills",
@@ -2428,7 +2409,7 @@
         }
       },
       "macOnlyTitle": "Private Skill Library is available on macOS only",
-      "macOnlyDescription": "The private Skill Library is currently supported only on macOS."
+      "macOnlyDescription": "The redesigned Skills system is available only on macOS. On Windows and Linux, CC Switch leaves existing Skill files and database state untouched."
     },
     "global": {
       "title": "Global Skills",
@@ -2849,18 +2830,18 @@
     "emptyDescription": "Add skill repositories to discover available skills",
     "addRepo": "Add Skill Repository",
     "loading": "Loading...",
-    "installed": "Installed",
-    "install": "Install",
-    "installing": "Installing...",
-    "uninstall": "Uninstall",
-    "uninstalling": "Uninstalling...",
+    "installed": "In Library",
+    "install": "Acquire",
+    "installing": "Acquiring...",
+    "uninstall": "Remove",
+    "uninstalling": "Removing...",
     "view": "View",
     "noDescription": "No description",
     "loadFailed": "Failed to load",
-    "installSuccess": "Skill {{name}} installed",
-    "installFailed": "Failed to install",
-    "uninstallSuccess": "Skill {{name}} uninstalled",
-    "uninstallFailed": "Failed to uninstall",
+    "installSuccess": "Skill {{name}} acquired",
+    "installFailed": "Failed to acquire",
+    "uninstallSuccess": "Skill {{name}} removed",
+    "uninstallFailed": "Failed to remove",
     "update": "Update",
     "updating": "Updating...",
     "updateAvailable": "Update",
@@ -2880,7 +2861,7 @@
       "downloadTimeoutHint": "Please check network connection or retry later",
       "skillPathNotFound": "Skill path '{{path}}' not found in repository {{owner}}/{{name}}",
       "skillDirNotFound": "Skill directory not found: {{path}}",
-      "directoryConflict": "Skill directory '{{directory}}' is already occupied by {{existing_repo}}, cannot install from {{new_repo}}",
+      "directoryConflict": "Skill directory '{{directory}}' is already occupied by {{existing_repo}}, so it cannot be acquired from {{new_repo}}",
       "emptyArchive": "Downloaded archive is empty",
       "invalidRepoRef": "Invalid repository reference: {{owner}}/{{name}}",
       "archiveTooLarge": "Archive exceeds the {{limit_mb}} MB extraction limit; aborted",
@@ -2904,7 +2885,7 @@
         "checkRepoUrl": "Please check repository URL and branch name",
         "checkDiskSpace": "Please check disk space",
         "checkPermission": "Please check directory permissions",
-        "uninstallFirst": "Please uninstall the existing skill with the same name first",
+        "uninstallFirst": "Resolve the existing Library Skill with the same name first",
         "checkZipContent": "Please verify the ZIP file contains valid skill directories (with SKILL.md files)"
       }
     },
@@ -2929,9 +2910,9 @@
     },
     "search": "Search Skills",
     "searchPlaceholder": "Search skill name or repo...",
-    "installedSearchPlaceholder": "Search installed skill name, description, or repo...",
-    "installedSearchAriaLabel": "Search installed skills",
-    "noInstalledSearchResults": "No installed skills match your search",
+    "installedSearchPlaceholder": "Search Library Skill name, description, or repo...",
+    "installedSearchAriaLabel": "Search Library Skills",
+    "noInstalledSearchResults": "No Library Skills match your search",
     "searchSource": {
       "repos": "Repos",
       "skillssh": "skills.sh"
@@ -2948,14 +2929,14 @@
     "filter": {
       "placeholder": "Filter by status",
       "all": "All",
-      "installed": "Installed",
-      "uninstalled": "Not installed",
+      "installed": "In Library",
+      "uninstalled": "Not in Library",
       "repo": "Filter by repo",
       "allRepos": "All repos"
     },
     "noResults": "No matching skills found",
-    "noInstalled": "No skills installed",
-    "noInstalledDescription": "Discover and install skills from repositories, or import existing skills",
+    "noInstalled": "No skills in the Library",
+    "noInstalledDescription": "Discover and acquire skills from repositories, or import existing skills",
     "discover": "Discover Skills",
     "import": "Import Existing",
     "importDescription": "Select skills to import into CC Switch unified management",
@@ -2965,8 +2946,8 @@
     "unmanagedAvailable": "Skills available to import",
     "foundIn": "Found in",
     "local": "Local",
-    "uninstallConfirm": "Are you sure you want to uninstall \"{{name}}\"? This will remove the skill from all apps and create a local backup first.",
-    "uninstallInMainPanel": "Please uninstall skills from the main panel",
+    "uninstallConfirm": "Remove \"{{name}}\" from the Library? Existing deployments are reviewed and a local backup is created first.",
+    "uninstallInMainPanel": "Remove Library Skills from the main Skills view",
     "notFound": "Skill not found",
     "backup": {
       "location": "Backup location: {{path}}"
@@ -2997,10 +2978,10 @@
       "openclaw": "OpenClaw"
     },
     "installFromZip": {
-      "button": "Install from ZIP",
-      "installing": "Installing...",
-      "successSingle": "Skill {{name}} installed",
-      "successMultiple": "Successfully installed {{count}} skills",
+      "button": "Acquire from ZIP",
+      "installing": "Acquiring...",
+      "successSingle": "Skill {{name}} acquired",
+      "successMultiple": "Acquired {{count}} skills",
       "noSkillsFound": "No skills found in ZIP file (requires SKILL.md file)"
     }
   },
@@ -3072,7 +3053,7 @@
       "branch": "Branch",
       "skillsPath": "Skills Path",
       "hint": "This will add the Skill repository to the list.",
-      "hintDetail": "After adding, you can install specific Skills from the Skills management page."
+      "hintDetail": "After adding, you can acquire specific Skills from the Skills discovery view."
     },
     "usageScript": "Usage Query",
     "usageScriptEnabled": "Enabled",
@@ -3111,10 +3092,7 @@
     "clickToSelect": "Click to select icon"
   },
   "migration": {
-    "success": "Configuration migrated successfully",
-    "skillsSuccess": "Automatically imported {{count}} skill(s) into unified management",
-    "skillsFailed": "Failed to auto import skills",
-    "skillsFailedDescription": "Open the Skills page and click \"Import Existing\" to import manually (or restart and try again)."
+    "success": "Configuration migrated successfully"
   },
   "agents": {
     "title": "Agents"

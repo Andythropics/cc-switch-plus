@@ -76,8 +76,8 @@ pub use proxy::ProxyService;
 #[allow(unused_imports)]
 pub use skill::{
     ConsumerCompatibility, DiscoverableSkill, LibrarySkill, LibrarySkillAcquisitionService,
-    LibrarySkillCompatibility, LibrarySkillSource, LibrarySourceKind, Skill, SkillRepo,
-    SkillService, SkillStorageLocation,
+    LibrarySkillCompatibility, LibrarySkillSource, LibrarySourceKind, SkillRepo,
+    SkillStorageLocation,
 };
 pub use skill_deployment::{
     DeploymentBatch, DeploymentBatchResult, DeploymentConsumer, DeploymentInspection,

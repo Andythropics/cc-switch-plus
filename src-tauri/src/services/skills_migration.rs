@@ -571,6 +571,7 @@ impl SkillsMigrationExecutionService {
                     return self
                         .result_for_run(&run, SkillsMigrationExecutionOutcome::RecoveryRequired);
                 }
+                #[cfg(debug_assertions)]
                 Err(ItemFailure::Interrupted) => {
                     self.db.update_skills_migration_item(
                         &run.id,
@@ -846,6 +847,7 @@ impl SkillsMigrationExecutionService {
             return Err(ItemFailure::RecoveryRequired("compensation_failure"));
         }
         if let Err(failure) = self.retire_legacy_source(item, &library_path) {
+            #[cfg(debug_assertions)]
             if matches!(failure, ItemFailure::Interrupted) {
                 return Err(failure);
             }
@@ -1368,6 +1370,7 @@ impl SkillsMigrationExecutionService {
 enum ItemFailure {
     Blocked(&'static str),
     RecoveryRequired(&'static str),
+    #[cfg(debug_assertions)]
     Interrupted,
 }
 

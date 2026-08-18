@@ -568,6 +568,20 @@ impl Database {
                         Self::migrate_v21_to_v22(conn)?;
                         Self::set_user_version(conn, 22)?;
                     }
+                    #[cfg(target_os = "macos")]
+                    22 => {
+                        log::info!("迁移数据库从 v22 到 v23（从 Profiles 移除旧版 Skills 分配）");
+                        Self::migrate_v22_to_v23(conn)?;
+                        Self::set_user_version(conn, 23)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    23 => {
+                        log::info!(
+                            "迁移数据库从 v23 到 v24（允许保留缺少 Library 元数据的 Deployment intent）"
+                        );
+                        Self::migrate_v23_to_v24(conn)?;
+                        Self::set_user_version(conn, 24)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1310,8 +1324,7 @@ impl Database {
                 workspace_id TEXT NOT NULL DEFAULT '',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                UNIQUE (library_skill_id, consumer, workspace_kind, workspace_id),
-                FOREIGN KEY (library_skill_id) REFERENCES library_skills(id)
+                UNIQUE (library_skill_id, consumer, workspace_kind, workspace_id)
             )",
             [],
         )
@@ -1598,6 +1611,80 @@ impl Database {
     fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
         Self::create_skills_migration_journal_tables(conn)?;
         log::info!("v21 -> v22 迁移完成：已添加设备本地 Skills migration journal");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
+        if !Self::table_exists(conn, "profiles")? {
+            return Ok(());
+        }
+
+        let mut statement = conn
+            .prepare("SELECT id, payload FROM profiles ORDER BY id")
+            .map_err(|error| AppError::Database(format!("读取 Profile payload 失败: {error}")))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| AppError::Database(format!("遍历 Profile payload 失败: {error}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| AppError::Database(format!("读取 Profile payload 行失败: {error}")))?;
+        drop(statement);
+
+        for (id, raw_payload) in rows {
+            let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&raw_payload) else {
+                log::warn!("跳过无法解析的 Profile payload: {id}");
+                continue;
+            };
+            let Some(object) = payload.as_object_mut() else {
+                continue;
+            };
+            if object.remove("skills").is_none() {
+                continue;
+            }
+            let payload = serde_json::to_string(&payload).map_err(|error| {
+                AppError::Database(format!("序列化 Profile payload 失败: {error}"))
+            })?;
+            conn.execute(
+                "UPDATE profiles SET payload = ?1 WHERE id = ?2",
+                params![payload, id],
+            )
+            .map_err(|error| AppError::Database(format!("更新 Profile payload 失败: {error}")))?;
+        }
+
+        log::info!("v22 -> v23 迁移完成：Profiles 不再包含旧版 Skills 分配");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
+        if !Self::table_exists(conn, "skill_deployments")? {
+            Self::create_skill_deployments_table(conn)?;
+            return Ok(());
+        }
+
+        conn.execute_batch(
+            "ALTER TABLE skill_deployments RENAME TO skill_deployments_v23;
+             DROP INDEX IF EXISTS idx_skill_deployments_target;",
+        )
+        .map_err(|error| {
+            AppError::Database(format!("准备重建 skill_deployments 表失败: {error}"))
+        })?;
+        Self::create_skill_deployments_table(conn)?;
+        conn.execute_batch(
+            "INSERT INTO skill_deployments (
+                 id, library_skill_id, consumer, workspace_kind,
+                 library_directory, workspace_id, created_at, updated_at
+             )
+             SELECT id, library_skill_id, consumer, workspace_kind,
+                    library_directory, workspace_id, created_at, updated_at
+             FROM skill_deployments_v23;
+             DROP TABLE skill_deployments_v23;",
+        )
+        .map_err(|error| AppError::Database(format!("重建 skill_deployments 表失败: {error}")))?;
+
+        log::info!("v23 -> v24 迁移完成：Deployment intent 可保留为可检查的 orphan 状态");
         Ok(())
     }
 
@@ -3934,7 +4021,7 @@ mod tests {
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
-        assert_eq!(Database::get_user_version(&conn)?, 22);
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
         assert!(Database::table_exists(&conn, "skills_migration_runs")?);
         assert!(Database::table_exists(&conn, "skills_migration_items")?);
         for index in [
@@ -3970,7 +4057,7 @@ mod tests {
         // Re-running the migration must keep both journal rows and not change
         // the schema or user_version.
         Database::apply_schema_migrations_on_conn(&conn)?;
-        assert_eq!(Database::get_user_version(&conn)?, 22);
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
         assert_eq!(
             conn.query_row(
                 "SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'run-1'",
@@ -4015,6 +4102,120 @@ mod tests {
                 [],
             )
             .is_err());
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v22_to_v23_removes_legacy_skill_assignments_from_profiles() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute(
+            "INSERT INTO profiles (id, name, payload, created_at, updated_at)
+             VALUES (
+               'legacy-profile',
+               'Legacy Profile',
+               '{\"providers\":{\"claude\":\"p1\"},\"mcp\":{},\"skills\":{\"claude\":[\"s1\"]},\"prompts\":{}}',
+               1,
+               1
+             )",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO profiles (id, name, payload, created_at, updated_at)
+             VALUES ('invalid-profile', 'Invalid Profile', 'not-json', 1, 1)",
+            [],
+        )?;
+        Database::set_user_version(&conn, 22)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let payload: String = conn.query_row(
+            "SELECT payload FROM profiles WHERE id = 'legacy-profile'",
+            [],
+            |row| row.get(0),
+        )?;
+        let payload: serde_json::Value =
+            serde_json::from_str(&payload).expect("parse migrated Profile payload");
+        assert!(payload.get("skills").is_none());
+        assert_eq!(payload["providers"]["claude"], "p1");
+        let invalid: String = conn.query_row(
+            "SELECT payload FROM profiles WHERE id = 'invalid-profile'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(
+            invalid, "not-json",
+            "malformed payload is preserved verbatim"
+        );
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v23_to_v24_preserves_orphaned_deployment_intent() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute(
+            "INSERT INTO library_skills (
+                 id, directory, display_name, description, source_json,
+                 compatibility_json, content_hash, acquired_at, updated_at
+             ) VALUES (
+                 'library-1', 'review', 'Review', NULL, '{\"kind\":\"local_import\"}',
+                 '{\"claude\":true,\"codex\":true}', 'hash-1', 1, 1
+             )",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO skill_deployments (
+                 id, library_skill_id, consumer, workspace_kind,
+                 library_directory, workspace_id, created_at, updated_at
+             ) VALUES ('deployment-1', 'library-1', 'claude', 'global', 'review', '', 1, 1)",
+            [],
+        )?;
+
+        // Recreate the v23 foreign-key shape, then migrate it forward.
+        conn.execute_batch(
+            "ALTER TABLE skill_deployments RENAME TO skill_deployments_current;
+             DROP INDEX IF EXISTS idx_skill_deployments_target;
+             CREATE TABLE skill_deployments (
+                 id TEXT PRIMARY KEY,
+                 library_skill_id TEXT NOT NULL,
+                 consumer TEXT NOT NULL CHECK (consumer IN ('claude', 'codex')),
+                 workspace_kind TEXT NOT NULL CHECK (workspace_kind IN ('global', 'project')),
+                 library_directory TEXT NOT NULL,
+                 workspace_id TEXT NOT NULL DEFAULT '',
+                 created_at INTEGER NOT NULL,
+                 updated_at INTEGER NOT NULL,
+                 UNIQUE (library_skill_id, consumer, workspace_kind, workspace_id),
+                 FOREIGN KEY (library_skill_id) REFERENCES library_skills(id)
+             );
+             INSERT INTO skill_deployments SELECT * FROM skill_deployments_current;
+             DROP TABLE skill_deployments_current;
+             CREATE INDEX idx_skill_deployments_target
+                 ON skill_deployments(consumer, workspace_kind, workspace_id);",
+        )?;
+        Database::set_user_version(&conn, 23)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        conn.execute("DELETE FROM library_skills WHERE id = 'library-1'", [])?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert_eq!(
+            conn.query_row(
+                "SELECT library_skill_id FROM skill_deployments WHERE id = 'deployment-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?,
+            "library-1"
+        );
+        let definition: String = conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'skill_deployments'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert!(!definition.to_ascii_uppercase().contains("FOREIGN KEY"));
         Ok(())
     }
 }

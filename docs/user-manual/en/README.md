@@ -75,7 +75,7 @@ CC Switch User Manual
 |------|-------------|
 | [3.1-mcp.md](./3-extensions/3.1-mcp.md) | MCP protocol, add servers, app binding |
 | [3.2-prompts.md](./3-extensions/3.2-prompts.md) | Create presets, activate/switch, smart backfill |
-| [3.3-skills.md](./3-extensions/3.3-skills.md) | Discover skills, install/uninstall, repository management |
+| [3.3-skills.md](./3-extensions/3.3-skills.md) | macOS Library acquisition, Claude/Codex deployments, migration and recovery |
 | [3.4-sessions.md](./3-extensions/3.4-sessions.md) | Session Manager: browse, search, resume, delete sessions |
 | [3.5-workspace.md](./3-extensions/3.5-workspace.md) | Workspace files and daily memory (OpenClaw) |
 
@@ -125,7 +125,7 @@ CC Switch User Manual
 - **Quota & Balance Display**: Official subscriptions (Claude/Codex/Gemini/Copilot/Codex OAuth) auto-display quotas; Token Plan and third-party balances use built-in templates with one-click enable — see [2.5 Usage Query](./2-providers/2.5-usage-query.md)
 - **Codex OAuth Reverse Proxy**: Reuse your ChatGPT account's Codex service inside Claude Code — see [2.1 Add Provider](./2-providers/2.1-add.md)
 - **Per-App Tray Submenus**: Claude / Codex / Gemini submenus show the current provider and available usage summaries — see [2.2 Switch Provider](./2-providers/2.2-switch.md)
-- **Skills Discovery & Batch Updates**: SHA-256 update detection, batch updates, skills.sh public registry search — see [3.3 Skills Management](./3-extensions/3.3-skills.md)
+- **Skills Library & Deployments (macOS)**: private Library acquisition and updates, Claude/Codex Global and Project deployments, activity and recovery — see [3.3 Skills Management](./3-extensions/3.3-skills.md)
 - **Full URL Endpoint Mode**: Advanced option to treat `base_url` as the full upstream endpoint — see [2.1 Add Provider](./2-providers/2.1-add.md)
 - **OpenCode / OpenClaw / Hermes Stream Check Coverage**: Stream Check covers Claude / Codex / Gemini / OpenCode / OpenClaw / Hermes — see [4.5 Model Test](./4-proxy/4.5-model-test.md)
 

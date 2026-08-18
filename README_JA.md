@@ -200,13 +200,14 @@ TeamoRouter は、集中請求、チーム管理、BYOK、スマートルーテ�
 
 ## CC Switch を選ぶ理由
 
-最新の AI コーディングは Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes などのツールに依存していますが、各ツールの設定形式はバラバラです。API プロバイダを切り替えるたびに JSON、TOML、`.env` ファイルを手動で編集する必要があり、複数ツール間で MCP や Skills を統一的に管理する手段もありません。
+最新の AI コーディングは Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes などのツールに依存していますが、各ツールの設定形式はバラバラです。API プロバイダを切り替えるたびに JSON、TOML、`.env` ファイルを手動で編集する必要があり、複数ツール間で MCP を統一的に管理する手段もありません。
 
-**CC Switch** は、対応する AI ツールを 1 つのデスクトップアプリで一元管理できます。設定ファイルを手作業で編集する代わりに、ワンクリックでプロバイダをインポートし、瞬時に切り替えられるビジュアルインターフェースを提供します。50 以上の組み込みプリセット、統一 MCP・Skills 管理、システムトレイからの即時切り替え機能を搭載。すべてはアトミック書き込みによる信頼性の高い SQLite データベースに支えられており、設定の破損を防ぎます。
+**CC Switch** は、対応する AI ツールを 1 つのデスクトップアプリで一元管理できます。設定ファイルを手作業で編集する代わりに、ワンクリックでプロバイダをインポートし、瞬時に切り替えられるビジュアルインターフェースを提供します。50 以上の組み込みプリセット、統一 MCP 管理、macOS の Claude/Codex 向け Skills 管理、システムトレイからの即時切り替え機能を搭載。すべてはアトミック書き込みによる信頼性の高い SQLite データベースに支えられており、設定の破損を防ぎます。
 
 - **1 つのアプリで 8 つのツール** -- Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes を単一インターフェースで管理
 - **手動編集は不要** -- AWS Bedrock、NVIDIA NIM、コミュニティリレーなど 50 以上のプロバイダプリセットを内蔵。選んで切り替えるだけ
-- **統一 MCP・Skills 管理** -- 1 つのパネルで Claude、Codex、Gemini、Grok Build、OpenCode、Hermes の MCP サーバーと Skills を双方向同期で管理
+- **統一 MCP 管理** -- 1 つのパネルで Claude、Codex、Gemini、Grok Build、OpenCode、Hermes の MCP サーバーを双方向同期で管理
+- **macOS の Skills** -- 非公開 Library を唯一の管理元とし、Claude/Codex の Global・Project ワークスペースへ明示的にデプロイ。ガイド付き移行、競合確認、復旧にも対応
 - **システムトレイでクイック切り替え** -- トレイメニューから即座にプロバイダを切り替え。アプリを開く必要なし
 - **クラウド同期** -- Dropbox、OneDrive、iCloud、または WebDAV サーバー経由でデバイス間のプロバイダデータを同期
 - **クロスプラットフォーム** -- Tauri 2 で構築された Windows、macOS、Linux 対応のネイティブデスクトップアプリ
@@ -237,7 +238,7 @@ TeamoRouter は、集中請求、チーム管理、BYOK、スマートルーテ�
 
 - **統一 MCP パネル** -- Claude、Codex、Gemini、Grok Build、OpenCode、Hermes の MCP サーバーを管理、双方向同期、Deep Link インポート対応
 - **Prompts** -- Markdown エディタ、クロスアプリ同期（CLAUDE.md / AGENTS.md / GEMINI.md）、バックフィル保護
-- **Skills** -- GitHub リポジトリまたは ZIP ファイルからワンクリックインストール、カスタムリポジトリ管理、シンボリックリンクとファイルコピーに対応
+- **Skills（macOS）** -- 非公開 Library を唯一の管理元とし、Claude/Codex の Global・Project ワークスペースへ明示的にデプロイ。ガイド付き移行と復旧にも対応
 
 ### 使用量 & コストトラッキング
 
@@ -304,8 +305,8 @@ CC Switch は「最小限の介入」という設計原則に従っています�
 - **データベース**: `~/.cc-switch/cc-switch.db`（SQLite -- プロバイダ、MCP、Prompts、Skills）
 - **ローカル設定**: `~/.cc-switch/settings.json`（デバイスレベルの UI 設定）
 - **バックアップ**: `~/.cc-switch/backups/`（自動ローテーション、最新 10 件を保持）
-- **Skills**: `~/.cc-switch/skills/`（デフォルトでシンボリックリンクにより対応アプリに接続）
-- **Skill バックアップ**: `~/.cc-switch/skill-backups/`（アンインストール前に自動作成、最新 20 件を保持）
+- **Skills Library（macOS）**: `~/.cc-switch/skills/`（非公開の管理コンテンツ。リンクは明示的なデプロイで作成）
+- **Skills 復旧バックアップ（macOS）**: ガイド付き更新・削除・移行フローに管理対象のバックアップ先を表示
 
 </details>
 
@@ -341,7 +342,7 @@ CC_SWITCH_GDK_BACKEND=wayland ./CC-Switch-*.AppImage
 
 - **MCP**: 「MCP」ボタンをクリック → テンプレートまたはカスタム設定でサーバーを追加 → アプリごとの同期をトグルで切り替え
 - **Prompts**: 「Prompts」をクリック → Markdown エディタでプリセットを作成 → 有効化してライブファイルに同期
-- **Skills**: 「Skills」をクリック → GitHub リポジトリを閲覧 → 対応アプリへワンクリックでインストール
+- **Skills（macOS）**: 「Skills」をクリック → Library に取得 → Claude/Codex の Global または Project デプロイを選択
 - **Sessions**: 「Sessions」をクリック → 対応するセッションソースの会話履歴を閲覧・検索・復元
 
 > **補足**: 初回起動時に、既存の CLI ツール設定を手動でインポートしてデフォルトプロバイダとして使用できます。
