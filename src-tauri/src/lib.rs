@@ -95,9 +95,9 @@ pub use services::{
     SkillsMigrationItemOutcome, SkillsMigrationItemResult, SkillsMigrationPageMode,
     SkillsMigrationPlanItem, SkillsMigrationPreflight, SkillsMigrationPreviewService,
     SkillsMigrationProgress, SkillsMigrationReason, SkillsMigrationRestoreIntent,
-    SkillsMigrationStatus, UpdateDeploymentImpact, WorkspaceLifecycle, WorkspaceRegistration,
-    WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
-    WorkspaceScopeKind, WorkspaceSkillScope,
+    SkillsMigrationRevealIntent, SkillsMigrationStatus, UpdateDeploymentImpact, WorkspaceLifecycle,
+    WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
+    WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1480,6 +1480,8 @@ pub fn run() {
             commands::inspectDeploymentRecovery,
             #[cfg(target_os = "macos")]
             commands::inspectSkillsMigrationPreflight,
+            #[cfg(target_os = "macos")]
+            commands::revealSkillsMigrationPlanItem,
             #[cfg(target_os = "macos")]
             commands::inspectSkillDeployments,
             #[cfg(target_os = "macos")]

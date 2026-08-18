@@ -31,6 +31,8 @@ use crate::services::skills_migration_preview::{
 #[serde(rename_all = "camelCase")]
 pub struct SkillsMigrationIntent {
     pub observation_token: String,
+    #[serde(default)]
+    pub preserve_unsupported_consumer_files: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,12 +174,14 @@ impl SkillsMigrationExecutionService {
                 backup: None,
             });
         }
+        let has_unresolved_plan_item = preflight.plan.iter().any(|item| {
+            item.disposition == SkillsMigrationDisposition::UserResolve
+                && (item.action != SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+                    || !intent.preserve_unsupported_consumer_files)
+        });
         if preflight.status != SkillsMigrationStatus::DecisionNeeded
             || !preflight.backup.ready
-            || preflight
-                .plan
-                .iter()
-                .any(|item| item.disposition == SkillsMigrationDisposition::UserResolve)
+            || has_unresolved_plan_item
         {
             return Ok(SkillsMigrationExecutionResult {
                 outcome: SkillsMigrationExecutionOutcome::Blocked,
@@ -710,6 +714,7 @@ impl SkillsMigrationExecutionService {
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound
                 ))
             }
+            "preserve_unsupported_consumer_files" => Ok(true),
             "finalize" => Ok(self.db.get_all_installed_skills()?.is_empty()
                 && self
                     .db
@@ -732,6 +737,7 @@ impl SkillsMigrationExecutionService {
             "move_to_library" | "reuse_library" => self.execute_library_item(run, item),
             "create_global_deployment" => self.execute_deployment_item(item),
             "remove_legacy_codex_link" => self.execute_cleanup_item(item),
+            "preserve_unsupported_consumer_files" => Ok(None),
             "finalize" => self
                 .db
                 .clear_legacy_skills_migration_state()
@@ -1427,6 +1433,9 @@ fn action_name(action: SkillsMigrationAction) -> &'static str {
         SkillsMigrationAction::CreateGlobalDeployment => "create_global_deployment",
         SkillsMigrationAction::RemoveLegacyCodexLink => "remove_legacy_codex_link",
         SkillsMigrationAction::PreserveContent => "preserve_content",
+        SkillsMigrationAction::PreserveUnsupportedConsumerFiles => {
+            "preserve_unsupported_consumer_files"
+        }
         SkillsMigrationAction::ResolveConflict => "resolve_conflict",
         SkillsMigrationAction::RepairPreflight => "repair_preflight",
         SkillsMigrationAction::Finalize => "finalize",
@@ -1440,6 +1449,9 @@ fn action_from_name(raw: &str) -> Option<SkillsMigrationAction> {
         "create_global_deployment" => SkillsMigrationAction::CreateGlobalDeployment,
         "remove_legacy_codex_link" => SkillsMigrationAction::RemoveLegacyCodexLink,
         "preserve_content" => SkillsMigrationAction::PreserveContent,
+        "preserve_unsupported_consumer_files" => {
+            SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+        }
         "resolve_conflict" => SkillsMigrationAction::ResolveConflict,
         "repair_preflight" => SkillsMigrationAction::RepairPreflight,
         "finalize" => SkillsMigrationAction::Finalize,
@@ -1505,7 +1517,10 @@ fn compile_execution_plan(
 ) -> Result<Vec<SkillsMigrationPlanItem>> {
     let mut perform = plan
         .iter()
-        .filter(|item| item.disposition == SkillsMigrationDisposition::Perform)
+        .filter(|item| {
+            item.disposition == SkillsMigrationDisposition::Perform
+                || item.action == SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+        })
         .cloned()
         .collect::<Vec<_>>();
     perform.sort_by(|left, right| {
@@ -1522,18 +1537,20 @@ fn compile_execution_plan(
         from_location: None,
         to_location: None,
         reason: SkillsMigrationReason::MigrationFinalized,
+        unsupported_consumers: Vec::new(),
     });
     Ok(perform)
 }
 
 fn action_rank(action: SkillsMigrationAction) -> u8 {
     match action {
-        SkillsMigrationAction::MoveToLibrary | SkillsMigrationAction::ReuseLibrary => 0,
-        SkillsMigrationAction::CreateGlobalDeployment => 1,
-        SkillsMigrationAction::RemoveLegacyCodexLink => 2,
-        SkillsMigrationAction::PreserveContent => 3,
-        SkillsMigrationAction::ResolveConflict | SkillsMigrationAction::RepairPreflight => 4,
-        SkillsMigrationAction::Finalize => 5,
+        SkillsMigrationAction::PreserveUnsupportedConsumerFiles => 0,
+        SkillsMigrationAction::MoveToLibrary | SkillsMigrationAction::ReuseLibrary => 1,
+        SkillsMigrationAction::CreateGlobalDeployment => 2,
+        SkillsMigrationAction::RemoveLegacyCodexLink => 3,
+        SkillsMigrationAction::PreserveContent => 4,
+        SkillsMigrationAction::ResolveConflict | SkillsMigrationAction::RepairPreflight => 5,
+        SkillsMigrationAction::Finalize => 6,
     }
 }
 

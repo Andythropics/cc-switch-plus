@@ -434,6 +434,7 @@ export type SkillsMigrationPlanAction =
   | "create_global_deployment"
   | "remove_legacy_codex_link"
   | "preserve_content"
+  | "preserve_unsupported_consumer_files"
   | "resolve_conflict"
   | "repair_preflight"
   | "finalize";
@@ -444,6 +445,7 @@ export type SkillsMigrationPlanReason =
   | "legacy_enabled"
   | "proven_cc_switch_link"
   | "unmanaged"
+  | "unsupported_consumer_enabled"
   | "foreign_or_ambiguous"
   | "content_conflict"
   | "missing_source"
@@ -460,6 +462,7 @@ export interface SkillsMigrationPlanItem {
   fromLocation?: string;
   toLocation?: string;
   reason: SkillsMigrationPlanReason;
+  unsupportedConsumers?: Array<"gemini" | "grokbuild" | "opencode" | "hermes">;
 }
 
 export interface SkillsMigrationBackupPlan {
@@ -483,6 +486,12 @@ export interface SkillsMigrationPreflight {
 
 export interface SkillsMigrationIntent {
   observationToken: string;
+  preserveUnsupportedConsumerFiles: boolean;
+}
+
+export interface SkillsMigrationRevealIntent {
+  observationToken: string;
+  planIndex: number;
 }
 
 export type SkillsMigrationExecutionOutcome =
@@ -703,6 +712,13 @@ export const skillsApi = {
     intent: SkillsMigrationIntent,
   ): Promise<SkillsMigrationExecutionResult> {
     return await invoke("applySkillsMigration", { intent });
+  },
+
+  /** Reveal a path selected by the backend from a still-current migration plan. */
+  async revealSkillsMigrationPlanItem(
+    intent: SkillsMigrationRevealIntent,
+  ): Promise<boolean> {
+    return await invoke("revealSkillsMigrationPlanItem", { intent });
   },
 
   /** Continue backend-journaled work without rebuilding a plan in the UI. */

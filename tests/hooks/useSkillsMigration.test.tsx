@@ -68,6 +68,7 @@ describe("Skills migration mutation hooks", () => {
       await act(async () => {
         const mutation = result.current.mutateAsync({
           observationToken: "migration-v1",
+          preserveUnsupportedConsumerFiles: false,
         });
         if (settlement === "success")
           await expect(mutation).resolves.toBe(response);

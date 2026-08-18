@@ -21,6 +21,7 @@ import {
   type SkillsMigrationPreflight,
   type SkillsMigrationExecutionResult,
   type SkillsMigrationIntent,
+  type SkillsMigrationRevealIntent,
   type LibrarySkillDeletionInspection,
   type LibrarySkillDeletionIntent,
   type LibrarySkillDeletionResult,
@@ -150,6 +151,12 @@ export function useApplySkillsMigration() {
   >({
     mutationFn: (intent) => skillsApi.applySkillsMigration(intent),
     onSettled: () => invalidateSkillsMigrationQueries(queryClient),
+  });
+}
+
+export function useRevealSkillsMigrationPlanItem() {
+  return useMutation<boolean, Error, SkillsMigrationRevealIntent>({
+    mutationFn: (intent) => skillsApi.revealSkillsMigrationPlanItem(intent),
   });
 }
 

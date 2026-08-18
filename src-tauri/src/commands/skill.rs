@@ -19,7 +19,7 @@ use crate::services::{
     ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
     ProjectSkillImportService, SkillDeploymentService, SkillsMigrationExecutionResult,
     SkillsMigrationExecutionService, SkillsMigrationIntent, SkillsMigrationPreflight,
-    SkillsMigrationPreviewService, SkillsMigrationRestoreIntent,
+    SkillsMigrationPreviewService, SkillsMigrationRestoreIntent, SkillsMigrationRevealIntent,
 };
 #[cfg(target_os = "macos")]
 use crate::store::AppState;
@@ -28,7 +28,9 @@ use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
-use tauri::State;
+use tauri::{AppHandle, State};
+#[cfg(target_os = "macos")]
+use tauri_plugin_opener::OpenerExt;
 
 /// SkillService 状态包装
 #[cfg(target_os = "macos")]
@@ -81,6 +83,23 @@ pub fn inspectSkillsMigrationPreflight(
     SkillsMigrationPreviewService::new(app_state.db.clone())
         .inspect()
         .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn revealSkillsMigrationPlanItem(
+    intent: SkillsMigrationRevealIntent,
+    app_state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<bool, String> {
+    let directory = SkillsMigrationPreviewService::new(app_state.db.clone())
+        .resolve_reveal_directory(intent)
+        .map_err(|error| error.to_string())?;
+    app.opener()
+        .open_path(directory.to_string_lossy().to_string(), None::<String>)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
 }
 
 #[cfg(target_os = "macos")]

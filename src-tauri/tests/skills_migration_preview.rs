@@ -7,7 +7,8 @@ use cc_switch_lib::{
     ConsumerCompatibility, InstalledSkill, LibrarySkill, LibrarySkillCompatibility,
     LibrarySkillSource, LibrarySourceKind, SkillApps, SkillsMigrationAction,
     SkillsMigrationInventoryKind, SkillsMigrationInventoryState, SkillsMigrationPageMode,
-    SkillsMigrationPreviewService, SkillsMigrationReason, SkillsMigrationStatus,
+    SkillsMigrationPreviewService, SkillsMigrationReason, SkillsMigrationRevealIntent,
+    SkillsMigrationStatus,
 };
 
 #[path = "support.rs"]
@@ -73,6 +74,129 @@ fn library_skill(directory: &str, content_hash: String) -> LibrarySkill {
         acquired_at: 1,
         updated_at: 1,
     }
+}
+
+#[test]
+fn root_system_metadata_is_ignored_instead_of_blocking_migration() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    state
+        .db
+        .set_setting("skills_ssot_migration_pending", "true")
+        .expect("seed pending decision");
+    let roots = [
+        home.join(".cc-switch/skills"),
+        home.join(".codex/skills"),
+        home.join(".agents/skills"),
+    ];
+    for root in &roots {
+        fs::create_dir_all(root).expect("create scanned root");
+        for name in [".DS_Store", ".localized", "._skill"] {
+            fs::write(root.join(name), b"finder metadata").expect("write metadata");
+        }
+    }
+
+    let preview = SkillsMigrationPreviewService::new(state.db.clone())
+        .inspect()
+        .expect("inspect metadata-only roots");
+
+    assert_eq!(preview.status, SkillsMigrationStatus::DecisionNeeded);
+    assert!(preview.backup.ready);
+    for name in [".DS_Store", ".localized", "._skill"] {
+        assert!(preview
+            .inventory
+            .iter()
+            .all(|item| item.directory.as_deref() != Some(name)));
+        assert!(preview
+            .plan
+            .iter()
+            .all(|item| item.directory.as_deref() != Some(name)));
+    }
+    for root in &roots {
+        for name in [".DS_Store", ".localized", "._skill"] {
+            fs::write(root.join(name), b"updated finder metadata").expect("update metadata");
+        }
+    }
+    assert_eq!(
+        SkillsMigrationPreviewService::new(state.db.clone())
+            .inspect()
+            .expect("reinspect metadata-only roots")
+            .observation_token,
+        preview.observation_token
+    );
+}
+
+#[test]
+fn unsupported_legacy_consumers_offer_an_explicit_preserve_resolution() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    let mut legacy = installed_skill("review", true, true);
+    legacy.apps.hermes = true;
+    state.db.save_skill(&legacy).expect("seed legacy Skill");
+    write_skill(&home.join(".cc-switch/skills/review"), "review");
+
+    let preview = SkillsMigrationPreviewService::new(state.db.clone())
+        .inspect()
+        .expect("inspect unsupported Consumer state");
+    let resolution = preview
+        .plan
+        .iter()
+        .find(|item| {
+            item.directory.as_deref() == Some("review")
+                && item.reason == SkillsMigrationReason::UnsupportedConsumerEnabled
+        })
+        .expect("unsupported Consumer resolution");
+
+    assert_eq!(preview.status, SkillsMigrationStatus::DecisionNeeded);
+    assert!(preview.backup.ready);
+    assert_eq!(
+        resolution.action,
+        SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+    );
+    assert_eq!(resolution.unsupported_consumers, vec!["hermes"]);
+}
+
+#[test]
+fn reveal_resolution_is_bound_to_the_current_observation_and_plan_index() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    state
+        .db
+        .set_setting("skills_ssot_migration_pending", "true")
+        .expect("seed pending decision");
+    let root = home.join(".codex/skills");
+    fs::create_dir_all(&root).expect("create legacy Codex root");
+    let conflict = root.join("foreign");
+    fs::write(&conflict, "occupied").expect("write foreign conflict");
+    let service = SkillsMigrationPreviewService::new(state.db.clone());
+    let preview = service.inspect().expect("inspect conflict");
+    let plan_index = preview
+        .plan
+        .iter()
+        .position(|item| item.directory.as_deref() == Some("foreign"))
+        .expect("find conflict plan item");
+
+    let revealed = service
+        .resolve_reveal_directory(SkillsMigrationRevealIntent {
+            observation_token: preview.observation_token.clone(),
+            plan_index,
+        })
+        .expect("resolve trusted containing directory");
+    assert_eq!(revealed, root);
+
+    fs::write(&conflict, "changed").expect("change observed conflict");
+    assert!(service
+        .resolve_reveal_directory(SkillsMigrationRevealIntent {
+            observation_token: preview.observation_token,
+            plan_index,
+        })
+        .is_err());
 }
 
 #[test]

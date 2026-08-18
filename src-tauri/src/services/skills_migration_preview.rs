@@ -92,6 +92,7 @@ pub enum SkillsMigrationAction {
     CreateGlobalDeployment,
     RemoveLegacyCodexLink,
     PreserveContent,
+    PreserveUnsupportedConsumerFiles,
     ResolveConflict,
     RepairPreflight,
     Finalize,
@@ -105,6 +106,7 @@ pub enum SkillsMigrationReason {
     LegacyEnabled,
     ProvenCcSwitchLink,
     Unmanaged,
+    UnsupportedConsumerEnabled,
     ForeignOrAmbiguous,
     ContentConflict,
     MissingSource,
@@ -127,6 +129,15 @@ pub struct SkillsMigrationPlanItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to_location: Option<String>,
     pub reason: SkillsMigrationReason,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_consumers: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationRevealIntent {
+    pub observation_token: String,
+    pub plan_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -330,6 +341,7 @@ impl SkillsMigrationPreviewService {
                     from_location: None,
                     to_location: None,
                     reason: SkillsMigrationReason::InvalidLegacyState,
+                    unsupported_consumers: Vec::new(),
                 });
                 continue;
             };
@@ -352,6 +364,7 @@ impl SkillsMigrationPreviewService {
                     from_location: None,
                     to_location: None,
                     reason: SkillsMigrationReason::InvalidLegacyState,
+                    unsupported_consumers: Vec::new(),
                 });
                 continue;
             }
@@ -392,10 +405,7 @@ impl SkillsMigrationPreviewService {
         }
         reconcile_duplicate_library_actions(&mut inventory, &mut plan);
         suppress_deployments_with_content_conflicts(&mut plan);
-        if plan
-            .iter()
-            .any(|item| item.disposition == SkillsMigrationDisposition::UserResolve)
-        {
+        if plan.iter().any(plan_item_requires_manual_resolution) {
             blocked = true;
         }
 
@@ -495,6 +505,33 @@ impl SkillsMigrationPreviewService {
             backup,
             execution,
         })
+    }
+
+    /// Resolve a display-only plan index back to a trusted directory after
+    /// revalidating the opaque observation token. The renderer never supplies
+    /// a filesystem path to this boundary.
+    pub fn resolve_reveal_directory(&self, intent: SkillsMigrationRevealIntent) -> Result<PathBuf> {
+        let preflight = self.inspect()?;
+        if preflight.observation_token != intent.observation_token {
+            anyhow::bail!("Skills migration preview changed; recheck before revealing a path");
+        }
+        let item = preflight
+            .plan
+            .get(intent.plan_index)
+            .ok_or_else(|| anyhow::anyhow!("Skills migration plan item no longer exists"))?;
+        let location = item
+            .from_location
+            .as_deref()
+            .or(item.to_location.as_deref())
+            .ok_or_else(|| anyhow::anyhow!("Skills migration plan item has no revealable path"))?;
+        let path = Path::new(location);
+        let directory = path.parent().ok_or_else(|| {
+            anyhow::anyhow!("Skills migration plan item has no containing folder")
+        })?;
+        if !directory.is_dir() {
+            anyhow::bail!("Skills migration plan item containing folder is unavailable");
+        }
+        Ok(directory.to_path_buf())
     }
 }
 
@@ -619,6 +656,7 @@ fn add_legacy_evidence(
                 from_location: Some(display_path(&path)),
                 to_location: None,
                 reason: SkillsMigrationReason::Unmanaged,
+                unsupported_consumers: Vec::new(),
             });
         }
         return;
@@ -696,6 +734,7 @@ fn add_legacy_evidence(
                 from_location: Some(display_path(&path)),
                 to_location,
                 reason,
+                unsupported_consumers: Vec::new(),
             });
             if enabled {
                 plan.push(deployment_plan(directory, consumer, None));
@@ -713,6 +752,7 @@ fn add_legacy_evidence(
                     from_location: Some(display_path(&path)),
                     to_location: None,
                     reason: SkillsMigrationReason::ProvenCcSwitchLink,
+                    unsupported_consumers: Vec::new(),
                 });
             }
             if enabled {
@@ -841,8 +881,16 @@ fn add_current_legacy_skill(
             }
         }
     }
-    if skill.apps.gemini || skill.apps.grokbuild || skill.apps.opencode || skill.apps.hermes {
-        *blocked = true;
+    let unsupported_consumers = [
+        ("gemini", skill.apps.gemini),
+        ("grokbuild", skill.apps.grokbuild),
+        ("opencode", skill.apps.opencode),
+        ("hermes", skill.apps.hermes),
+    ]
+    .into_iter()
+    .filter_map(|(consumer, enabled)| enabled.then_some(consumer.to_string()))
+    .collect::<Vec<_>>();
+    if !unsupported_consumers.is_empty() {
         inventory.push(SkillsMigrationInventoryItem {
             kind: SkillsMigrationInventoryKind::LegacySkill,
             directory: Some(skill.directory.clone()),
@@ -854,12 +902,13 @@ fn add_current_legacy_skill(
         });
         plan.push(SkillsMigrationPlanItem {
             disposition: SkillsMigrationDisposition::UserResolve,
-            action: SkillsMigrationAction::ResolveConflict,
+            action: SkillsMigrationAction::PreserveUnsupportedConsumerFiles,
             directory: Some(skill.directory.clone()),
             consumer: None,
             from_location: Some(display_path(&source)),
             to_location: None,
-            reason: SkillsMigrationReason::InvalidLegacyState,
+            reason: SkillsMigrationReason::UnsupportedConsumerEnabled,
+            unsupported_consumers,
         });
     }
 }
@@ -877,6 +926,7 @@ fn deployment_plan(
         from_location: proven_official_link.map(display_path),
         to_location: Some(display_path(deployment_root(consumer).join(directory))),
         reason: SkillsMigrationReason::LegacyEnabled,
+        unsupported_consumers: Vec::new(),
     }
 }
 
@@ -996,6 +1046,7 @@ fn reconcile_duplicate_library_actions(
                 from_location: None,
                 to_location: Some(display_path(destination)),
                 reason: SkillsMigrationReason::ContentConflict,
+                unsupported_consumers: Vec::new(),
             });
         }
     }
@@ -1033,6 +1084,7 @@ fn resolve_plan(
         from_location: Some(display_path(path)),
         to_location: None,
         reason,
+        unsupported_consumers: Vec::new(),
     }
 }
 
@@ -1045,6 +1097,7 @@ fn repair_plan(reason: SkillsMigrationReason) -> SkillsMigrationPlanItem {
         from_location: None,
         to_location: None,
         reason,
+        unsupported_consumers: Vec::new(),
     }
 }
 
@@ -1120,6 +1173,9 @@ fn scan_unclaimed(
     }
     paths.sort();
     for path in paths {
+        if is_ignored_root_metadata(&path) {
+            continue;
+        }
         if claimed.contains(&path) {
             continue;
         }
@@ -1194,6 +1250,7 @@ fn scan_unclaimed(
                 from_location: Some(display_path(&path)),
                 to_location: None,
                 reason,
+                unsupported_consumers: Vec::new(),
             });
         }
     }
@@ -1327,18 +1384,18 @@ fn root_observations(roots: &FixedRoots) -> Vec<Observation> {
         .into_iter()
         .map(|path| Observation {
             location: display_path(&path),
-            fingerprint: fingerprint(&path),
+            fingerprint: root_fingerprint(&path),
         })
         .collect()
 }
 
-fn fingerprint(path: &Path) -> String {
+fn root_fingerprint(path: &Path) -> String {
     let mut hasher = Sha256::new();
-    fingerprint_into(path, &mut hasher);
+    fingerprint_into(path, &mut hasher, true);
     format!("{:x}", hasher.finalize())
 }
 
-fn fingerprint_into(path: &Path, hasher: &mut Sha256) {
+fn fingerprint_into(path: &Path, hasher: &mut Sha256, ignore_root_metadata: bool) {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) => {
@@ -1383,12 +1440,30 @@ fn fingerprint_into(path: &Path, hasher: &mut Sha256) {
         };
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
+            if ignore_root_metadata && is_ignored_root_metadata(&entry.path()) {
+                continue;
+            }
             hasher.update(entry.file_name().to_string_lossy().as_bytes());
-            fingerprint_into(&entry.path(), hasher);
+            fingerprint_into(&entry.path(), hasher, false);
         }
     } else {
         hasher.update(b"other");
     }
+}
+
+fn is_ignored_root_metadata(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    (matches!(name, ".DS_Store" | ".localized") || name.starts_with("._"))
+        && fs::symlink_metadata(path)
+            .map(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+            .unwrap_or(false)
+}
+
+fn plan_item_requires_manual_resolution(item: &SkillsMigrationPlanItem) -> bool {
+    item.disposition == SkillsMigrationDisposition::UserResolve
+        && item.action != SkillsMigrationAction::PreserveUnsupportedConsumerFiles
 }
 
 #[allow(clippy::too_many_arguments)]

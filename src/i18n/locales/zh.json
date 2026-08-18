@@ -2507,6 +2507,8 @@
       "apply": "应用迁移",
       "resume": "继续迁移",
       "restore": "恢复备份",
+      "revealInFinder": "在 Finder 中显示",
+      "revealError": "无法打开所在文件夹。请重新检查迁移计划后再试。",
       "deferredDescription": "本会话已暂缓迁移。新版 Skills 管理保持只读，旧版数据未改变。",
       "inventory": "旧版清单",
       "inventoryEmpty": "未发现旧版清单项目。",
@@ -2519,6 +2521,7 @@
       "confirm": {
         "title": "应用已审查的迁移？",
         "description": "CC Switch 将验证本次审查仍然有效，创建备份，然后执行由后端管理的迁移计划。",
+        "preserveUnsupportedConsumers": "保留不受支持的旧版 Consumer 侧文件、不再由 CC Switch 管理，并继续迁移 Claude 和 Codex。",
         "apply": "确认并应用"
       },
       "pending": {
@@ -2585,6 +2588,7 @@
         "create_global_deployment": "创建全局 Deployment",
         "remove_legacy_codex_link": "移除已确认的旧版 Codex 链接",
         "preserve_content": "保留现有内容",
+        "preserve_unsupported_consumer_files": "保留不受支持的 Consumer 文件",
         "resolve_conflict": "解决目标冲突",
         "repair_preflight": "修复预检状态",
         "finalize": "完成迁移"
@@ -2595,12 +2599,27 @@
         "legacy_enabled": "旧版 Consumer 标志已启用。",
         "proven_cc_switch_link": "已确认旧版链接由 CC Switch 管理。",
         "unmanaged": "无法确认归属，因此将保留内容。",
+        "unsupported_consumer_enabled": "此 Skill 仍启用了新版系统不再管理的旧版 Consumer。",
         "foreign_or_ambiguous": "链接为外部链接或目标不明确。",
         "content_conflict": "目标已被不同内容占用。",
         "missing_source": "预期来源缺失。",
         "invalid_legacy_state": "旧版状态无效。",
         "unreadable": "无法读取该位置。",
         "migration_finalized": "迁移已完成收尾。"
+      },
+      "guidance": {
+        "unsupported_consumer_enabled": "确认让 CC Switch 保持这些 Consumer 侧文件不变并停止管理它们；Claude 和 Codex 将继续迁移。",
+        "foreign_or_ambiguous": "请先在 Finder 中检查此项目。仅在确认安全后移除或迁移它，然后重新检查迁移计划。",
+        "content_conflict": "请比较冲突目录，在目标路径保留你需要的版本，然后重新检查迁移计划。",
+        "missing_source": "请恢复预期来源目录，或移除过期的旧版记录，然后重新检查迁移计划。",
+        "invalid_legacy_state": "请修复报告的旧版记录或文件系统项目，然后重新检查迁移计划。",
+        "unreadable": "请检查该位置的权限和可用性，然后重新检查迁移计划。"
+      },
+      "legacyConsumer": {
+        "gemini": "Gemini",
+        "grokbuild": "GrokBuild",
+        "opencode": "OpenCode",
+        "hermes": "Hermes"
       },
       "backup": {
         "title": "备份与恢复准备状态",

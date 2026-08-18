@@ -2507,6 +2507,8 @@
       "apply": "Apply migration",
       "resume": "Resume migration",
       "restore": "Restore backup",
+      "revealInFinder": "Reveal in Finder",
+      "revealError": "The folder could not be opened. Recheck the migration plan and try again.",
       "deferredDescription": "Migration is deferred for this session. Redesigned Skills management remains read-only, and legacy data is unchanged.",
       "inventory": "Legacy inventory",
       "inventoryEmpty": "No legacy inventory items were found.",
@@ -2519,6 +2521,7 @@
       "confirm": {
         "title": "Apply the reviewed migration?",
         "description": "CC Switch will verify this review is still current, create backups, and then execute the backend-managed migration plan.",
+        "preserveUnsupportedConsumers": "Keep files used by unsupported legacy Consumers unchanged, stop managing them in CC Switch, and continue migrating Claude and Codex.",
         "apply": "Confirm and apply"
       },
       "pending": {
@@ -2585,6 +2588,7 @@
         "create_global_deployment": "Create a Global Deployment",
         "remove_legacy_codex_link": "Remove a proven legacy Codex link",
         "preserve_content": "Preserve existing content",
+        "preserve_unsupported_consumer_files": "Preserve unsupported Consumer files",
         "resolve_conflict": "Resolve the target conflict",
         "repair_preflight": "Repair preflight state",
         "finalize": "Finalize the migration"
@@ -2595,12 +2599,27 @@
         "legacy_enabled": "The legacy Consumer flag is enabled.",
         "proven_cc_switch_link": "The legacy link is proven to be managed by CC Switch.",
         "unmanaged": "Ownership is not proven, so the content will be preserved.",
+        "unsupported_consumer_enabled": "This Skill is still enabled for a legacy Consumer that the redesigned system does not manage.",
         "foreign_or_ambiguous": "The link is foreign or its target is ambiguous.",
         "content_conflict": "Different content already occupies the target.",
         "missing_source": "The expected source is missing.",
         "invalid_legacy_state": "The legacy state is invalid.",
         "unreadable": "The location could not be read.",
         "migration_finalized": "The migration was finalized."
+      },
+      "guidance": {
+        "unsupported_consumer_enabled": "Confirm that CC Switch should leave these Consumer-side files untouched and stop managing them. Claude and Codex will continue migrating.",
+        "foreign_or_ambiguous": "Inspect the item in Finder. Remove or relocate it only if you know it is safe, then recheck the migration plan.",
+        "content_conflict": "Compare the conflicting folders and keep the version you want at the target path, then recheck the migration plan.",
+        "missing_source": "Restore the expected source folder or remove its stale legacy record, then recheck the migration plan.",
+        "invalid_legacy_state": "Repair the reported legacy record or filesystem entry, then recheck the migration plan.",
+        "unreadable": "Check the location's permissions and availability, then recheck the migration plan."
+      },
+      "legacyConsumer": {
+        "gemini": "Gemini",
+        "grokbuild": "GrokBuild",
+        "opencode": "OpenCode",
+        "hermes": "Hermes"
       },
       "backup": {
         "title": "Backup and recovery readiness",

@@ -115,7 +115,8 @@ pub use skills_migration_preview::{
     SkillsMigrationAction, SkillsMigrationBackupPlan, SkillsMigrationDisposition,
     SkillsMigrationInventoryItem, SkillsMigrationInventoryKind, SkillsMigrationInventoryState,
     SkillsMigrationPageMode, SkillsMigrationPlanItem, SkillsMigrationPreflight,
-    SkillsMigrationPreviewService, SkillsMigrationReason, SkillsMigrationStatus,
+    SkillsMigrationPreviewService, SkillsMigrationReason, SkillsMigrationRevealIntent,
+    SkillsMigrationStatus,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
 pub use usage_cache::UsageCache;

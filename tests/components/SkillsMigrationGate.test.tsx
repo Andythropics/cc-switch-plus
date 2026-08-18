@@ -9,8 +9,8 @@ import type {
   SkillsMigrationPreflight,
 } from "@/lib/api/skills";
 
-const { applyState, preflightState, restoreState, resumeState } = vi.hoisted(
-  () => ({
+const { applyState, preflightState, restoreState, resumeState, revealState } =
+  vi.hoisted(() => ({
     preflightState: {
       data: undefined as SkillsMigrationPreflight | undefined,
       isLoading: false,
@@ -21,14 +21,15 @@ const { applyState, preflightState, restoreState, resumeState } = vi.hoisted(
     applyState: { isPending: false, mutateAsync: vi.fn() },
     resumeState: { isPending: false, mutateAsync: vi.fn() },
     restoreState: { isPending: false, mutateAsync: vi.fn() },
-  }),
-);
+    revealState: { isPending: false, mutateAsync: vi.fn() },
+  }));
 
 vi.mock("@/hooks/useSkills", () => ({
   useSkillsMigrationPreflight: () => preflightState,
   useApplySkillsMigration: () => applyState,
   useResumeSkillsMigration: () => resumeState,
   useRestoreSkillsMigrationBackup: () => restoreState,
+  useRevealSkillsMigrationPlanItem: () => revealState,
 }));
 
 const execution = (
@@ -55,6 +56,109 @@ describe("SkillsMigrationGate", () => {
     resumeState.mutateAsync.mockReset();
     restoreState.isPending = false;
     restoreState.mutateAsync.mockReset();
+    revealState.isPending = false;
+    revealState.mutateAsync.mockReset();
+  });
+
+  it("explains unsupported Consumers and requires explicit preservation consent", async () => {
+    preflightState.data = {
+      status: "decision_needed",
+      observationToken: "unsupported-consumer-plan",
+      pageMode: "read_only",
+      inventory: [],
+      plan: [
+        {
+          disposition: "user_resolve",
+          action: "preserve_unsupported_consumer_files",
+          directory: "computer-use",
+          fromLocation: "/legacy/skills/computer-use",
+          reason: "unsupported_consumer_enabled",
+          unsupportedConsumers: ["hermes"],
+        },
+      ],
+      backup: {
+        required: true,
+        ready: true,
+        recoveryAvailable: false,
+        contentPaths: ["/legacy/skills/computer-use"],
+      },
+    };
+    applyState.mutateAsync.mockResolvedValueOnce(execution("completed"));
+    const user = userEvent.setup();
+    render(
+      <SkillsMigrationGate enabled>
+        <button type="button">mutable-skills-action</button>
+      </SkillsMigrationGate>,
+    );
+
+    expect(
+      screen.getByText(
+        "skills.migration.guidance.unsupported_consumer_enabled",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("skills.migration.legacyConsumer.hermes"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.apply" }),
+    );
+    const confirm = screen.getByRole("button", {
+      name: "skills.migration.confirm.apply",
+    });
+    expect(confirm).toBeDisabled();
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skills.migration.confirm.preserveUnsupportedConsumers",
+      }),
+    );
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    expect(applyState.mutateAsync).toHaveBeenCalledWith({
+      observationToken: "unsupported-consumer-plan",
+      preserveUnsupportedConsumerFiles: true,
+    });
+  });
+
+  it("offers concrete guidance and Finder reveal for filesystem conflicts", async () => {
+    preflightState.data = {
+      status: "blocked",
+      observationToken: "conflict-plan",
+      pageMode: "read_only",
+      inventory: [],
+      plan: [
+        {
+          disposition: "user_resolve",
+          action: "resolve_conflict",
+          directory: "foreign",
+          fromLocation: "/legacy/skills/foreign",
+          reason: "foreign_or_ambiguous",
+        },
+      ],
+      backup: {
+        required: true,
+        ready: false,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    };
+    revealState.mutateAsync.mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    render(
+      <SkillsMigrationGate enabled>
+        <button type="button">mutable-skills-action</button>
+      </SkillsMigrationGate>,
+    );
+
+    expect(
+      screen.getByText("skills.migration.guidance.foreign_or_ambiguous"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.revealInFinder" }),
+    );
+    expect(revealState.mutateAsync).toHaveBeenCalledWith({
+      observationToken: "conflict-plan",
+      planIndex: 0,
+    });
   });
 
   it("renders the writable redesigned page only when migration needs no decision", () => {
@@ -330,6 +434,7 @@ describe("SkillsMigrationGate", () => {
 
     expect(applyState.mutateAsync).toHaveBeenCalledWith({
       observationToken: "migration-plan-v1",
+      preserveUnsupportedConsumerFiles: false,
     });
     expect(preflightState.refetch).toHaveBeenCalled();
     expect(screen.queryByText("mutable-skills-action")).not.toBeInTheDocument();

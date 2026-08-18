@@ -85,6 +85,7 @@ fn stale_observation_does_not_create_a_journal_backup_or_filesystem_write() {
     let result = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("staleness is a typed outcome");
 
@@ -133,6 +134,7 @@ fn migration_moves_managed_content_deploys_enabled_consumers_and_preserves_unman
     let result = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("apply migration");
 
@@ -202,6 +204,7 @@ fn migration_moves_managed_content_deploys_enabled_consumers_and_preserves_unman
     let repeated = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: after.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("repeat completed migration");
     assert_eq!(repeated.outcome, SkillsMigrationExecutionOutcome::Completed);
@@ -259,6 +262,7 @@ fn unified_official_codex_link_is_adopted_without_being_scheduled_for_cleanup() 
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("apply unified migration");
 
@@ -304,6 +308,7 @@ fn interrupted_migration_resumes_without_repeating_completed_items() {
         let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
             .start(SkillsMigrationIntent {
                 observation_token: preview.observation_token,
+                preserve_unsupported_consumer_files: false,
             })
             .expect("interrupt migration");
         assert_eq!(
@@ -353,6 +358,7 @@ fn resume_blocks_when_a_backed_up_source_changes_before_admission() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("interrupt after verified backup");
     assert_eq!(
@@ -396,6 +402,7 @@ fn resume_reconciles_a_completed_mutation_after_journal_completion_failure() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("journal completion failure is resumable");
     assert_eq!(
@@ -436,6 +443,7 @@ fn resume_cleans_a_journaled_source_staging_after_retire_interruption() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("retire interruption remains resumable");
     assert_eq!(
@@ -493,6 +501,7 @@ fn blocked_skill_does_not_prevent_an_independent_skill_from_completing() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("interrupt before first item");
     assert_eq!(
@@ -546,6 +555,7 @@ fn disabled_managed_skill_moves_to_library_without_creating_deployments() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("migrate disabled managed Skill");
 
@@ -564,7 +574,7 @@ fn disabled_managed_skill_moves_to_library_without_creating_deployments() {
 }
 
 #[test]
-fn unsupported_enabled_consumer_blocks_without_retiring_legacy_content() {
+fn unsupported_enabled_consumer_requires_consent_and_preserves_external_content() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
@@ -580,7 +590,8 @@ fn unsupported_enabled_consumer_blocks_without_retiring_legacy_content() {
 
     let blocked = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
-            observation_token: preview.observation_token,
+            observation_token: preview.observation_token.clone(),
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
 
@@ -589,6 +600,27 @@ fn unsupported_enabled_consumer_blocks_without_retiring_legacy_content() {
     assert!(source.is_dir());
     assert!(state.db.list_library_skills().unwrap().is_empty());
     assert_eq!(state.db.get_all_installed_skills().unwrap().len(), 1);
+
+    let hermes_file = home.join(".hermes/skills/review/keep.txt");
+    fs::create_dir_all(hermes_file.parent().unwrap()).expect("create Hermes deployment");
+    fs::write(&hermes_file, "external Hermes state").expect("write Hermes deployment");
+    let completed = SkillsMigrationExecutionService::new(state.db.clone())
+        .start(SkillsMigrationIntent {
+            observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: true,
+        })
+        .expect("explicit preservation decision applies migration");
+
+    assert_eq!(
+        completed.outcome,
+        SkillsMigrationExecutionOutcome::Completed
+    );
+    assert!(home.join(".cc-switch/skills/review").is_dir());
+    assert_eq!(
+        fs::read_to_string(hermes_file).expect("read preserved Hermes state"),
+        "external Hermes state"
+    );
+    assert!(state.db.get_all_installed_skills().unwrap().is_empty());
 }
 
 #[test]
@@ -613,6 +645,7 @@ fn identical_dual_sources_are_both_retired_after_migration() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("migrate identical dual sources");
 
@@ -653,6 +686,7 @@ fn mixed_current_and_snapshot_sources_have_unique_durable_journal_items() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("journal accepts every distinct proven source");
 
@@ -703,6 +737,7 @@ fn backup_restore_recovers_exact_legacy_database_and_managed_content() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("complete migration");
     let reconciled = SkillDeploymentService::new(state.db.clone())
@@ -775,6 +810,7 @@ fn restore_missing_content_backup_requires_recovery_before_removing_outputs() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("complete migration");
     let backup_id = completed.backup.unwrap().backup_id;
@@ -825,6 +861,7 @@ fn restore_corrupt_database_backup_requires_recovery_before_removing_outputs() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("complete migration");
     let backup_id = completed.backup.unwrap().backup_id;
@@ -871,6 +908,7 @@ fn interrupted_restore_keeps_recovery_identity_after_database_replacement() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("complete migration");
     let backup_id = completed.backup.unwrap().backup_id;
@@ -920,6 +958,7 @@ fn restore_refuses_a_drifted_deployment_and_retains_recovery_journal_truth() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("complete migration");
     let backup_id = completed.backup.unwrap().backup_id;
@@ -969,6 +1008,7 @@ fn deployment_conflict_is_typed_and_preserves_foreign_content() {
     let result = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("late conflict is typed");
     assert_eq!(
@@ -1002,6 +1042,7 @@ fn compensation_failure_requires_recovery_and_exposes_backup() {
     let result = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("compensation failure is typed");
     assert_eq!(
@@ -1049,6 +1090,7 @@ fn cleanup_retargeted_after_backup_is_blocked_and_preserved() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
     assert_eq!(
@@ -1111,6 +1153,7 @@ fn same_hash_library_reuse_retires_real_legacy_source_before_deploying() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
 
@@ -1146,6 +1189,7 @@ fn vanished_backup_source_blocks_before_any_item_execution() {
     let blocked = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
 
@@ -1164,6 +1208,7 @@ fn vanished_backup_source_blocks_before_any_item_execution() {
                 .inspect()
                 .unwrap()
                 .observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .expect("retry after fixing backup source");
     assert_eq!(
@@ -1193,6 +1238,7 @@ fn incomplete_verified_backup_is_discarded_before_resume_can_mutate() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
     let backup_id = interrupted.backup.unwrap().backup_id;
@@ -1242,6 +1288,7 @@ fn completed_item_drift_does_not_block_an_independent_pending_skill() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
     assert_eq!(
@@ -1288,6 +1335,7 @@ fn completed_migrations_retain_only_twenty_verified_backup_roots() {
         let result = SkillsMigrationExecutionService::new(state.db.clone())
             .start(SkillsMigrationIntent {
                 observation_token: preview.observation_token,
+                preserve_unsupported_consumer_files: false,
             })
             .unwrap();
         assert_eq!(result.outcome, SkillsMigrationExecutionOutcome::Completed);
@@ -1324,6 +1372,7 @@ fn resume_revalidates_completed_outputs_before_finalization() {
     let interrupted = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
     assert_eq!(
@@ -1385,6 +1434,7 @@ fn restore_preserves_occupied_legacy_cleanup_path() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
     let legacy = home.join(".codex/skills/review");
@@ -1435,6 +1485,7 @@ fn restore_preserves_occupied_retired_source_path() {
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
     write_skill(&source, "foreign");
@@ -1489,6 +1540,7 @@ fn unresolved_managed_conflict_never_creates_or_finalizes_a_run() {
     let blocked = SkillsMigrationExecutionService::new(state.db.clone())
         .start(SkillsMigrationIntent {
             observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
         })
         .unwrap();
 

@@ -2507,6 +2507,8 @@
       "apply": "移行を適用",
       "resume": "移行を再開",
       "restore": "バックアップを復元",
+      "revealInFinder": "Finder に表示",
+      "revealError": "フォルダーを開けませんでした。移行計画を再確認してから再試行してください。",
       "deferredDescription": "このセッションでは移行を延期しました。新しい Skills 管理は読み取り専用のままで、旧データは変更されません。",
       "inventory": "旧データの棚卸し",
       "inventoryEmpty": "旧データの項目は見つかりませんでした。",
@@ -2519,6 +2521,7 @@
       "confirm": {
         "title": "確認済みの移行を適用しますか？",
         "description": "CC Switch は、この確認が現在も有効であることを検証し、バックアップを作成してから、バックエンド管理の移行計画を実行します。",
+        "preserveUnsupportedConsumers": "未対応の旧 Consumer 側ファイルは変更せず、CC Switch の管理対象から外して、Claude と Codex の移行を続行します。",
         "apply": "確認して適用"
       },
       "pending": {
@@ -2585,6 +2588,7 @@
         "create_global_deployment": "Global Deployment を作成",
         "remove_legacy_codex_link": "確認済みの旧 Codex リンクを削除",
         "preserve_content": "既存コンテンツを保持",
+        "preserve_unsupported_consumer_files": "未対応 Consumer のファイルを保持",
         "resolve_conflict": "ターゲット競合を解決",
         "repair_preflight": "プリフライト状態を修復",
         "finalize": "移行を完了"
@@ -2595,12 +2599,27 @@
         "legacy_enabled": "旧 Consumer フラグが有効です。",
         "proven_cc_switch_link": "旧リンクが CC Switch 管理であることが確認されています。",
         "unmanaged": "所有を確認できないため、コンテンツを保持します。",
+        "unsupported_consumer_enabled": "この Skill は、新システムで管理されない旧 Consumer に対して引き続き有効です。",
         "foreign_or_ambiguous": "外部リンク、またはリンク先が曖昧です。",
         "content_conflict": "異なるコンテンツがターゲットを使用しています。",
         "missing_source": "想定されたソースがありません。",
         "invalid_legacy_state": "旧状態が無効です。",
         "unreadable": "場所を読み取れませんでした。",
         "migration_finalized": "移行の最終処理が完了しました。"
+      },
+      "guidance": {
+        "unsupported_consumer_enabled": "これらの Consumer 側ファイルを変更せず、CC Switch の管理対象から外すことを確認してください。Claude と Codex の移行は続行されます。",
+        "foreign_or_ambiguous": "Finder で項目を確認し、安全だと判断できる場合のみ削除または移動してから、移行計画を再確認してください。",
+        "content_conflict": "競合するフォルダーを比較し、必要な版を対象パスに残してから、移行計画を再確認してください。",
+        "missing_source": "想定されたソースフォルダーを復元するか、古い旧記録を削除してから、移行計画を再確認してください。",
+        "invalid_legacy_state": "報告された旧記録またはファイルシステム項目を修復してから、移行計画を再確認してください。",
+        "unreadable": "場所の権限と利用可否を確認してから、移行計画を再確認してください。"
+      },
+      "legacyConsumer": {
+        "gemini": "Gemini",
+        "grokbuild": "GrokBuild",
+        "opencode": "OpenCode",
+        "hermes": "Hermes"
       },
       "backup": {
         "title": "バックアップと復旧の準備",

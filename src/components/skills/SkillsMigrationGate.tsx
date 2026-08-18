@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   ArchiveRestore,
+  FolderOpen,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -16,6 +17,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +29,7 @@ import {
 import {
   useApplySkillsMigration,
   useRestoreSkillsMigrationBackup,
+  useRevealSkillsMigrationPlanItem,
   useResumeSkillsMigration,
   useSkillsMigrationPreflight,
 } from "@/hooks/useSkills";
@@ -56,8 +59,13 @@ export function SkillsMigrationGate({
   const applyMigration = useApplySkillsMigration();
   const resumeMigration = useResumeSkillsMigration();
   const restoreMigration = useRestoreSkillsMigrationBackup();
+  const revealMigrationPlanItem = useRevealSkillsMigrationPlanItem();
   const [drift, setDrift] = useState<"unchanged" | "changed" | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [
+    preserveUnsupportedConsumerFiles,
+    setPreserveUnsupportedConsumerFiles,
+  ] = useState(false);
   const [transientExecution, setTransientExecution] =
     useState<SkillsMigrationExecutionResult | null>(null);
   const observedToken = useRef<string | null>(null);
@@ -81,6 +89,7 @@ export function SkillsMigrationGate({
       setDrift("changed");
       setTransientExecution(null);
       setConfirming(false);
+      setPreserveUnsupportedConsumerFiles(false);
     }
     observedToken.current = nextToken;
   }, [preflight.data?.observationToken]);
@@ -140,6 +149,7 @@ export function SkillsMigrationGate({
     try {
       const result = await applyMigration.mutateAsync({
         observationToken: preflight.data.observationToken,
+        preserveUnsupportedConsumerFiles,
       });
       setTransientExecution(result);
       await preflight.refetch();
@@ -166,6 +176,9 @@ export function SkillsMigrationGate({
     }
   };
   const executionOwnsActions = Boolean(execution);
+  const requiresUnsupportedConsumerConsent = plan.some(
+    (item) => item.action === "preserve_unsupported_consumer_files",
+  );
   const restorableBackup = execution?.backup?.restoreAvailable
     ? execution.backup
     : undefined;
@@ -330,10 +343,27 @@ export function SkillsMigrationGate({
                 <PlanRow
                   key={`${item.action}-${item.directory ?? "scope"}-${index}`}
                   item={item}
+                  onReveal={
+                    item.disposition === "user_resolve" &&
+                    item.action !== "preserve_unsupported_consumer_files" &&
+                    (item.fromLocation || item.toLocation)
+                      ? () =>
+                          revealMigrationPlanItem.mutateAsync({
+                            observationToken: preflight.data.observationToken,
+                            planIndex: index,
+                          })
+                      : undefined
+                  }
+                  revealPending={revealMigrationPlanItem.isPending}
                 />
               ))
             )}
           </div>
+          {revealMigrationPlanItem.isError && (
+            <p role="alert" className="mt-3 text-sm text-destructive">
+              {t("skills.migration.revealError")}
+            </p>
+          )}
         </section>
 
         <section className="rounded-xl border bg-card p-5">
@@ -384,11 +414,34 @@ export function SkillsMigrationGate({
               {t("skills.migration.confirm.description")}
             </DialogDescription>
           </DialogHeader>
+          {requiresUnsupportedConsumerConsent && (
+            <label
+              htmlFor="preserve-unsupported-consumer-files"
+              className="flex items-start gap-3 rounded-md border p-3 text-sm"
+            >
+              <Checkbox
+                id="preserve-unsupported-consumer-files"
+                checked={preserveUnsupportedConsumerFiles}
+                onCheckedChange={(checked) =>
+                  setPreserveUnsupportedConsumerFiles(checked === true)
+                }
+              />
+              <span>
+                {t("skills.migration.confirm.preserveUnsupportedConsumers")}
+              </span>
+            </label>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirming(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => void applyReviewedMigration()}>
+            <Button
+              disabled={
+                requiresUnsupportedConsumerConsent &&
+                !preserveUnsupportedConsumerFiles
+              }
+              onClick={() => void applyReviewedMigration()}
+            >
               {t("skills.migration.confirm.apply")}
             </Button>
           </DialogFooter>
@@ -524,7 +577,15 @@ function InventoryRow({ item }: { item: SkillsMigrationInventoryItem }) {
   );
 }
 
-function PlanRow({ item }: { item: SkillsMigrationPlanItem }) {
+function PlanRow({
+  item,
+  onReveal,
+  revealPending,
+}: {
+  item: SkillsMigrationPlanItem;
+  onReveal?: () => Promise<boolean>;
+  revealPending: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <div className="rounded-lg border p-3" data-testid="migration-plan-item">
@@ -546,10 +607,40 @@ function PlanRow({ item }: { item: SkillsMigrationPlanItem }) {
       <p className="mt-1 text-xs text-muted-foreground">
         {t(`skills.migration.reason.${item.reason}`)}
       </p>
+      {item.disposition === "user_resolve" && (
+        <p className="mt-2 text-sm">
+          {t(`skills.migration.guidance.${item.reason}`)}
+        </p>
+      )}
+      {item.unsupportedConsumers && item.unsupportedConsumers.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {item.unsupportedConsumers.map((consumer) => (
+            <Badge key={consumer} variant="secondary">
+              {t(`skills.migration.legacyConsumer.${consumer}`)}
+            </Badge>
+          ))}
+        </div>
+      )}
       {(item.fromLocation || item.toLocation) && (
         <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
           {[item.fromLocation, item.toLocation].filter(Boolean).join(" → ")}
         </p>
+      )}
+      {onReveal && (
+        <Button
+          className="mt-3"
+          variant="outline"
+          size="sm"
+          disabled={revealPending}
+          onClick={() => void onReveal().catch(() => undefined)}
+        >
+          {revealPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <FolderOpen className="mr-2 h-4 w-4" />
+          )}
+          {t("skills.migration.revealInFinder")}
+        </Button>
       )}
     </div>
   );

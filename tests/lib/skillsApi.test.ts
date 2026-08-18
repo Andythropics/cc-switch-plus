@@ -48,13 +48,31 @@ describe("Skills Library API", () => {
   it("applies a reviewed migration using only its opaque observation token", async () => {
     await skillsApi.applySkillsMigration({
       observationToken: "migration-observation-v1",
+      preserveUnsupportedConsumerFiles: true,
     });
 
     expect(invokeMock).toHaveBeenCalledWith("applySkillsMigration", {
-      intent: { observationToken: "migration-observation-v1" },
+      intent: {
+        observationToken: "migration-observation-v1",
+        preserveUnsupportedConsumerFiles: true,
+      },
     });
     expect(invokeMock.mock.calls[0][1].intent).not.toHaveProperty("path");
     expect(invokeMock.mock.calls[0][1].intent).not.toHaveProperty("plan");
+  });
+
+  it("reveals only a token-bound migration plan item", async () => {
+    await skillsApi.revealSkillsMigrationPlanItem({
+      observationToken: "migration-observation-v1",
+      planIndex: 3,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("revealSkillsMigrationPlanItem", {
+      intent: {
+        observationToken: "migration-observation-v1",
+        planIndex: 3,
+      },
+    });
   });
 
   it("resumes durable migration work without reconstructing frontend intent", async () => {
