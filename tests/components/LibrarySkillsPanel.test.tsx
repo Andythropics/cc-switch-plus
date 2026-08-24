@@ -975,6 +975,61 @@ describe("LibrarySkillsPanel", () => {
     expect(screen.getByText("blocked")).toBeInTheDocument();
   });
 
+  it("contains long deletion inspection content without pushing the footer out", async () => {
+    const longMessage = `deletion failure: ${"very-long-path-segment/".repeat(20)}`;
+    inspectLibraryDeletionMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      observationToken: "delete-observation",
+      blocked: true,
+      message: longMessage,
+      targets: Array.from({ length: 12 }, (_, index) => ({
+        actionRequired: "remove_expected_link",
+        inspection: {
+          librarySkillId: "library-1",
+          libraryDirectory: "review-skill",
+          target: {
+            consumer: index % 2 === 0 ? "claude" : "codex",
+            workspace: "project",
+            workspaceId: `workspace-${index}`,
+          },
+          observed: {
+            state: "correct_link",
+            targetPath: `/skills/${"very-long-target-path/".repeat(8)}${index}`,
+            expectedTarget: "/library/review-skill",
+          },
+          observationToken: "delete-observation",
+          status: "in_sync",
+        },
+      })),
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.delete.action" }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const content = screen.getByText(longMessage).parentElement;
+    const cancelButton = screen.getByRole("button", { name: "common.cancel" });
+    const footer = cancelButton.parentElement;
+
+    expect(content).toHaveClass(
+      "min-h-0",
+      "flex-1",
+      "overflow-y-auto",
+      "px-6",
+      "py-5",
+      "break-words",
+    );
+    expect(content).not.toContainElement(cancelButton);
+    expect(dialog).toContainElement(cancelButton);
+    expect(dialog).toContainElement(
+      screen.getByRole("button", { name: "skills.library.delete.confirm" }),
+    );
+    expect(footer).toHaveClass("flex-shrink-0");
+  });
+
   it("requires an explicit unique directory when ZIP acquisition collides", async () => {
     acquireZipMock
       .mockRejectedValueOnce(

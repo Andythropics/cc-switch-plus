@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -1073,7 +1074,7 @@ export const LibrarySkillsPanel = forwardRef<
               </DialogDescription>
             </DialogHeader>
             {deletionInspection && (
-              <div className="space-y-3 py-2 text-sm">
+              <DialogBody className="space-y-3 text-sm">
                 <p>
                   {deletionInspection.skill.displayName} (
                   <code>{deletionInspection.skill.directory}</code>)
@@ -1185,7 +1186,7 @@ export const LibrarySkillsPanel = forwardRef<
                     )}
                   </div>
                 )}
-              </div>
+              </DialogBody>
             )}
             <DialogFooter>
               <Button
