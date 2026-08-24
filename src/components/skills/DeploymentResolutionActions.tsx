@@ -5,6 +5,7 @@ import { Database, Link2, Unlink, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -63,6 +64,8 @@ export function DeploymentResolutionActions({
   const { t } = useTranslation();
   const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
   const [forgetDialogOpen, setForgetDialogOpen] = useState(false);
+  const [undeployDialogOpen, setUndeployDialogOpen] = useState(false);
+  const [undeployPending, setUndeployPending] = useState(false);
 
   const status = deployment?.status ?? "not_deployed";
   const hasDesired = Boolean(deployment?.desired);
@@ -102,6 +105,21 @@ export function DeploymentResolutionActions({
     void onApply(intent);
   };
 
+  const confirmUndeploy = async () => {
+    if (undeployPending) return;
+    setUndeployPending(true);
+    try {
+      await onApply({
+        action: "undeploy",
+        librarySkillId: skill.id,
+        target,
+      });
+      setUndeployDialogOpen(false);
+    } finally {
+      setUndeployPending(false);
+    }
+  };
+
   return (
     <>
       {canDeploy && (
@@ -137,18 +155,67 @@ export function DeploymentResolutionActions({
               ? t("skills.library.undeploySafetyDescription")
               : undefined
           }
-          onClick={() =>
-            apply({
-              action: "undeploy",
-              librarySkillId: skill.id,
-              target,
-            })
-          }
+          onClick={() => setUndeployDialogOpen(true)}
         >
           <Unlink className="mr-1.5 h-3.5 w-3.5" />
           {undeployLabel}
         </Button>
       )}
+
+      <Dialog
+        open={undeployDialogOpen}
+        onOpenChange={(open) => {
+          if (!undeployPending) setUndeployDialogOpen(open);
+        }}
+      >
+        <DialogContent zIndex="alert">
+          <DialogHeader>
+            <DialogTitle>
+              {t("skills.library.undeployConfirmTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("skills.library.undeployConfirmDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3 text-sm">
+            <p className="break-words font-medium">{skill.displayName}</p>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-muted-foreground">
+              <dt>{t("skills.library.undeployConsumer")}</dt>
+              <dd>
+                {t(
+                  target.consumer === "claude"
+                    ? "skills.library.consumerClaude"
+                    : "skills.library.consumerCodex",
+                )}
+              </dd>
+              <dt>{t("skills.library.undeployWorkspace")}</dt>
+              <dd className="break-all">
+                {target.workspace === "global"
+                  ? t("skills.batch.global")
+                  : t("skills.library.undeployProjectWorkspace", {
+                      workspaceId: target.workspaceId ?? "",
+                    })}
+              </dd>
+            </dl>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={undeployPending}
+              onClick={() => setUndeployDialogOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={undeployPending}
+              onClick={() => void confirmUndeploy()}
+            >
+              {t("skills.library.undeployConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {canRepair && (
         <Button

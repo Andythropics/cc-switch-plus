@@ -551,6 +551,12 @@ describe("LibrarySkillsPanel", () => {
         name: "skills.library.undeployClaude",
       })[0],
     );
+    expect(applyDeploymentsMock).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.undeployConfirm",
+      }),
+    );
 
     await waitFor(() =>
       expect(applyDeploymentsMock).toHaveBeenCalledWith({
@@ -593,6 +599,12 @@ describe("LibrarySkillsPanel", () => {
       screen.getAllByRole("button", {
         name: "skills.library.undeployClaude",
       })[0],
+    );
+    expect(applyDeploymentsMock).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.undeployConfirm",
+      }),
     );
 
     await waitFor(() =>
