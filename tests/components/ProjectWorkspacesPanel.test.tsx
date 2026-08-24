@@ -637,8 +637,13 @@ describe("ProjectWorkspacesPanel", () => {
 
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith(
-        expect.stringContaining("deployments remain for this workspace"),
+        "skills.projects.forgetBlocked",
+        expect.objectContaining({ description: expect.anything() }),
       ),
+    );
+    const description = toastErrorMock.mock.calls[0][1].description;
+    expect(description.props.children[1].props.details).toBe(
+      "deployments remain for this workspace",
     );
     expect(
       screen.getByText("skills.projects.forgetDescription"),

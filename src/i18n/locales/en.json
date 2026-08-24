@@ -2476,6 +2476,7 @@
       "noSkills": "No Library Skills available.",
       "results": "Batch results (in request order)",
       "noResults": "The backend returned no item results.",
+      "applyFailed": "Batch deployment failed. Review the selections and try again.",
       "outcome": {
         "applied": "Applied",
         "replaced": "Replaced",
@@ -2802,6 +2803,7 @@
       "library": "Library",
       "register": "Register project",
       "registerSuccess": "Project Workspace registered",
+      "actionFailed": "Project Workspace action failed. Refresh and try again.",
       "empty": "No Project Workspaces",
       "emptyDescription": "Register a Git repository, worktree, or local directory to assign Skills.",
       "searchNoResults": "Try a different name, Workspace ID, or root path.",
@@ -2942,6 +2944,7 @@
     "updatingAll": "Updating...",
     "updateAllSuccess": "Successfully updated {{count}} skill(s)",
     "error": {
+      "technicalDetails": "Technical details",
       "skillNotFound": "Skill not found: {{directory}}",
       "missingRepoInfo": "Missing repository info (owner or name)",
       "downloadTimeout": "Download repository {{owner}}/{{name}} timeout ({{timeout}}s)",

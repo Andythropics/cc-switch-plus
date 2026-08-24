@@ -50,6 +50,10 @@ import { DeploymentResolutionActions } from "@/components/skills/DeploymentResol
 import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryPanel";
 import { ProjectSkillImportPanel } from "@/components/skills/ProjectSkillImportPanel";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
+import {
+  showSkillErrorToast,
+  skillDiagnosticToastOptions,
+} from "@/components/skills/SkillTechnicalDetails";
 import { settingsApi } from "@/lib/api/settings";
 import {
   deploymentOutcomeLabelKeys,
@@ -131,11 +135,11 @@ function ProjectWorkspaceDeployments({
       if (!item) throw new Error(t("skills.projects.deploymentFailed"));
       const label = t(deploymentOutcomeLabelKeys[item.outcome]);
       if (!successfulDeploymentOutcomes.has(item.outcome)) {
-        toast.error(item.message ? `${label}: ${item.message}` : label);
+        toast.error(label, skillDiagnosticToastOptions(item.message));
         return;
       }
       if (item.message) {
-        toast.success(`${label}: ${item.message}`);
+        toast.success(label, skillDiagnosticToastOptions(item.message));
         return;
       }
       toast.success(
@@ -152,7 +156,7 @@ function ProjectWorkspaceDeployments({
         ),
       );
     } catch (error) {
-      toast.error(String(error));
+      showSkillErrorToast(t, "skills.projects.deploymentFailed", error);
     }
   };
 
@@ -444,7 +448,7 @@ export const ProjectWorkspacesPanel = forwardRef<
       setSelectedId(result.workspace.id);
       toast.success(t("skills.projects.registerSuccess"));
     } catch (error) {
-      toast.error(String(error));
+      showSkillErrorToast(t, "skills.projects.actionFailed", error);
     }
   };
 
@@ -463,7 +467,7 @@ export const ProjectWorkspacesPanel = forwardRef<
       setRenameTarget(null);
       toast.success(t("skills.projects.renameSuccess"));
     } catch (error) {
-      toast.error(String(error));
+      showSkillErrorToast(t, "skills.projects.actionFailed", error);
     }
   };
 
@@ -474,7 +478,7 @@ export const ProjectWorkspacesPanel = forwardRef<
       setArchiveTarget(null);
       toast.success(t("skills.projects.archiveSuccess"));
     } catch (error) {
-      toast.error(String(error));
+      showSkillErrorToast(t, "skills.projects.actionFailed", error);
     }
   };
 
@@ -485,7 +489,7 @@ export const ProjectWorkspacesPanel = forwardRef<
       setShowArchived(false);
       toast.success(t("skills.projects.restoreSuccess"));
     } catch (error) {
-      toast.error(String(error));
+      showSkillErrorToast(t, "skills.projects.actionFailed", error);
     }
   };
 
@@ -514,7 +518,7 @@ export const ProjectWorkspacesPanel = forwardRef<
         ),
       );
     } catch (error) {
-      toast.error(String(error));
+      showSkillErrorToast(t, "skills.projects.actionFailed", error);
     }
   };
 
@@ -526,8 +530,7 @@ export const ProjectWorkspacesPanel = forwardRef<
       if (selectedId === forgetTarget.id) setSelectedId(null);
       toast.success(t("skills.projects.forgetSuccess"));
     } catch (error) {
-      const message = String(error);
-      toast.error(`${t("skills.projects.forgetBlocked")}: ${message}`);
+      showSkillErrorToast(t, "skills.projects.forgetBlocked", error);
     }
   };
 

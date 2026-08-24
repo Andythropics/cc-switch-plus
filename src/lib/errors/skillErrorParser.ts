@@ -78,14 +78,14 @@ export function formatSkillError(
   errorString: string,
   t: TFunction,
   defaultTitle: string = "skills.library.acquireFailed",
-): { title: string; description: string } {
+): { title: string; description: string; technicalDetails?: string } {
   const parsedError = parseSkillError(errorString);
 
   if (!parsedError) {
-    // 如果不是结构化错误，返回原始错误字符串
     return {
       title: t(defaultTitle),
-      description: errorString || t("common.error"),
+      description: t("skills.error.unknownError"),
+      technicalDetails: errorString || undefined,
     };
   }
 
@@ -107,5 +107,6 @@ export function formatSkillError(
   return {
     title: t(defaultTitle),
     description,
+    technicalDetails: errorString || undefined,
   };
 }

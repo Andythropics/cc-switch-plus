@@ -25,6 +25,10 @@ import {
   useApplyProjectSkillImport,
   useInspectProjectSkillImports,
 } from "@/hooks/useSkills";
+import {
+  getSkillTechnicalDetails,
+  SkillTechnicalDetails,
+} from "@/components/skills/SkillTechnicalDetails";
 import type {
   ProjectSkillImportFinding,
   ProjectSkillImportIntent,
@@ -205,10 +209,7 @@ export function ProjectSkillImportPanel({
         [selected.id]: {
           findingId: selected.id,
           outcome: "blocked",
-          message:
-            error instanceof Error
-              ? error.message
-              : t("skills.projects.import.invalidSource"),
+          message: getSkillTechnicalDetails(error),
         },
       }));
     }
@@ -321,11 +322,7 @@ export function ProjectSkillImportPanel({
                             )}
                           </span>
                         )}
-                        {outcome.message && (
-                          <span className="text-muted-foreground">
-                            {outcome.message}
-                          </span>
-                        )}
+                        <SkillTechnicalDetails details={outcome.message} />
                         {outcome.outcome === "recovery_required" && (
                           <span className="font-semibold">
                             {t("skills.projects.import.recoveryRequired")}

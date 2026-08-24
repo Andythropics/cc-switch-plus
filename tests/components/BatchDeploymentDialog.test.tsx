@@ -175,7 +175,37 @@ describe("BatchDeploymentDialog", () => {
     expect(await screen.findByTestId("batch-results")).toBeInTheDocument();
     expect(screen.getByTestId("batch-result-0")).toHaveTextContent("applied");
     expect(screen.getByTestId("batch-result-1")).toHaveTextContent("blocked");
-    expect(screen.getByText("consumer blocked")).toBeInTheDocument();
+    const diagnostic = screen.getByText("consumer blocked");
+    expect(diagnostic.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getAllByText("skills.error.technicalDetails")).toHaveLength(
+      2,
+    );
+  });
+
+  it("shows a localized failure summary before collapsed backend details", async () => {
+    const onApply = vi
+      .fn()
+      .mockRejectedValue(new Error("database path /Users/test/private.db"));
+    const user = userEvent.setup();
+    render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={vi.fn()}
+        skills={[makeSkill("skill-a", "a")]}
+        onApply={onApply}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skill-a skills.library.consumerClaude",
+      }),
+    );
+    await user.click(screen.getByTestId("batch-apply"));
+
+    expect(await screen.findByText("skills.batch.applyFailed")).toBeVisible();
+    const diagnostic = screen.getByText("database path /Users/test/private.db");
+    expect(diagnostic.closest("details")).not.toHaveAttribute("open");
   });
 
   it("renders recovery_required as a high-visibility typed outcome", async () => {

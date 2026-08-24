@@ -16,6 +16,10 @@ import { Trash2, ExternalLink, Loader2, Plus } from "lucide-react";
 import { settingsApi } from "@/lib/api";
 import { FullScreenPanel } from "@/components/common/FullScreenPanel";
 import type { DiscoverableSkill, SkillRepo } from "@/lib/api/skills";
+import {
+  getSkillTechnicalDetails,
+  SkillTechnicalDetails,
+} from "@/components/skills/SkillTechnicalDetails";
 
 interface RepoManagerPanelProps {
   repos: SkillRepo[];
@@ -36,6 +40,7 @@ export function RepoManagerPanel({
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [error, setError] = useState("");
+  const [errorDetails, setErrorDetails] = useState("");
   const [pendingRemoval, setPendingRemoval] = useState<SkillRepo | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
 
@@ -64,6 +69,7 @@ export function RepoManagerPanel({
 
   const handleAdd = async () => {
     setError("");
+    setErrorDetails("");
 
     const parsed = parseRepoUrl(repoUrl);
     if (!parsed) {
@@ -82,7 +88,8 @@ export function RepoManagerPanel({
       setRepoUrl("");
       setBranch("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("skills.repo.addFailed"));
+      setError(t("skills.repo.addFailed"));
+      setErrorDetails(getSkillTechnicalDetails(e));
     }
   };
 
@@ -145,7 +152,10 @@ export function RepoManagerPanel({
             />
           </div>
           {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div className="text-sm text-red-600 dark:text-red-400">
+              <p>{error}</p>
+              <SkillTechnicalDetails details={errorDetails} />
+            </div>
           )}
           <Button
             onClick={handleAdd}

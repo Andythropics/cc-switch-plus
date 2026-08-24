@@ -2476,6 +2476,7 @@
       "noSkills": "利用可能な Library Skill がありません。",
       "results": "一括結果（リクエスト順）",
       "noResults": "バックエンドから結果が返りませんでした。",
+      "applyFailed": "一括デプロイに失敗しました。選択内容を確認して再試行してください。",
       "outcome": {
         "applied": "配置済み",
         "replaced": "置換済み",
@@ -2799,6 +2800,7 @@
       "library": "ライブラリ",
       "register": "プロジェクトを登録",
       "registerSuccess": "プロジェクトワークスペースを登録しました",
+      "actionFailed": "プロジェクトワークスペースの操作に失敗しました。更新して再試行してください。",
       "empty": "プロジェクトワークスペースがありません",
       "emptyDescription": "Git リポジトリ、ワークツリー、またはローカルディレクトリを登録してください。",
       "searchNoResults": "名前、Workspace ID、ルートパスを変えてください。",
@@ -2939,6 +2941,7 @@
     "updatingAll": "更新中...",
     "updateAllSuccess": "{{count}} 個のスキルを更新しました",
     "error": {
+      "technicalDetails": "技術的な詳細",
       "skillNotFound": "スキルが見つかりません: {{directory}}",
       "missingRepoInfo": "リポジトリ情報（owner または name）が不足しています",
       "downloadTimeout": "リポジトリ {{owner}}/{{name}} のダウンロードがタイムアウトしました（{{timeout}} 秒）",

@@ -2477,6 +2477,7 @@
       "noSkills": "沒有可用的 Library Skill。",
       "results": "批次結果（依請求順序）",
       "noResults": "後端沒有回傳結果項目。",
+      "applyFailed": "批次部署失敗，請檢查所選目標後再試一次。",
       "outcome": {
         "applied": "已部署",
         "replaced": "已替換",
@@ -2800,6 +2801,7 @@
       "library": "技能庫",
       "register": "註冊專案",
       "registerSuccess": "專案工作區已註冊",
+      "actionFailed": "專案工作區操作失敗，請重新整理後再試一次。",
       "empty": "尚無專案工作區",
       "emptyDescription": "註冊 Git 儲存庫、工作樹或本機目錄來分配技能。",
       "searchNoResults": "請嘗試其他名稱、Workspace ID 或根路徑。",
@@ -2940,6 +2942,7 @@
     "updatingAll": "更新中...",
     "updateAllSuccess": "已成功更新 {{count}} 個技能",
     "error": {
+      "technicalDetails": "技術詳情",
       "skillNotFound": "技能不存在：{{directory}}",
       "missingRepoInfo": "缺少儲存庫資訊（owner 或 name）",
       "downloadTimeout": "下載儲存庫 {{owner}}/{{name}} 逾時（{{timeout}} 秒）",

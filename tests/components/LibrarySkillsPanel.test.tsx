@@ -570,7 +570,11 @@ describe("LibrarySkillsPanel", () => {
       }),
     );
     expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("managed link is missing"),
+      "skills.batch.outcome.drift",
+      expect.objectContaining({ description: expect.anything() }),
+    );
+    expect(toastErrorMock.mock.calls[0][1].description.props.details).toBe(
+      "managed link is missing",
     );
   });
 
@@ -607,13 +611,12 @@ describe("LibrarySkillsPanel", () => {
       }),
     );
 
-    await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith(
-        expect.stringContaining("skills.batch.outcome.recovery_required"),
-      ),
-    );
     expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("preserve backup"),
+      "skills.batch.outcome.recovery_required",
+      expect.objectContaining({ description: expect.anything() }),
+    );
+    expect(toastErrorMock.mock.calls[0][1].description.props.details).toBe(
+      "preserve backup",
     );
   });
 
@@ -1022,7 +1025,7 @@ describe("LibrarySkillsPanel", () => {
     );
 
     const dialog = screen.getByRole("dialog");
-    const content = screen.getByText(longMessage).parentElement;
+    const content = screen.getByText(longMessage).closest(".min-h-0");
     const cancelButton = screen.getByRole("button", { name: "common.cancel" });
     const footer = cancelButton.parentElement;
 

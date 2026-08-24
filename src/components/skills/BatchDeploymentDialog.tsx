@@ -35,6 +35,10 @@ import type {
 } from "@/lib/api/skills";
 import type { ProjectWorkspace } from "@/lib/api/projectWorkspaces";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
+import {
+  getSkillTechnicalDetails,
+  SkillTechnicalDetails,
+} from "@/components/skills/SkillTechnicalDetails";
 
 export type BatchDeploymentAction = "deploy" | "undeploy";
 export type BatchDeploymentTarget = Omit<DeploymentTarget, "consumer">;
@@ -231,7 +235,7 @@ export function BatchDeploymentDialog({
       const next = await onApply({ intents: selectedIntents });
       setResult(next);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(getSkillTechnicalDetails(cause));
     }
   };
 
@@ -430,9 +434,10 @@ export function BatchDeploymentDialog({
           </div>
 
           {error && (
-            <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </p>
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              <p>{t("skills.batch.applyFailed")}</p>
+              <SkillTechnicalDetails details={error} />
+            </div>
           )}
           {result && (
             <div
@@ -476,9 +481,7 @@ export function BatchDeploymentDialog({
                         {t(deploymentOutcomeLabelKeys[item.outcome])}
                       </Badge>
                       {item.message && (
-                        <span className="ml-1 text-muted-foreground">
-                          {item.message}
-                        </span>
+                        <SkillTechnicalDetails details={item.message} />
                       )}
                     </li>
                   ))}

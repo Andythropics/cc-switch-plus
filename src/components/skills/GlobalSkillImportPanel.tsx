@@ -15,6 +15,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApplyGlobalSkillImport } from "@/hooks/useSkills";
+import {
+  getSkillTechnicalDetails,
+  SkillTechnicalDetails,
+} from "@/components/skills/SkillTechnicalDetails";
 import type {
   GlobalSkillImportFinding,
   GlobalSkillImportInspection,
@@ -150,7 +154,7 @@ export function GlobalSkillImportPanel({
         [selected.id]: {
           findingId: selected.id,
           outcome: "blocked",
-          message: error instanceof Error ? error.message : String(error),
+          message: getSkillTechnicalDetails(error),
         },
       }));
     }
@@ -224,7 +228,7 @@ export function GlobalSkillImportPanel({
                     >
                       {t(`skills.global.import.outcome.${outcome.outcome}`)}
                     </Badge>{" "}
-                    {outcome.message}
+                    <SkillTechnicalDetails details={outcome.message} />
                     {outcome.backupPath && (
                       <code className="ml-1 break-all">
                         {outcome.backupPath}

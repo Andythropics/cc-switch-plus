@@ -70,6 +70,11 @@ import {
   BatchDeploymentDialog,
   type BatchDeploymentTarget,
 } from "@/components/skills/BatchDeploymentDialog";
+import {
+  showSkillErrorToast,
+  skillDiagnosticToastOptions,
+  SkillTechnicalDetails,
+} from "@/components/skills/SkillTechnicalDetails";
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
@@ -315,7 +320,7 @@ export const LibrarySkillsPanel = forwardRef<
         setEditing(null);
         toast.success(t("skills.library.updateSuccess"));
       } catch (error) {
-        toast.error(String(error));
+        showSkillErrorToast(t, "skills.updateFailed", error);
       }
     };
 
@@ -340,7 +345,7 @@ export const LibrarySkillsPanel = forwardRef<
           setZipCollision({ filePath, directory: collision[1] });
           setUniqueDirectory(`${collision[1]}-2`);
         } else {
-          toast.error(message);
+          showSkillErrorToast(t, "skills.library.acquireFailed", error);
         }
       }
     };
@@ -470,11 +475,11 @@ export const LibrarySkillsPanel = forwardRef<
         }
         const label = t(deploymentOutcomeLabelKeys[item.outcome]);
         if (!successfulDeploymentOutcomes.has(item.outcome)) {
-          toast.error(item.message ? `${label}: ${item.message}` : label);
+          toast.error(label, skillDiagnosticToastOptions(item.message));
           return;
         }
         if (item.message) {
-          toast.success(`${label}: ${item.message}`);
+          toast.success(label, skillDiagnosticToastOptions(item.message));
           return;
         }
         const consumer = intent.target.consumer;
@@ -495,7 +500,7 @@ export const LibrarySkillsPanel = forwardRef<
                   : "skills.library.forgetSuccess";
         toast.success(t(successKey));
       } catch (error) {
-        toast.error(String(error));
+        showSkillErrorToast(t, "skills.library.deploymentFailed", error);
       }
     };
 
@@ -843,30 +848,31 @@ export const LibrarySkillsPanel = forwardRef<
                       className="mt-2 space-y-2 rounded-md border bg-muted/40 p-3 text-xs"
                       data-testid={`library-update-details-${skill.id}`}
                     >
-                      {updateChecks[skill.id].message && (
-                        <p>{updateChecks[skill.id].message}</p>
-                      )}
                       {updateChecks[skill.id].localModified && (
                         <p className="font-medium text-destructive">
                           {t("skills.library.update.localModified")}
                         </p>
                       )}
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-                        <span>
-                          {t("skills.library.update.recordedHash")}:{" "}
-                          <code>
-                            {updateChecks[skill.id].recordedContentHash}
-                          </code>
-                        </span>
-                        {updateChecks[skill.id].stagedContentHash && (
+                      <SkillTechnicalDetails
+                        details={updateChecks[skill.id].message}
+                      >
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
                           <span>
-                            {t("skills.library.update.stagedHash")}:{" "}
+                            {t("skills.library.update.recordedHash")}:{" "}
                             <code>
-                              {updateChecks[skill.id].stagedContentHash}
+                              {updateChecks[skill.id].recordedContentHash}
                             </code>
                           </span>
-                        )}
-                      </div>
+                          {updateChecks[skill.id].stagedContentHash && (
+                            <span>
+                              {t("skills.library.update.stagedHash")}:{" "}
+                              <code>
+                                {updateChecks[skill.id].stagedContentHash}
+                              </code>
+                            </span>
+                          )}
+                        </div>
+                      </SkillTechnicalDetails>
                       {updateChecks[skill.id].affectedDeployments.length >
                         0 && (
                         <div className="space-y-1">
@@ -955,7 +961,7 @@ export const LibrarySkillsPanel = forwardRef<
                           {t(updateReasonKey(updateResult.reason as never))}
                         </p>
                       )}
-                      {updateResult.message && <p>{updateResult.message}</p>}
+                      <SkillTechnicalDetails details={updateResult.message} />
                       {updateResult.backupPath && (
                         <p>
                           {t("skills.library.update.backupPath")}:{" "}
@@ -1145,11 +1151,9 @@ export const LibrarySkillsPanel = forwardRef<
                     {t("skills.library.delete.blockedDescription")}
                   </p>
                 )}
-                {deletionInspection.inspection.message && (
-                  <p className="text-xs text-muted-foreground">
-                    {deletionInspection.inspection.message}
-                  </p>
-                )}
+                <SkillTechnicalDetails
+                  details={deletionInspection.inspection.message}
+                />
                 {deletionResult?.skillId === deletionInspection.skill.id && (
                   <div
                     className={
@@ -1170,7 +1174,7 @@ export const LibrarySkillsPanel = forwardRef<
                         <code>{deletionResult.backupPath}</code>
                       </p>
                     )}
-                    {deletionResult.message && <p>{deletionResult.message}</p>}
+                    <SkillTechnicalDetails details={deletionResult.message} />
                     {deletionResult.items.length > 0 && (
                       <ul className="mt-2 list-disc space-y-1 pl-4">
                         {deletionResult.items.map((item) => (
@@ -1179,7 +1183,7 @@ export const LibrarySkillsPanel = forwardRef<
                           >
                             {item.target.consumer} / {item.target.workspace}:{" "}
                             <code>{item.outcome}</code>
-                            {item.message ? ` - ${item.message}` : ""}
+                            <SkillTechnicalDetails details={item.message} />
                           </li>
                         ))}
                       </ul>

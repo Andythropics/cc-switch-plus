@@ -49,6 +49,10 @@ import type {
   SkillsShDiscoverableSkill,
 } from "@/lib/api/skills";
 import { formatSkillError } from "@/lib/errors/skillErrorParser";
+import {
+  showSkillErrorToast,
+  SkillTechnicalDetails,
+} from "@/components/skills/SkillTechnicalDetails";
 
 export type SkillsPageSource = "repos" | "skillssh";
 
@@ -306,13 +310,18 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
           setUniqueDirectory(`${skill.directory.split(/[/\\]/).pop()}-2`);
           return;
         }
-        const { title, description } = formatSkillError(
+        const { title, description, technicalDetails } = formatSkillError(
           errorMessage,
           t,
           "skills.library.acquireFailed",
         );
         toast.error(title, {
-          description,
+          description: (
+            <div>
+              <p>{description}</p>
+              <SkillTechnicalDetails details={technicalDetails} />
+            </div>
+          ),
           duration: 10000,
         });
         console.error("Acquire Skill failed:", error);
@@ -340,9 +349,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
           { closeButton: true },
         );
       } catch (error) {
-        toast.error(t("common.error"), {
-          description: String(error),
-        });
+        showSkillErrorToast(t, "skills.repo.addFailed", error);
       }
     };
 
@@ -353,9 +360,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
           closeButton: true,
         });
       } catch (error) {
-        toast.error(t("common.error"), {
-          description: String(error),
-        });
+        showSkillErrorToast(t, "skills.repo.removeFailed", error);
       }
     };
 
@@ -710,7 +715,11 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                     );
                     setCollision(null);
                   } catch (error) {
-                    toast.error(String(error));
+                    showSkillErrorToast(
+                      t,
+                      "skills.library.acquireFailed",
+                      error,
+                    );
                   }
                 }}
               >

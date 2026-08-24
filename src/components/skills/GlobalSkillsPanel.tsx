@@ -19,6 +19,10 @@ import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryP
 import { GlobalSkillImportPanel } from "@/components/skills/GlobalSkillImportPanel";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import {
+  showSkillErrorToast,
+  skillDiagnosticToastOptions,
+} from "@/components/skills/SkillTechnicalDetails";
+import {
   useApplySkillDeployments,
   useLibrarySkills,
   useInspectGlobalSkillImports,
@@ -178,12 +182,12 @@ export function GlobalSkillsPanel({
       if (!item) throw new Error(t("skills.library.deploymentFailed"));
       const label = t(deploymentOutcomeLabelKeys[item.outcome]);
       if (successfulDeploymentOutcomes.has(item.outcome)) {
-        toast.success(item.message ? `${label}: ${item.message}` : label);
+        toast.success(label, skillDiagnosticToastOptions(item.message));
       } else {
-        toast.error(item.message ? `${label}: ${item.message}` : label);
+        toast.error(label, skillDiagnosticToastOptions(item.message));
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
+      showSkillErrorToast(t, "skills.library.deploymentFailed", error);
     }
   };
 
