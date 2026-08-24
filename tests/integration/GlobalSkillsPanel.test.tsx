@@ -160,6 +160,9 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
       screen.getByRole("button", { name: "skills.global.batchDeploy" }),
     );
     await screen.findByTestId("batch-skill-skill-a");
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      await user.click(checkbox);
+    }
     await user.click(screen.getByTestId("batch-apply"));
 
     await waitFor(() =>
