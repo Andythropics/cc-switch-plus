@@ -346,7 +346,7 @@ export function BatchDeploymentDialog({
               </Select>
               {selectedProject && (
                 <div className="space-y-0.5 text-xs text-muted-foreground">
-                  <span>
+                  <span className="break-all">
                     {t("skills.batch.workspaceId")}: {selectedProject.id}
                   </span>
                   {selectedTargetBlocked && (
@@ -372,8 +372,13 @@ export function BatchDeploymentDialog({
                   data-testid={`batch-skill-${skill.id}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{skill.displayName}</span>
-                    <Badge variant="outline" className="font-mono text-xs">
+                    <span className="min-w-0 break-words font-medium">
+                      {skill.displayName}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="max-w-full whitespace-normal break-all text-left font-mono text-xs"
+                    >
                       {skill.directory}
                     </Badge>
                   </div>
@@ -475,7 +480,7 @@ export function BatchDeploymentDialog({
                           : undefined
                       }
                     >
-                      <span className="font-mono text-xs">
+                      <span className="break-all font-mono text-xs">
                         {item.librarySkillId}
                       </span>{" "}
                       · {item.target?.consumer ?? "?"} ·{" "}

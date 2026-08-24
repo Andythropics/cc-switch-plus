@@ -211,7 +211,9 @@ export function GlobalSkillImportPanel({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{finding.directory}</span>
+                      <span className="min-w-0 break-all font-medium">
+                        {finding.directory}
+                      </span>
                       <Badge variant="outline">{finding.consumer}</Badge>
                     </span>
                     <span className="mt-1 block break-all font-mono text-xs text-muted-foreground">

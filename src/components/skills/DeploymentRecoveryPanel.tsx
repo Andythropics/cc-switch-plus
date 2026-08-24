@@ -182,7 +182,9 @@ export function DeploymentRecoveryPanel({
         )}
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{finding.entryName}</span>
+            <span className="min-w-0 break-words font-medium">
+              {finding.entryName}
+            </span>
             <Badge variant={selectable ? "secondary" : "outline"}>
               {selectable
                 ? t(`skills.recovery.reason.${finding.safeReason}`)
@@ -364,7 +366,9 @@ export function DeploymentRecoveryPanel({
                     : undefined
                 }
               >
-                <span className="font-mono text-xs">{item.librarySkillId}</span>{" "}
+                <span className="break-all font-mono text-xs">
+                  {item.librarySkillId}
+                </span>{" "}
                 · {targetLabel(item.target)} ·{" "}
                 <Badge
                   variant={

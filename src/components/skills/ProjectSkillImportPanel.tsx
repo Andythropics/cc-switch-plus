@@ -283,7 +283,9 @@ export function ProjectSkillImportPanel({
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{finding.directory}</span>
+                      <span className="min-w-0 break-all font-medium">
+                        {finding.directory}
+                      </span>
                       <Badge variant="outline">{finding.consumer}</Badge>
                       {supported ? (
                         <Badge variant="secondary">
@@ -337,7 +339,7 @@ export function ProjectSkillImportPanel({
                           </span>
                         )}
                         {outcome.backupPath && (
-                          <span className="w-full font-mono">
+                          <span className="w-full break-all font-mono">
                             <span>
                               {t("skills.projects.import.backupPath")}:
                             </span>{" "}
@@ -387,7 +389,9 @@ export function ProjectSkillImportPanel({
                     {finding.validation.issues.length > 0 && (
                       <ul className="list-disc pl-5 text-xs text-destructive">
                         {finding.validation.issues.map((issue) => (
-                          <li key={issue}>{issue}</li>
+                          <li key={issue} className="break-words">
+                            {issue}
+                          </li>
                         ))}
                       </ul>
                     )}
@@ -415,7 +419,7 @@ export function ProjectSkillImportPanel({
                       </p>
                     )}
                     {finding.directoryCollision.kind !== "none" && (
-                      <p className="text-xs text-destructive">
+                      <p className="break-words text-xs text-destructive">
                         <span>
                           {t("skills.projects.import.directoryCollision")}
                         </span>

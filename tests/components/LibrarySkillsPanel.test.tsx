@@ -124,6 +124,17 @@ vi.mock("sonner", () => ({
 }));
 
 describe("LibrarySkillsPanel", () => {
+  it("wraps long dynamic Skill metadata without widening the panel", () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(screen.getByText(librarySkill.displayName)).toHaveClass(
+      "break-words",
+    );
+    expect(screen.getByText(librarySkill.directory)).toHaveClass("break-all");
+    expect(screen.getByText("owner/repo")).toHaveClass("break-all");
+    expect(screen.getByText("skills/review")).toHaveClass("break-all");
+  });
+
   beforeEach(() => {
     updateMetadataMock.mockReset().mockResolvedValue(librarySkill);
     acquireZipMock.mockReset().mockResolvedValue([librarySkill]);

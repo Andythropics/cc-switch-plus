@@ -315,7 +315,9 @@ function MigrationReportFinding({
           </span>
         )}
         {finding.directory && (
-          <span className="font-mono text-xs">{finding.directory}</span>
+          <span className="min-w-0 break-all font-mono text-xs">
+            {finding.directory}
+          </span>
         )}
         {finding.consumer && (
           <span className="text-xs uppercase text-muted-foreground">

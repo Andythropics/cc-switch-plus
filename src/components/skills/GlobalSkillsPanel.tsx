@@ -430,17 +430,24 @@ export function GlobalSkillsPanel({
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold">{skill.displayName}</h3>
-                      <Badge variant="outline" className="font-mono text-xs">
+                      <h3 className="min-w-0 break-words font-semibold">
+                        {skill.displayName}
+                      </h3>
+                      <Badge
+                        variant="outline"
+                        className="max-w-full whitespace-normal break-all text-left font-mono text-xs"
+                      >
                         {skill.directory}
                       </Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <span>
+                      <span className="min-w-0 break-all">
                         {t("skills.global.libraryId", { id: skill.id })}
                       </span>
                       {sourceSummary(skill) && (
-                        <span>{sourceSummary(skill)}</span>
+                        <span className="min-w-0 break-all">
+                          {sourceSummary(skill)}
+                        </span>
                       )}
                       <Badge
                         variant={

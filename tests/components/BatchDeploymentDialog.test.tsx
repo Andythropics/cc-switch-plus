@@ -22,6 +22,44 @@ const makeSkill = (id: string, directory: string): LibrarySkill => ({
 });
 
 describe("BatchDeploymentDialog", () => {
+  it("wraps long Skill names, directories, and workspace identifiers", async () => {
+    const longName = "skill-name-".repeat(20);
+    const longDirectory = "nested-directory-".repeat(20);
+    const longWorkspaceId = "workspace-id-".repeat(20);
+
+    render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={vi.fn()}
+        skills={[
+          {
+            ...makeSkill("long-skill", longDirectory),
+            displayName: longName,
+          },
+        ]}
+        projects={[
+          {
+            id: longWorkspaceId,
+            displayName: "Long workspace",
+            rootPath: "/tmp/project",
+            rootKind: "non_git",
+            lifecycle: "active",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]}
+        defaultTarget={{ workspace: "project", workspaceId: longWorkspaceId }}
+        onApply={vi.fn().mockResolvedValue({ items: [] })}
+      />,
+    );
+
+    expect(screen.getByText(longName)).toHaveClass("break-words");
+    expect(screen.getByText(longDirectory)).toHaveClass("break-all");
+    expect(
+      await screen.findByText((content) => content.includes(longWorkspaceId)),
+    ).toHaveClass("break-all");
+  });
+
   it("progressively mounts very large Skill collections", async () => {
     const user = userEvent.setup();
     render(

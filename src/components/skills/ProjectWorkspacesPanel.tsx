@@ -290,8 +290,10 @@ function ProjectWorkspaceDeployments({
         progressiveSkills.visibleItems.map((skill) => (
           <div key={skill.id} className="rounded-lg border p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="font-medium">{skill.displayName}</span>
-              <span className="font-mono text-xs text-muted-foreground">
+              <span className="min-w-0 break-words font-medium">
+                {skill.displayName}
+              </span>
+              <span className="min-w-0 break-all font-mono text-xs text-muted-foreground">
                 {skill.directory}
               </span>
             </div>
@@ -566,7 +568,9 @@ export const ProjectWorkspacesPanel = forwardRef<
             onClick={() => setSelectedId(workspace.id)}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold">{workspace.displayName}</h3>
+              <h3 className="min-w-0 break-words font-semibold">
+                {workspace.displayName}
+              </h3>
               <Badge variant="outline">
                 {t(`skills.projects.rootKind.${workspace.rootKind}`)}
               </Badge>

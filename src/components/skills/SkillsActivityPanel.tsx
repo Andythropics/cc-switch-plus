@@ -166,14 +166,14 @@ export function SkillsActivityPanel({
                 type="button"
                 variant="link"
                 size="sm"
-                className="h-auto p-0 text-xs"
+                className="h-auto min-w-0 whitespace-normal break-all p-0 text-left text-xs"
                 onClick={() => onOpenLibrary(target.librarySkillId!)}
               >
                 {libraryNames.get(target.librarySkillId) ??
                   target.librarySkillId}
               </Button>
             ) : (
-              <span>
+              <span className="min-w-0 break-all">
                 {libraryNames.get(target.librarySkillId) ??
                   target.librarySkillId}
               </span>
@@ -187,7 +187,7 @@ export function SkillsActivityPanel({
                 type="button"
                 variant="link"
                 size="sm"
-                className="h-auto p-0 text-xs"
+                className="h-auto min-w-0 whitespace-normal break-words p-0 text-left text-xs"
                 onClick={onOpenGlobal}
               >
                 {t("skills.activity.openGlobal")}
@@ -210,7 +210,7 @@ export function SkillsActivityPanel({
                 {projectNames.get(target.workspaceId) ?? target.workspaceId}
               </Button>
             ) : (
-              <span>
+              <span className="min-w-0 break-words">
                 {projectNames.get(target.workspaceId) ?? target.workspaceId}
               </span>
             )}
@@ -358,7 +358,7 @@ export function SkillsActivityPanel({
             {group.batchId && (
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                 <span>{t("skills.activity.batch")}</span>
-                <code>{group.batchId}</code>
+                <code className="min-w-0 break-all">{group.batchId}</code>
                 {group.itemCount && (
                   <span className="text-xs text-muted-foreground">
                     ({group.itemCount})

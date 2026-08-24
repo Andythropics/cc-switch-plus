@@ -612,7 +612,9 @@ function ExecutionItem({ item }: { item: SkillsMigrationItemResult }) {
         <Badge variant="outline">
           {t(`skills.migration.itemOutcome.${item.outcome}`)}
         </Badge>
-        {item.directory && <span className="font-mono">{item.directory}</span>}
+        {item.directory && (
+          <span className="min-w-0 break-all font-mono">{item.directory}</span>
+        )}
         {item.consumer && (
           <span className="uppercase">
             {item.consumer === "claude"
@@ -647,7 +649,9 @@ function InventoryRow({ item }: { item: SkillsMigrationInventoryItem }) {
           {t(`skills.migration.inventoryState.${item.state}`)}
         </Badge>
         {item.directory && (
-          <span className="font-medium">{item.directory}</span>
+          <span className="min-w-0 break-all font-medium">
+            {item.directory}
+          </span>
         )}
         {item.consumer && (
           <span className="text-xs uppercase text-muted-foreground">
@@ -706,7 +710,9 @@ function PlanRow({
           {t(`skills.migration.action.${item.action}`)}
         </span>
         {item.directory && (
-          <span className="font-mono text-xs">{item.directory}</span>
+          <span className="min-w-0 break-all font-mono text-xs">
+            {item.directory}
+          </span>
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">

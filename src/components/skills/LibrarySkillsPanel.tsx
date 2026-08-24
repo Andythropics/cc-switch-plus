@@ -738,8 +738,13 @@ export const LibrarySkillsPanel = forwardRef<
                   <div className="flex items-start gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold">{skill.displayName}</h3>
-                        <Badge variant="outline" className="font-mono text-xs">
+                        <h3 className="min-w-0 break-words font-semibold">
+                          {skill.displayName}
+                        </h3>
+                        <Badge
+                          variant="outline"
+                          className="max-w-full whitespace-normal break-all text-left font-mono text-xs"
+                        >
                           {skill.directory}
                         </Badge>
                       </div>
@@ -761,18 +766,22 @@ export const LibrarySkillsPanel = forwardRef<
                           )}
                         </Badge>
                         {sourceSummary(skill) && (
-                          <span>{sourceSummary(skill)}</span>
+                          <span className="min-w-0 break-all">
+                            {sourceSummary(skill)}
+                          </span>
                         )}
                         {skill.source.marketplace && (
-                          <span>{skill.source.marketplace}</span>
+                          <span className="min-w-0 break-words">
+                            {skill.source.marketplace}
+                          </span>
                         )}
                         {skill.source.repoBranch && (
-                          <span className="font-mono">
+                          <span className="min-w-0 break-all font-mono">
                             @{skill.source.repoBranch}
                           </span>
                         )}
                         {skill.source.skillPath && (
-                          <span className="font-mono">
+                          <span className="min-w-0 break-all font-mono">
                             {skill.source.skillPath}
                           </span>
                         )}
@@ -864,14 +873,14 @@ export const LibrarySkillsPanel = forwardRef<
                         <div className="flex flex-wrap gap-x-4 gap-y-1">
                           <span>
                             {t("skills.library.update.recordedHash")}:{" "}
-                            <code>
+                            <code className="break-all">
                               {updateChecks[skill.id].recordedContentHash}
                             </code>
                           </span>
                           {updateChecks[skill.id].stagedContentHash && (
                             <span>
                               {t("skills.library.update.stagedHash")}:{" "}
-                              <code>
+                              <code className="break-all">
                                 {updateChecks[skill.id].stagedContentHash}
                               </code>
                             </span>
@@ -899,7 +908,7 @@ export const LibrarySkillsPanel = forwardRef<
                                 >
                                   {target.workspace === "global" ? (
                                     <a
-                                      className="underline underline-offset-2"
+                                      className="min-w-0 break-all underline underline-offset-2"
                                       href={targetAnchor(
                                         inspection.librarySkillId,
                                         target.consumer,
@@ -910,7 +919,7 @@ export const LibrarySkillsPanel = forwardRef<
                                   ) : onOpenProjects ? (
                                     <button
                                       type="button"
-                                      className="underline underline-offset-2"
+                                      className="min-w-0 break-all underline underline-offset-2"
                                       disabled={navigationBlocked}
                                       onClick={() => {
                                         setUpdateConfirmation(null);
@@ -924,7 +933,7 @@ export const LibrarySkillsPanel = forwardRef<
                                         : ""}
                                     </button>
                                   ) : (
-                                    <span>
+                                    <span className="min-w-0 break-all">
                                       {target.consumer} / {target.workspace}
                                       {target.workspaceId
                                         ? ` (${target.workspaceId})`
@@ -970,7 +979,9 @@ export const LibrarySkillsPanel = forwardRef<
                       {updateResult.backupPath && (
                         <p>
                           {t("skills.library.update.backupPath")}:{" "}
-                          <code>{updateResult.backupPath}</code>
+                          <code className="break-all">
+                            {updateResult.backupPath}
+                          </code>
                         </p>
                       )}
                     </div>
@@ -1027,9 +1038,12 @@ export const LibrarySkillsPanel = forwardRef<
             </DialogHeader>
             {updateConfirmation && (
               <div className="space-y-3 py-2 text-sm">
-                <p>
+                <p className="break-words">
                   {updateConfirmation.skill.displayName} (
-                  <code>{updateConfirmation.skill.directory}</code>)
+                  <code className="break-all">
+                    {updateConfirmation.skill.directory}
+                  </code>
+                  )
                 </p>
                 {updateConfirmation.check.localModified && (
                   <label className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive">
@@ -1094,7 +1108,10 @@ export const LibrarySkillsPanel = forwardRef<
               <DialogBody className="space-y-3 text-sm">
                 <p>
                   {deletionInspection.skill.displayName} (
-                  <code>{deletionInspection.skill.directory}</code>)
+                  <code className="break-all">
+                    {deletionInspection.skill.directory}
+                  </code>
+                  )
                 </p>
                 {deletionInspection.inspection.targets.length === 0 ? (
                   <p className="text-muted-foreground">
@@ -1119,7 +1136,7 @@ export const LibrarySkillsPanel = forwardRef<
                         >
                           {anchor ? (
                             <a
-                              className="underline underline-offset-2"
+                              className="min-w-0 break-all underline underline-offset-2"
                               href={anchor}
                             >
                               {targetName}
@@ -1127,7 +1144,7 @@ export const LibrarySkillsPanel = forwardRef<
                           ) : onOpenProjects ? (
                             <button
                               type="button"
-                              className="underline underline-offset-2"
+                              className="min-w-0 break-all underline underline-offset-2"
                               disabled={navigationBlocked}
                               onClick={() => {
                                 setDeletionInspection(null);
@@ -1137,7 +1154,9 @@ export const LibrarySkillsPanel = forwardRef<
                               {targetName}
                             </button>
                           ) : (
-                            <span>{targetName}</span>
+                            <span className="min-w-0 break-all">
+                              {targetName}
+                            </span>
                           )}
                           <Badge
                             variant={
@@ -1182,7 +1201,9 @@ export const LibrarySkillsPanel = forwardRef<
                     {deletionResult.backupPath && (
                       <p>
                         {t("skills.library.update.backupPath")}:{" "}
-                        <code>{deletionResult.backupPath}</code>
+                        <code className="break-all">
+                          {deletionResult.backupPath}
+                        </code>
                       </p>
                     )}
                     <SkillTechnicalDetails details={deletionResult.message} />
@@ -1193,7 +1214,7 @@ export const LibrarySkillsPanel = forwardRef<
                             key={`${item.librarySkillId}-${item.target.consumer}-${item.target.workspace}-${item.target.workspaceId ?? "global"}`}
                           >
                             {item.target.consumer} / {item.target.workspace}:{" "}
-                            <code>{item.outcome}</code>
+                            <code className="break-all">{item.outcome}</code>
                             <SkillTechnicalDetails details={item.message} />
                           </li>
                         ))}
@@ -1253,7 +1274,7 @@ export const LibrarySkillsPanel = forwardRef<
                   onChange={(event) => setDescription(event.target.value)}
                 />
               </div>
-              <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <div className="break-all rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
                 {t("skills.library.directory")}: {editing?.directory}
               </div>
             </div>

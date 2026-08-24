@@ -55,21 +55,30 @@ export function SkillCard({ skill, onAcquire, installs }: SkillCardProps) {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base font-semibold truncate">
+            <CardTitle
+              className="truncate text-base font-semibold"
+              title={skill.name}
+            >
               {skill.name}
             </CardTitle>
-            <div className="flex items-center gap-2 mt-1.5">
+            <div className="mt-1.5 flex min-w-0 items-center gap-2">
               {showDirectory && (
-                <CardDescription className="text-xs truncate">
+                <CardDescription
+                  className="min-w-0 truncate text-xs"
+                  title={skill.directory}
+                >
                   {skill.directory}
                 </CardDescription>
               )}
               {skill.repoOwner && skill.repoName && (
                 <Badge
                   variant="outline"
-                  className="shrink-0 text-[10px] px-1.5 py-0 h-4 border-border-default"
+                  className="h-4 min-w-0 max-w-[60%] border-border-default px-1.5 py-0 text-[10px]"
+                  title={`${skill.repoOwner}/${skill.repoName}`}
                 >
-                  {skill.repoOwner}/{skill.repoName}
+                  <span className="truncate">
+                    {skill.repoOwner}/{skill.repoName}
+                  </span>
                 </Badge>
               )}
               {typeof installs === "number" && (
