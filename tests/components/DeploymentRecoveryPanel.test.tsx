@@ -79,17 +79,54 @@ describe("DeploymentRecoveryPanel", () => {
 
     render(<DeploymentRecoveryPanel query={{ workspace: "global" }} />);
 
-    expect(screen.getByText("library-1")).toBeInTheDocument();
+    expect(screen.getByTestId("recovery-group-recoverable")).toHaveAttribute(
+      "data-count",
+      "1",
+    );
     expect(
-      screen.getByText("skills.recovery.reason.exact_library_link"),
-    ).toBeInTheDocument();
+      screen.getByTestId("recovery-rejected-group-foreign_link"),
+    ).toHaveAttribute("data-count", "1");
     expect(
-      screen.getByText("skills.recovery.disposition.foreign_link"),
-    ).toBeInTheDocument();
+      screen.getByTestId("recovery-rejected-group-archived_workspace"),
+    ).toHaveAttribute("data-count", "1");
+    expect(screen.getAllByRole("group")).toHaveLength(3);
+    screen
+      .getAllByRole("group")
+      .forEach((group) => expect(group).not.toHaveAttribute("open"));
+    expect(screen.getByRole("checkbox")).not.toBeVisible();
+  });
+
+  it("groups repeated Global rejections by disposition and exposes their counts", () => {
+    recoveryState.findings = [
+      {
+        disposition: "foreign_link",
+        target: { consumer: "claude", workspace: "global" },
+        entryName: "foreign-one",
+      },
+      {
+        disposition: "foreign_link",
+        target: { consumer: "codex", workspace: "global" },
+        entryName: "foreign-two",
+      },
+      {
+        disposition: "occupied",
+        target: { consumer: "codex", workspace: "global" },
+        entryName: "occupied-one",
+      },
+    ];
+
+    render(<DeploymentRecoveryPanel query={{ workspace: "global" }} />);
+
+    expect(screen.getByTestId("recovery-rejected-summary")).toHaveAttribute(
+      "data-count",
+      "3",
+    );
     expect(
-      screen.getByText("skills.recovery.disposition.archived_workspace"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+      screen.getByTestId("recovery-rejected-group-foreign_link"),
+    ).toHaveAttribute("data-count", "2");
+    expect(
+      screen.getByTestId("recovery-rejected-group-occupied"),
+    ).toHaveAttribute("data-count", "1");
   });
 
   it("requires item selection and explicit confirmation before ordered recovery", async () => {

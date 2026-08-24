@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { ChevronRight, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,6 +78,14 @@ export function DeploymentRecoveryPanel({
   const rejectedFindings = indexedFindings.filter(
     ({ finding }) => !isRecoverable(finding),
   );
+  const rejectedGroups = rejectedFindings.reduce<
+    Record<string, typeof rejectedFindings>
+  >((groups, item) => {
+    const disposition = item.finding.disposition;
+    (groups[disposition] ??= []).push(item);
+    return groups;
+  }, {});
+  const groupGlobalFindings = query?.workspace === "global";
   const selectedFindings = recoverableFindings.filter(({ finding, index }) =>
     selectedKeys.has(findingKey(finding, index)),
   );
@@ -257,7 +265,26 @@ export function DeploymentRecoveryPanel({
         </p>
       )}
 
-      {recoverableFindings.length > 0 && (
+      {groupGlobalFindings && recoverableFindings.length > 0 && (
+        <details
+          className="group rounded-md border bg-background"
+          data-testid="recovery-group-recoverable"
+          data-count={recoverableFindings.length}
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium marker:content-none">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            <span>{t("skills.recovery.safeTitle")}</span>
+            <Badge variant="secondary">{recoverableFindings.length}</Badge>
+          </summary>
+          <ol className="space-y-2 border-t p-3">
+            {recoverableFindings.map(({ finding, index }) =>
+              renderFinding(finding, index, true),
+            )}
+          </ol>
+        </details>
+      )}
+
+      {!groupGlobalFindings && recoverableFindings.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium">
             {t("skills.recovery.safeTitle")}
@@ -270,7 +297,39 @@ export function DeploymentRecoveryPanel({
         </div>
       )}
 
-      {rejectedFindings.length > 0 && (
+      {groupGlobalFindings && rejectedFindings.length > 0 && (
+        <div className="space-y-2">
+          <div
+            className="flex items-center gap-2 text-sm font-medium"
+            data-testid="recovery-rejected-summary"
+            data-count={rejectedFindings.length}
+          >
+            <span>{t("skills.recovery.rejectedTitle")}</span>
+            <Badge variant="outline">{rejectedFindings.length}</Badge>
+          </div>
+          {Object.entries(rejectedGroups).map(([disposition, items]) => (
+            <details
+              key={disposition}
+              className="group rounded-md border bg-background"
+              data-testid={`recovery-rejected-group-${disposition}`}
+              data-count={items.length}
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm marker:content-none">
+                <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                <span>{t(`skills.recovery.disposition.${disposition}`)}</span>
+                <Badge variant="outline">{items.length}</Badge>
+              </summary>
+              <ol className="space-y-2 border-t p-3">
+                {items.map(({ finding, index }) =>
+                  renderFinding(finding, index, false),
+                )}
+              </ol>
+            </details>
+          ))}
+        </div>
+      )}
+
+      {!groupGlobalFindings && rejectedFindings.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium">
             {t("skills.recovery.rejectedTitle")}
