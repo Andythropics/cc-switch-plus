@@ -2986,6 +2986,12 @@
       "addFailed": "Failed to add",
       "removeSuccess": "Repository {{owner}}/{{name}} removed",
       "removeFailed": "Failed to remove",
+      "removeAction": "Remove repository {{repository}}",
+      "removeTitle": "Remove skill repository?",
+      "removeDescription": "Skills supplied by this repository will disappear from Discover. Skills already acquired into the private Library will not be deleted.",
+      "affectedSkills": "Affected discovery items",
+      "removeCancel": "Cancel",
+      "removeConfirm": "Remove repository",
       "skillCount": "{{count}} skills detected"
     },
     "search": "Search Skills",

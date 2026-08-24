@@ -2983,6 +2983,12 @@
       "addFailed": "添加失败",
       "removeSuccess": "仓库 {{owner}}/{{name}} 已删除",
       "removeFailed": "删除失败",
+      "removeAction": "删除仓库 {{repository}}",
+      "removeTitle": "删除技能仓库？",
+      "removeDescription": "删除后，此仓库提供的技能将从发现页移除；已经获取到私有技能库的内容不会被删除。",
+      "affectedSkills": "受影响的发现项",
+      "removeCancel": "取消",
+      "removeConfirm": "删除仓库",
       "skillCount": "识别到 {{count}} 个技能"
     },
     "search": "搜索技能",

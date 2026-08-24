@@ -2983,6 +2983,12 @@
       "addFailed": "追加に失敗しました",
       "removeSuccess": "リポジトリ {{owner}}/{{name}} を削除しました",
       "removeFailed": "削除に失敗しました",
+      "removeAction": "リポジトリ {{repository}} を削除",
+      "removeTitle": "スキルリポジトリを削除しますか？",
+      "removeDescription": "このリポジトリが提供するスキルは「探す」から消えます。プライベートライブラリに取得済みのスキルは削除されません。",
+      "affectedSkills": "影響を受ける検出項目",
+      "removeCancel": "キャンセル",
+      "removeConfirm": "リポジトリを削除",
       "skillCount": "{{count}} 件のスキルを検出"
     },
     "search": "スキルを検索",

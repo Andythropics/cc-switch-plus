@@ -1,9 +1,18 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, ExternalLink, Plus } from "lucide-react";
+import { Trash2, ExternalLink, Loader2, Plus } from "lucide-react";
 import { settingsApi } from "@/lib/api";
 import { FullScreenPanel } from "@/components/common/FullScreenPanel";
 import type { DiscoverableSkill, SkillRepo } from "@/lib/api/skills";
@@ -27,6 +36,8 @@ export function RepoManagerPanel({
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [error, setError] = useState("");
+  const [pendingRemoval, setPendingRemoval] = useState<SkillRepo | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
   const getSkillCount = (repo: SkillRepo) =>
     skills.filter(
@@ -80,6 +91,20 @@ export function RepoManagerPanel({
       await settingsApi.openExternal(`https://github.com/${owner}/${name}`);
     } catch (error) {
       console.error("Failed to open URL:", error);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!pendingRemoval || isRemoving) return;
+    setIsRemoving(true);
+    try {
+      await onRemove(pendingRemoval.owner, pendingRemoval.name);
+      setPendingRemoval(null);
+    } catch {
+      // The parent owns the localized toast. Keep the confirmation open so
+      // the user can retry or cancel after a failed removal.
+    } finally {
+      setIsRemoving(false);
     }
   };
 
@@ -179,8 +204,13 @@ export function RepoManagerPanel({
                     variant="ghost"
                     size="icon"
                     type="button"
-                    onClick={() => onRemove(repo.owner, repo.name)}
-                    title={t("common.delete")}
+                    onClick={() => setPendingRemoval(repo)}
+                    aria-label={t("skills.repo.removeAction", {
+                      repository: `${repo.owner}/${repo.name}`,
+                    })}
+                    title={t("skills.repo.removeAction", {
+                      repository: `${repo.owner}/${repo.name}`,
+                    })}
                     className="hover:text-red-500 hover:bg-red-100 dark:hover:text-red-400 dark:hover:bg-red-500/10"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -191,6 +221,54 @@ export function RepoManagerPanel({
           </div>
         )}
       </div>
+
+      <Dialog
+        open={pendingRemoval !== null}
+        onOpenChange={(open) => {
+          if (!open && !isRemoving) setPendingRemoval(null);
+        }}
+      >
+        <DialogContent zIndex="top">
+          <DialogHeader>
+            <DialogTitle>{t("skills.repo.removeTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("skills.repo.removeDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          {pendingRemoval && (
+            <DialogBody className="space-y-3 text-sm">
+              <p className="break-all font-mono font-medium">
+                {pendingRemoval.owner}/{pendingRemoval.name}
+              </p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-muted-foreground">
+                <dt>{t("skills.repo.branch")}</dt>
+                <dd className="break-all font-mono">
+                  {pendingRemoval.branch || "main"}
+                </dd>
+                <dt>{t("skills.repo.affectedSkills")}</dt>
+                <dd>{getSkillCount(pendingRemoval)}</dd>
+              </dl>
+            </DialogBody>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={isRemoving}
+              onClick={() => setPendingRemoval(null)}
+            >
+              {t("skills.repo.removeCancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isRemoving}
+              onClick={() => void handleRemove()}
+            >
+              {isRemoving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t("skills.repo.removeConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </FullScreenPanel>
   );
 }

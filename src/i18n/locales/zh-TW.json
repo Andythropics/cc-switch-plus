@@ -2984,6 +2984,12 @@
       "addFailed": "新增失敗",
       "removeSuccess": "儲存庫 {{owner}}/{{name}} 已刪除",
       "removeFailed": "刪除失敗",
+      "removeAction": "刪除儲存庫 {{repository}}",
+      "removeTitle": "刪除技能儲存庫？",
+      "removeDescription": "刪除後，此儲存庫提供的技能將從探索頁移除；已取得至私人技能庫的內容不會被刪除。",
+      "affectedSkills": "受影響的探索項目",
+      "removeCancel": "取消",
+      "removeConfirm": "刪除儲存庫",
       "skillCount": "識別到 {{count}} 個技能"
     },
     "search": "搜尋技能",
