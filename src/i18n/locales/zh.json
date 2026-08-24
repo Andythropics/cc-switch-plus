@@ -3027,6 +3027,10 @@
       "repo": "仓库筛选",
       "allRepos": "全部仓库"
     },
+    "list": {
+      "showing": "正在显示 {{total}} 个技能中的 {{visible}} 个",
+      "showMore": "显示更多技能"
+    },
     "noResults": "未找到匹配的技能",
     "noInstalled": "资料库中暂无技能",
     "noInstalledDescription": "从仓库发现并获取技能，或导入已有的技能",

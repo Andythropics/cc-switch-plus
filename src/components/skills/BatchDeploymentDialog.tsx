@@ -39,6 +39,10 @@ import {
   getSkillTechnicalDetails,
   SkillTechnicalDetails,
 } from "@/components/skills/SkillTechnicalDetails";
+import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
 
 export type BatchDeploymentAction = "deploy" | "undeploy";
 export type BatchDeploymentTarget = Omit<DeploymentTarget, "consumer">;
@@ -206,6 +210,10 @@ export function BatchDeploymentDialog({
 
   const selectedTargetBlocked =
     selectedProject !== undefined && targetDisabled(selectedProject);
+  const progressiveSkills = useProgressiveSkillList(
+    skills,
+    `${open}:${action}:${targetValue}`,
+  );
 
   const toggleConsumer = (
     skillId: string,
@@ -357,7 +365,7 @@ export function BatchDeploymentDialog({
                 {t("skills.batch.noSkills")}
               </p>
             ) : (
-              skills.map((skill) => (
+              progressiveSkills.visibleItems.map((skill) => (
                 <div
                   key={skill.id}
                   className="rounded-md border p-3"
@@ -431,6 +439,12 @@ export function BatchDeploymentDialog({
                 </div>
               ))
             )}
+            <ProgressiveSkillListFooter
+              visibleCount={progressiveSkills.visibleCount}
+              totalCount={progressiveSkills.totalCount}
+              hasMore={progressiveSkills.hasMore}
+              onShowMore={progressiveSkills.showMore}
+            />
           </div>
 
           {error && (

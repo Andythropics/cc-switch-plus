@@ -3027,6 +3027,10 @@
       "repo": "リポジトリで絞り込み",
       "allRepos": "すべてのリポジトリ"
     },
+    "list": {
+      "showing": "{{total}} 件中 {{visible}} 件のスキルを表示中",
+      "showMore": "さらにスキルを表示"
+    },
     "noResults": "一致するスキルが見つかりませんでした",
     "noInstalled": "ライブラリにスキルがありません",
     "noInstalledDescription": "リポジトリからスキルを発見して取得するか、既存のスキルをインポートしてください",

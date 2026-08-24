@@ -3028,6 +3028,10 @@
       "repo": "儲存庫篩選",
       "allRepos": "全部儲存庫"
     },
+    "list": {
+      "showing": "正在顯示 {{total}} 個技能中的 {{visible}} 個",
+      "showMore": "顯示更多技能"
+    },
     "noResults": "未找到相符的技能",
     "noInstalled": "資料庫中暫無技能",
     "noInstalledDescription": "從儲存庫發現並取得技能，或匯入已有的技能",

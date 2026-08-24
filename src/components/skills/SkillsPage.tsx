@@ -53,6 +53,10 @@ import {
   showSkillErrorToast,
   SkillTechnicalDetails,
 } from "@/components/skills/SkillTechnicalDetails";
+import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
 
 export type SkillsPageSource = "repos" | "skillssh";
 
@@ -394,6 +398,14 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
         return name.includes(query) || repo.includes(query);
       });
     }, [skills, searchQuery, filterRepo, filterStatus]);
+    const progressiveRepoSkills = useProgressiveSkillList(
+      filteredSkills,
+      `${searchQuery}:${filterRepo}:${filterStatus}`,
+    );
+    const progressiveSkillsShResults = useProgressiveSkillList(
+      accumulatedResults,
+      skillsShQuery,
+    );
 
     // 是否有更多 skills.sh 结果
     const hasMoreSkillsSh =
@@ -596,14 +608,22 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredSkills.map((skill) => (
-                    <SkillCard
-                      key={skill.key}
-                      skill={skill}
-                      onAcquire={handleAcquire}
-                    />
-                  ))}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {progressiveRepoSkills.visibleItems.map((skill) => (
+                      <SkillCard
+                        key={skill.key}
+                        skill={skill}
+                        onAcquire={handleAcquire}
+                      />
+                    ))}
+                  </div>
+                  <ProgressiveSkillListFooter
+                    visibleCount={progressiveRepoSkills.visibleCount}
+                    totalCount={progressiveRepoSkills.totalCount}
+                    hasMore={progressiveRepoSkills.hasMore}
+                    onShowMore={progressiveRepoSkills.showMore}
+                  />
                 </div>
               )
             ) : (
@@ -634,7 +654,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                 ) : (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {accumulatedResults.map((skill) => {
+                      {progressiveSkillsShResults.visibleItems.map((skill) => {
                         const acquired = isSkillsShAcquired(skill);
                         return (
                           <SkillCard
@@ -648,6 +668,15 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                           />
                         );
                       })}
+                    </div>
+
+                    <div className="mt-4">
+                      <ProgressiveSkillListFooter
+                        visibleCount={progressiveSkillsShResults.visibleCount}
+                        totalCount={progressiveSkillsShResults.totalCount}
+                        hasMore={progressiveSkillsShResults.hasMore}
+                        onShowMore={progressiveSkillsShResults.showMore}
+                      />
                     </div>
 
                     {/* 加载更多 + 底部信息 */}

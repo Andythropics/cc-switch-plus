@@ -75,6 +75,10 @@ import {
   skillDiagnosticToastOptions,
   SkillTechnicalDetails,
 } from "@/components/skills/SkillTechnicalDetails";
+import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
@@ -601,6 +605,7 @@ export const LibrarySkillsPanel = forwardRef<
         ].some((value) => value?.toLocaleLowerCase().includes(needle)),
       );
     }, [query, skills]);
+    const progressiveSkills = useProgressiveSkillList(filtered, query);
 
     useEffect(() => {
       if (!focusLibrarySkillId) {
@@ -724,7 +729,7 @@ export const LibrarySkillsPanel = forwardRef<
             </div>
           ) : (
             <div className="space-y-3">
-              {filtered.map((skill) => (
+              {progressiveSkills.visibleItems.map((skill) => (
                 <article
                   key={skill.id}
                   className={`rounded-xl border bg-card p-4 shadow-sm${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
@@ -980,6 +985,12 @@ export const LibrarySkillsPanel = forwardRef<
                   </div>
                 </article>
               ))}
+              <ProgressiveSkillListFooter
+                visibleCount={progressiveSkills.visibleCount}
+                totalCount={progressiveSkills.totalCount}
+                hasMore={progressiveSkills.hasMore}
+                onShowMore={progressiveSkills.showMore}
+              />
             </div>
           )}
         </ScrollArea>

@@ -3030,6 +3030,10 @@
       "repo": "Filter by repo",
       "allRepos": "All repos"
     },
+    "list": {
+      "showing": "Showing {{visible}} of {{total}} Skills",
+      "showMore": "Show more Skills"
+    },
     "noResults": "No matching skills found",
     "noInstalled": "No skills in the Library",
     "noInstalledDescription": "Discover and acquire skills from repositories, or import existing skills",

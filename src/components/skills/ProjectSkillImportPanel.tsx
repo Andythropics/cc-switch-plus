@@ -29,6 +29,10 @@ import {
   getSkillTechnicalDetails,
   SkillTechnicalDetails,
 } from "@/components/skills/SkillTechnicalDetails";
+import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
 import type {
   ProjectSkillImportFinding,
   ProjectSkillImportIntent,
@@ -84,6 +88,10 @@ export function ProjectSkillImportPanel({
   const inspectionQuery = useInspectProjectSkillImports(workspaceId);
   const applyImport = useApplyProjectSkillImport();
   const findings = inspectionQuery.data?.findings ?? [];
+  const progressiveFindings = useProgressiveSkillList(
+    findings,
+    inspectionQuery.data?.observationToken ?? "empty",
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<ProjectSkillImportMode>("import_only");
   const [resolutionKind, setResolutionKind] =
@@ -251,7 +259,7 @@ export function ProjectSkillImportPanel({
         </p>
       ) : (
         <div className="space-y-2">
-          {findings.map((finding) => {
+          {progressiveFindings.visibleItems.map((finding) => {
             const supported = finding.scope === "root_level";
             const outcome = outcomes[finding.id];
             return (
@@ -530,6 +538,12 @@ export function ProjectSkillImportPanel({
               </div>
             );
           })}
+          <ProgressiveSkillListFooter
+            visibleCount={progressiveFindings.visibleCount}
+            totalCount={progressiveFindings.totalCount}
+            hasMore={progressiveFindings.hasMore}
+            onShowMore={progressiveFindings.showMore}
+          />
         </div>
       )}
 

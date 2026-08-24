@@ -22,6 +22,35 @@ const makeSkill = (id: string, directory: string): LibrarySkill => ({
 });
 
 describe("BatchDeploymentDialog", () => {
+  it("progressively mounts very large Skill collections", async () => {
+    const user = userEvent.setup();
+    render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={vi.fn()}
+        skills={Array.from({ length: 95 }, (_, index) =>
+          makeSkill(`skill-${index}`, `skill-${index}`),
+        )}
+        onApply={vi.fn().mockResolvedValue({ items: [] })}
+      />,
+    );
+
+    expect(screen.getAllByTestId(/batch-skill-skill-/)).toHaveLength(40);
+    expect(screen.getByTestId("skills-list-progress")).toHaveAttribute(
+      "data-visible-count",
+      "40",
+    );
+    expect(screen.getByTestId("skills-list-progress")).toHaveAttribute(
+      "data-total-count",
+      "95",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.list.showMore" }),
+    );
+    expect(screen.getAllByTestId(/batch-skill-skill-/)).toHaveLength(80);
+  });
+
   it("renders above the fixed application header while keeping the list independently scrollable", () => {
     render(
       <BatchDeploymentDialog

@@ -19,6 +19,10 @@ import {
   getSkillTechnicalDetails,
   SkillTechnicalDetails,
 } from "@/components/skills/SkillTechnicalDetails";
+import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
 import type {
   GlobalSkillImportFinding,
   GlobalSkillImportInspection,
@@ -63,6 +67,10 @@ export function GlobalSkillImportPanel({
     Record<string, GlobalSkillImportResult>
   >({});
   const selected = findings.find((finding) => finding.id === selectedId);
+  const progressiveFindings = useProgressiveSkillList(
+    findings,
+    inspection?.observationToken ?? "empty",
+  );
 
   useEffect(() => {
     onBusyChange?.(applyImport.isPending || confirmOpen);
@@ -182,7 +190,7 @@ export function GlobalSkillImportPanel({
         </p>
       ) : (
         <div className="space-y-2">
-          {findings.map((finding) => {
+          {progressiveFindings.visibleItems.map((finding) => {
             const outcome = outcomes[finding.id];
             const active = selectedId === finding.id;
             return (
@@ -331,6 +339,12 @@ export function GlobalSkillImportPanel({
               </div>
             );
           })}
+          <ProgressiveSkillListFooter
+            visibleCount={progressiveFindings.visibleCount}
+            totalCount={progressiveFindings.totalCount}
+            hasMore={progressiveFindings.hasMore}
+            onShowMore={progressiveFindings.showMore}
+          />
         </div>
       )}
 

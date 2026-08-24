@@ -54,6 +54,10 @@ import {
   showSkillErrorToast,
   skillDiagnosticToastOptions,
 } from "@/components/skills/SkillTechnicalDetails";
+import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
 import { settingsApi } from "@/lib/api/settings";
 import {
   deploymentOutcomeLabelKeys,
@@ -122,6 +126,10 @@ function ProjectWorkspaceDeployments({
   const deploymentError = claudeError || codexError;
   const deploymentFetching = claudeFetching || codexFetching;
   const deploymentBusy = apply.isPending || batchDialogOpen || recoveryBusy;
+  const progressiveSkills = useProgressiveSkillList(
+    skills,
+    `${workspace.id}:${skills.length}`,
+  );
 
   useEffect(() => {
     onBusyChange?.(workspace.id, deploymentBusy);
@@ -279,7 +287,7 @@ function ProjectWorkspaceDeployments({
           {t("skills.projects.noLibrarySkills")}
         </p>
       ) : (
-        skills.map((skill) => (
+        progressiveSkills.visibleItems.map((skill) => (
           <div key={skill.id} className="rounded-lg border p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="font-medium">{skill.displayName}</span>
@@ -294,6 +302,12 @@ function ProjectWorkspaceDeployments({
           </div>
         ))
       )}
+      <ProgressiveSkillListFooter
+        visibleCount={progressiveSkills.visibleCount}
+        totalCount={progressiveSkills.totalCount}
+        hasMore={progressiveSkills.hasMore}
+        onShowMore={progressiveSkills.showMore}
+      />
       <BatchDeploymentDialog
         open={batchDialogOpen}
         onOpenChange={setBatchDialogOpen}

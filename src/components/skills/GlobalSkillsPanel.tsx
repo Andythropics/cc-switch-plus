@@ -23,6 +23,10 @@ import {
   skillDiagnosticToastOptions,
 } from "@/components/skills/SkillTechnicalDetails";
 import {
+  ProgressiveSkillListFooter,
+  useProgressiveSkillList,
+} from "@/components/skills/ProgressiveSkillList";
+import {
   useApplySkillDeployments,
   useLibrarySkills,
   useInspectGlobalSkillImports,
@@ -174,6 +178,10 @@ export function GlobalSkillsPanel({
       });
     });
   }, [allInspections, query, skills, statusFilter]);
+  const progressiveSkills = useProgressiveSkillList(
+    filtered,
+    `${query}:${statusFilter}`,
+  );
 
   const applyDeployment = async (intent: DeploymentIntent) => {
     try {
@@ -417,7 +425,7 @@ export function GlobalSkillsPanel({
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map((skill) => (
+            {progressiveSkills.visibleItems.map((skill) => (
               <article key={skill.id} className="rounded-xl border bg-card p-4">
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="min-w-0 flex-1">
@@ -467,6 +475,12 @@ export function GlobalSkillsPanel({
                 </div>
               </article>
             ))}
+            <ProgressiveSkillListFooter
+              visibleCount={progressiveSkills.visibleCount}
+              totalCount={progressiveSkills.totalCount}
+              hasMore={progressiveSkills.hasMore}
+              onShowMore={progressiveSkills.showMore}
+            />
           </div>
         )}
       </div>
