@@ -19,6 +19,7 @@ import {
   type DeploymentRecoveryInspectionResult,
   type DeploymentRecoveryQuery,
   type SkillsMigrationPreflight,
+  type SkillsMigrationReport,
   type SkillsMigrationExecutionResult,
   type SkillsMigrationIntent,
   type SkillsMigrationRevealIntent,
@@ -42,6 +43,12 @@ import {
   type ProjectSkillImportIntent,
   type ProjectSkillImportResult,
 } from "@/lib/api/projectWorkspaces";
+import {
+  globalSkillImportsApi,
+  type GlobalSkillImportInspection,
+  type GlobalSkillImportIntent,
+  type GlobalSkillImportResult,
+} from "@/lib/api/globalSkillImports";
 
 /** Private Library snapshots; no consumer deployment state is mixed in. */
 export function useLibrarySkills() {
@@ -121,8 +128,32 @@ export function useSkillsMigrationPreflight({ enabled }: { enabled: boolean }) {
   return preflightQuery;
 }
 
+/** Read the latest durable migration report, including completed runs. */
+export function useSkillsMigrationReport({ enabled }: { enabled: boolean }) {
+  const reportQuery = useQuery<SkillsMigrationReport | null>({
+    queryKey: ["skills", "migrationReport"],
+    queryFn: () => skillsApi.inspectLatestSkillsMigrationReport(),
+    enabled,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
+  });
+
+  useEffect(() => {
+    if (!enabled) return;
+    const handleWindowFocus = () => {
+      void reportQuery.refetch();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [enabled, reportQuery.refetch]);
+
+  return reportQuery;
+}
+
 const skillsMigrationAffectedQueryKeys = [
   ["skills", "migrationPreflight"],
+  ["skills", "migrationReport"],
   ["skills", "library"],
   ["skills", "installed"],
   ["skills", "deployments"],
@@ -157,6 +188,21 @@ export function useApplySkillsMigration() {
 export function useRevealSkillsMigrationPlanItem() {
   return useMutation<boolean, Error, SkillsMigrationRevealIntent>({
     mutationFn: (intent) => skillsApi.revealSkillsMigrationPlanItem(intent),
+  });
+}
+
+export function useRevealSkillsMigrationFinding() {
+  return useMutation<boolean, Error, string>({
+    mutationFn: (findingId) =>
+      skillsApi.revealSkillsMigrationFinding(findingId),
+  });
+}
+
+export function useAcknowledgeSkillsMigrationReport() {
+  const queryClient = useQueryClient();
+  return useMutation<SkillsMigrationReport, Error, string>({
+    mutationFn: (runId) => skillsApi.acknowledgeSkillsMigrationReport(runId),
+    onSettled: () => invalidateSkillsMigrationQueries(queryClient),
   });
 }
 
@@ -270,6 +316,45 @@ export function useApplyProjectSkillImport() {
         ]),
     },
   );
+}
+
+/** Recurring read-only scan of unmanaged real directories in Global roots. */
+export function useInspectGlobalSkillImports() {
+  const inspectionQuery = useQuery<GlobalSkillImportInspection>({
+    queryKey: ["skills", "globalSkillImports"],
+    queryFn: () => globalSkillImportsApi.inspect(),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
+  });
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      void inspectionQuery.refetch();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [inspectionQuery.refetch]);
+
+  return inspectionQuery;
+}
+
+export function useApplyGlobalSkillImport() {
+  const queryClient = useQueryClient();
+  return useMutation<GlobalSkillImportResult, Error, GlobalSkillImportIntent>({
+    mutationFn: (intent) => globalSkillImportsApi.apply(intent),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "globalSkillImports"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "deployments"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
+      ]),
+  });
 }
 
 export function useInspectProjectWorkspace() {

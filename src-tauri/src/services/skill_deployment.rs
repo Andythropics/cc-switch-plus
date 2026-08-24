@@ -72,6 +72,16 @@ impl DeploymentTarget {
     }
 }
 
+/// Canonical root for a Global consumer.  Inspection callers use this helper
+/// without creating the directory; Deployment remains responsible for
+/// creating it only when an explicit mutation is applied.
+pub(crate) fn global_target_root(consumer: DeploymentConsumer) -> PathBuf {
+    match consumer {
+        DeploymentConsumer::Claude => get_home_dir().join(".claude").join("skills"),
+        DeploymentConsumer::Codex => get_home_dir().join(".agents").join("skills"),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesiredDeployment {
@@ -181,7 +191,11 @@ pub struct DeploymentInspectionResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "action")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "action"
+)]
 pub enum DeploymentIntent {
     Deploy {
         library_skill_id: String,
@@ -259,6 +273,105 @@ impl DeploymentBatch {
         Self {
             intents: vec![intent],
         }
+    }
+}
+
+#[cfg(test)]
+mod deployment_intent_serde_tests {
+    use super::{DeploymentBatch, DeploymentConsumer, DeploymentIntent, DeploymentTarget};
+
+    #[test]
+    fn deserializes_frontend_camel_case_undeploy_batch() {
+        let batch: DeploymentBatch = serde_json::from_value(serde_json::json!({
+            "intents": [{
+                "action": "undeploy",
+                "librarySkillId": "library-1",
+                "target": {
+                    "consumer": "claude",
+                    "workspace": "global"
+                }
+            }]
+        }))
+        .expect("the Tauri command boundary must accept the frontend DTO");
+
+        assert_eq!(
+            batch.intents,
+            vec![DeploymentIntent::Undeploy {
+                library_skill_id: "library-1".to_string(),
+                target: DeploymentTarget::global(DeploymentConsumer::Claude),
+            }]
+        );
+    }
+
+    #[test]
+    fn deserializes_every_frontend_camel_case_intent_field() {
+        let batch: DeploymentBatch = serde_json::from_value(serde_json::json!({
+            "intents": [
+                {
+                    "action": "deploy",
+                    "librarySkillId": "library-1",
+                    "target": { "consumer": "claude", "workspace": "global" }
+                },
+                {
+                    "action": "repair",
+                    "librarySkillId": "library-1",
+                    "target": { "consumer": "claude", "workspace": "global" },
+                    "observationToken": "observation-1"
+                },
+                {
+                    "action": "recover",
+                    "librarySkillId": "library-1",
+                    "target": { "consumer": "claude", "workspace": "global" },
+                    "observationToken": "observation-1",
+                    "confirmed": true
+                },
+                {
+                    "action": "replaceForeignLink",
+                    "librarySkillId": "library-1",
+                    "target": { "consumer": "claude", "workspace": "global" },
+                    "observationToken": "observation-1",
+                    "confirmed": true
+                },
+                {
+                    "action": "forget",
+                    "librarySkillId": "library-1",
+                    "target": { "consumer": "claude", "workspace": "global" }
+                }
+            ]
+        }))
+        .expect("every frontend DeploymentIntent variant must cross the Tauri boundary");
+
+        let target = DeploymentTarget::global(DeploymentConsumer::Claude);
+        assert_eq!(
+            batch.intents,
+            vec![
+                DeploymentIntent::Deploy {
+                    library_skill_id: "library-1".to_string(),
+                    target: target.clone(),
+                },
+                DeploymentIntent::Repair {
+                    library_skill_id: "library-1".to_string(),
+                    target: target.clone(),
+                    observation_token: "observation-1".to_string(),
+                },
+                DeploymentIntent::Recover {
+                    library_skill_id: "library-1".to_string(),
+                    target: target.clone(),
+                    observation_token: "observation-1".to_string(),
+                    confirmed: true,
+                },
+                DeploymentIntent::ReplaceForeignLink {
+                    library_skill_id: "library-1".to_string(),
+                    target: target.clone(),
+                    observation_token: "observation-1".to_string(),
+                    confirmed: true,
+                },
+                DeploymentIntent::Forget {
+                    library_skill_id: "library-1".to_string(),
+                    target,
+                },
+            ]
+        );
     }
 }
 
@@ -2086,12 +2199,7 @@ impl SkillDeploymentService {
         Self::validate_target(target)?;
         Self::validate_directory(directory)?;
         let root = match (target.consumer, target.workspace) {
-            (DeploymentConsumer::Claude, WorkspaceKind::Global) => {
-                get_home_dir().join(".claude").join("skills")
-            }
-            (DeploymentConsumer::Codex, WorkspaceKind::Global) => {
-                get_home_dir().join(".agents").join("skills")
-            }
+            (consumer, WorkspaceKind::Global) => global_target_root(consumer),
             (_, WorkspaceKind::Project) => {
                 #[cfg(target_os = "macos")]
                 {
@@ -2116,12 +2224,7 @@ impl SkillDeploymentService {
         Self::validate_target(target)?;
         Self::validate_directory(directory)?;
         let root = match (target.consumer, target.workspace) {
-            (DeploymentConsumer::Claude, WorkspaceKind::Global) => {
-                get_home_dir().join(".claude").join("skills")
-            }
-            (DeploymentConsumer::Codex, WorkspaceKind::Global) => {
-                get_home_dir().join(".agents").join("skills")
-            }
+            (consumer, WorkspaceKind::Global) => global_target_root(consumer),
             (_, WorkspaceKind::Project) => {
                 #[cfg(target_os = "macos")]
                 {

@@ -6,9 +6,9 @@ use std::os::unix::fs::symlink;
 use cc_switch_lib::{
     ConsumerCompatibility, InstalledSkill, LibrarySkill, LibrarySkillCompatibility,
     LibrarySkillSource, LibrarySourceKind, SkillApps, SkillsMigrationAction,
-    SkillsMigrationInventoryKind, SkillsMigrationInventoryState, SkillsMigrationPageMode,
-    SkillsMigrationPreviewService, SkillsMigrationReason, SkillsMigrationRevealIntent,
-    SkillsMigrationStatus,
+    SkillsMigrationDisposition, SkillsMigrationInventoryKind, SkillsMigrationInventoryState,
+    SkillsMigrationPageMode, SkillsMigrationPreviewService, SkillsMigrationReason,
+    SkillsMigrationRevealIntent, SkillsMigrationStatus,
 };
 
 #[path = "support.rs"]
@@ -156,6 +156,10 @@ fn unsupported_legacy_consumers_offer_an_explicit_preserve_resolution() {
     assert_eq!(
         resolution.action,
         SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+    );
+    assert_eq!(
+        resolution.disposition,
+        SkillsMigrationDisposition::PreserveWithConsent
     );
     assert_eq!(resolution.unsupported_consumers, vec!["hermes"]);
 }

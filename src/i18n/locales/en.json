@@ -2423,7 +2423,34 @@
       "libraryId": "Library ID: {{id}}",
       "loadError": "Could not load Library or global deployment state. Refresh and try again.",
       "empty": "No Library Skills",
-      "emptyDescription": "Acquire a skill into the Library before deploying it globally."
+      "emptyDescription": "Acquire a skill into the Library before deploying it globally.",
+      "import": {
+        "title": "Import unmanaged Global Skills",
+        "description": "Review real Skill directories installed outside CC Switch. Inspection never changes files or adopts them automatically.",
+        "scanning": "Scanning Claude and Codex Global roots...",
+        "selectFinding": "Select {{directory}} from {{consumer}}",
+        "modeImportOnly": "Import a Library copy",
+        "modeImportAndReplace": "Import and manage",
+        "createNew": "Create a new Library Skill",
+        "replaceLibrary": "Replace the matching Library Skill",
+        "directory": "Library directory",
+        "submit": "Import Skill",
+        "replaceTitle": "Manage this external Skill with CC Switch?",
+        "replaceDescription": "The directory will be backed up, imported into the Library, and replaced by a managed absolute link.",
+        "installerWarning": "Running the original npx installer again may overwrite or conflict with this managed deployment.",
+        "cancel": "Cancel",
+        "replaceConfirm": "Import and manage",
+        "outcome": {
+          "reused": "Reused",
+          "created": "Imported",
+          "library_replaced": "Library replaced",
+          "deployed": "Managed",
+          "blocked": "Blocked",
+          "stale": "Preview stale",
+          "rolled_back": "Rolled back",
+          "recovery_required": "Recovery required"
+        }
+      }
     },
     "batch": {
       "title": "Batch deployment",
@@ -2580,6 +2607,7 @@
       "disposition": {
         "perform": "CC Switch can perform",
         "preserve": "Preserve",
+        "preserve_with_consent": "Preserve with confirmation",
         "user_resolve": "User resolution required"
       },
       "action": {
@@ -2628,6 +2656,39 @@
         "notRequired": "No backup is required for this plan.",
         "recoveryAvailable": "Recovery information is available.",
         "recoveryUnavailable": "Recovery information is not yet available."
+      },
+      "continueReview": "Continue migration review",
+      "report": {
+        "title": "Migration report",
+        "description": "This report remains available after migration so you can review preserved content and unresolved conflicts.",
+        "details": "View details",
+        "detailsTitle": "Migration report details",
+        "detailsDescription": "Paths shown here are observations only. Actions use the report's opaque identities.",
+        "detailIncomplete": "The verified migration evidence is no longer available, so the legacy Consumer could not be identified. Review this item manually.",
+        "historyEntry": "View the migration report",
+        "performed": "Completed {{count}} operation(s)",
+        "preserved": "Preserved {{count}} item(s)",
+        "open": "{{count}} item(s) need review",
+        "noFindings": "No follow-up items were recorded.",
+        "acknowledge": "Acknowledge reminder",
+        "acknowledged": "Reminder acknowledged. The report remains available from this page.",
+        "acknowledgeError": "The reminder could not be acknowledged. Try again.",
+        "reveal": "Reveal in Finder",
+        "revealError": "The item could not be opened. Refresh the report and try again.",
+        "verifiedBackupDescription": "A verified migration backup is available for recovery.",
+        "restore": "Restore verified backup",
+        "restoreError": "The verified backup could not be restored. Refresh the report and try again.",
+        "restoreConfirmTitle": "Restore the migration backup?",
+        "restoreConfirmDescription": "CC Switch will restore the verified backup identified by this report. Current migration state may be replaced.",
+        "restoreConfirm": "Confirm restore",
+        "state": {
+          "prepared": "Prepared",
+          "running": "In progress",
+          "blocked": "Blocked",
+          "recovery_required": "Recovery required",
+          "completed": "Completed",
+          "restored": "Restored"
+        }
       }
     },
     "activity": {

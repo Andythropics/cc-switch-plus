@@ -426,6 +426,7 @@ export interface SkillsMigrationInventoryItem {
 export type SkillsMigrationPlanDisposition =
   | "perform"
   | "preserve"
+  | "preserve_with_consent"
   | "user_resolve";
 
 export type SkillsMigrationPlanAction =
@@ -482,6 +483,50 @@ export interface SkillsMigrationPreflight {
   plan: SkillsMigrationPlanItem[];
   backup: SkillsMigrationBackupPlan;
   execution?: SkillsMigrationExecutionResult;
+}
+
+export type SkillsMigrationReportState =
+  | "prepared"
+  | "running"
+  | "blocked"
+  | "recovery_required"
+  | "completed"
+  | "restored";
+
+/** Durable summary of the most recent guided migration run. */
+export interface SkillsMigrationReportSummary {
+  performed: number;
+  preserved: number;
+  open: number;
+}
+
+/** A persisted migration follow-up item; paths are display-only. */
+export interface SkillsMigrationFinding {
+  findingId: string;
+  disposition: SkillsMigrationPlanDisposition;
+  action?: SkillsMigrationPlanAction;
+  directory?: string;
+  consumer?: DeploymentConsumer;
+  fromLocation?: string;
+  toLocation?: string;
+  reason?: SkillsMigrationPlanReason;
+  unsupportedConsumers?: Array<"gemini" | "grokbuild" | "opencode" | "hermes">;
+  status: string;
+  origin?: "preflight" | "legacy_backfill";
+  detailComplete?: boolean;
+}
+
+/** Durable report kept available after the active migration gate disappears. */
+export interface SkillsMigrationReport {
+  runId: string;
+  state: SkillsMigrationReportState;
+  createdAt: number;
+  completedAt?: number;
+  acknowledgedAt?: number;
+  observationToken: string;
+  summary: SkillsMigrationReportSummary;
+  findings: SkillsMigrationFinding[];
+  backup?: SkillsMigrationBackup;
 }
 
 export interface SkillsMigrationIntent {
@@ -705,6 +750,23 @@ export const skillsApi = {
   /** Preview the macOS guided migration without changing legacy state. */
   async inspectSkillsMigrationPreflight(): Promise<SkillsMigrationPreflight> {
     return await invoke("inspectSkillsMigrationPreflight");
+  },
+
+  /** Return the latest durable migration report, including completed runs. */
+  async inspectLatestSkillsMigrationReport(): Promise<SkillsMigrationReport | null> {
+    return await invoke("inspectLatestSkillsMigrationReport");
+  },
+
+  /** Mark one durable migration report as acknowledged by the user. */
+  async acknowledgeSkillsMigrationReport(
+    runId: string,
+  ): Promise<SkillsMigrationReport> {
+    return await invoke("acknowledgeSkillsMigrationReport", { runId });
+  },
+
+  /** Reveal a persisted migration finding selected by its opaque identity. */
+  async revealSkillsMigrationFinding(findingId: string): Promise<boolean> {
+    return await invoke("revealSkillsMigrationFinding", { findingId });
   },
 
   /** Execute exactly the reviewed migration observation. */

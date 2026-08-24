@@ -82,6 +82,7 @@ const SYNC_SKIP_TABLES_BASE: &[&str] = &[
     "skill_deployments",
     "skills_migration_runs",
     "skills_migration_items",
+    "skills_migration_findings",
     "skills",
 ];
 
@@ -102,6 +103,7 @@ const SYNC_PRESERVE_TABLES_BASE: &[&str] = &[
     "skill_deployments",
     "skills_migration_runs",
     "skills_migration_items",
+    "skills_migration_findings",
     "skills",
 ];
 
@@ -2178,7 +2180,13 @@ mod tests {
                      run_id, ordinal, item_key, action, directory, consumer,
                      source_location, target_location, expected_fingerprint, state
                  ) VALUES ('remote-run', 0, 'remote-item', 'move_to_library', 'remote', 'claude',
-                            '/remote/source', '/remote/target', 'remote-fingerprint', 'in_progress');",
+                            '/remote/source', '/remote/target', 'remote-fingerprint', 'in_progress');
+                 INSERT INTO skills_migration_findings (
+                     run_id, finding_key, disposition, action, reason,
+                     consumer, consumer_codes, status, created_at, updated_at
+                 ) VALUES ('remote-run', 'remote-finding', 'preserve_with_consent',
+                           'preserve_unsupported_consumer_files', 'unsupported_consumer_enabled',
+                           'hermes', '[\"hermes\"]', 'preserved', 1, 2);",
             )?;
         }
 
@@ -2191,14 +2199,15 @@ mod tests {
         assert!(!sync_sql.contains("remote-item"));
         let exported = Connection::open_in_memory()?;
         exported.execute_batch(&sync_sql)?;
-        let exported_counts: (i64, i64) = exported.query_row(
+        let exported_counts: (i64, i64, i64) = exported.query_row(
             "SELECT
                 (SELECT COUNT(*) FROM skills_migration_runs),
-                (SELECT COUNT(*) FROM skills_migration_items)",
+                (SELECT COUNT(*) FROM skills_migration_items),
+                (SELECT COUNT(*) FROM skills_migration_findings)",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
-        assert_eq!(exported_counts, (0, 0));
+        assert_eq!(exported_counts, (0, 0, 0));
 
         let local_db = Database::memory()?;
         {
@@ -2212,32 +2221,39 @@ mod tests {
                  INSERT INTO skills_migration_items (
                      run_id, ordinal, item_key, action, directory, state, detail_code
                  ) VALUES ('local-run', 0, 'local-item', 'restore', 'local',
-                            'recovery_required', 'filesystem_failure');",
+                            'recovery_required', 'filesystem_failure');
+                 INSERT INTO skills_migration_findings (
+                     run_id, finding_key, disposition, action, reason,
+                     consumer_codes, status, created_at, updated_at
+                 ) VALUES ('local-run', 'local-finding', 'preserve', 'preserve_content',
+                           'unmanaged', '[\"hermes\"]', 'open', 3, 4);",
             )?;
         }
         local_db.import_sql_string_for_sync(&sync_sql)?;
 
         let conn = crate::database::lock_conn!(local_db.conn);
-        let local_counts: (i64, i64) = conn.query_row(
+        let local_counts: (i64, i64, i64) = conn.query_row(
             "SELECT
                 (SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'local-run'),
-                (SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'local-run')",
+                (SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'local-run'),
+                (SELECT COUNT(*) FROM skills_migration_findings WHERE run_id = 'local-run')",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
-        assert_eq!(local_counts, (1, 1));
+        assert_eq!(local_counts, (1, 1, 1));
 
         let full_target = Database::memory()?;
         full_target.import_sql_string(&full_sql)?;
         let conn = crate::database::lock_conn!(full_target.conn);
-        let remote_counts: (i64, i64) = conn.query_row(
+        let remote_counts: (i64, i64, i64) = conn.query_row(
             "SELECT
                 (SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'remote-run'),
-                (SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'remote-run')",
+                (SELECT COUNT(*) FROM skills_migration_items WHERE run_id = 'remote-run'),
+                (SELECT COUNT(*) FROM skills_migration_findings WHERE run_id = 'remote-run')",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
-        assert_eq!(remote_counts, (1, 1));
+        assert_eq!(remote_counts, (1, 1, 1));
         Ok(())
     }
 

@@ -16,10 +16,12 @@ import {
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryPanel";
+import { GlobalSkillImportPanel } from "@/components/skills/GlobalSkillImportPanel";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import {
   useApplySkillDeployments,
   useLibrarySkills,
+  useInspectGlobalSkillImports,
   useProjectWorkspaces,
   useRefreshSkillDeployments,
   useSkillDeployments,
@@ -94,6 +96,7 @@ export function GlobalSkillsPanel({
     workspace: "global",
   });
   const apply = useApplySkillDeployments();
+  const globalImportsQuery = useInspectGlobalSkillImports();
   const refreshDeployments = useRefreshSkillDeployments();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<DeploymentStatus | "all">(
@@ -104,6 +107,7 @@ export function GlobalSkillsPanel({
     "deploy",
   );
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [globalImportBusy, setGlobalImportBusy] = useState(false);
 
   const allInspections = useMemo(
     () => [
@@ -117,8 +121,14 @@ export function GlobalSkillsPanel({
     libraryFetching ||
     projectsFetching ||
     claudeQuery.isFetching ||
-    codexQuery.isFetching;
-  const navigationBlocked = apply.isPending || batchOpen || recoveryBusy;
+    codexQuery.isFetching ||
+    globalImportsQuery.isFetching;
+  const navigationBlocked =
+    apply.isPending ||
+    batchOpen ||
+    recoveryBusy ||
+    globalImportBusy ||
+    globalImportsQuery.isFetching;
 
   useEffect(() => {
     onInteractionBlockedChange?.(navigationBlocked);
@@ -183,6 +193,7 @@ export function GlobalSkillsPanel({
       refreshDeployments(),
       refetchLibrary(),
       refetchProjects(),
+      globalImportsQuery.refetch(),
     ]);
     return result;
   };
@@ -192,6 +203,7 @@ export function GlobalSkillsPanel({
       refreshDeployments(),
       refetchLibrary(),
       refetchProjects(),
+      globalImportsQuery.refetch(),
     ]);
   };
 
@@ -323,7 +335,10 @@ export function GlobalSkillsPanel({
         </p>
       )}
 
-      {(libraryError || projectError || deploymentError) && (
+      {(libraryError ||
+        projectError ||
+        deploymentError ||
+        globalImportsQuery.isError) && (
         <p
           role="alert"
           className="mx-5 mt-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
@@ -331,6 +346,16 @@ export function GlobalSkillsPanel({
           {t("skills.global.loadError")}
         </p>
       )}
+
+      <div className="px-5 pt-3">
+        <GlobalSkillImportPanel
+          inspection={globalImportsQuery.data}
+          isLoading={globalImportsQuery.isLoading}
+          isFetching={globalImportsQuery.isFetching}
+          onRefetch={globalImportsQuery.refetch}
+          onBusyChange={setGlobalImportBusy}
+        />
+      </div>
 
       <div className="px-5 pt-3">
         <DeploymentRecoveryPanel

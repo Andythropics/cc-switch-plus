@@ -81,6 +81,10 @@ pub struct SkillsMigrationInventoryItem {
 pub enum SkillsMigrationDisposition {
     Perform,
     Preserve,
+    /// The item is outside CC Switch's managed consumer set.  Apply is
+    /// allowed to proceed only after the user explicitly consents to leave
+    /// the observed files untouched.
+    PreserveWithConsent,
     UserResolve,
 }
 
@@ -901,7 +905,7 @@ fn add_current_legacy_skill(
             state: classify_path(&source, managed_paths),
         });
         plan.push(SkillsMigrationPlanItem {
-            disposition: SkillsMigrationDisposition::UserResolve,
+            disposition: SkillsMigrationDisposition::PreserveWithConsent,
             action: SkillsMigrationAction::PreserveUnsupportedConsumerFiles,
             directory: Some(skill.directory.clone()),
             consumer: None,
@@ -1360,16 +1364,17 @@ fn classify_path(path: &Path, managed_paths: &BTreeSet<PathBuf>) -> SkillsMigrat
 }
 
 fn recovery_exists() -> bool {
-    [
-        get_app_config_dir().join("backups"),
-        get_app_config_dir().join("skill-backups"),
-    ]
-    .iter()
-    .any(|path| {
-        fs::read_dir(path)
-            .map(|mut entries| entries.next().is_some())
-            .unwrap_or(false)
-    })
+    let root = get_app_config_dir().join("skills-migration-backups");
+    fs::read_dir(root)
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let path = entry.path();
+                path.is_dir()
+                    && path.join("database.db").is_file()
+                    && path.join("backup-verified").is_file()
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn root_observations(roots: &FixedRoots) -> Vec<Observation> {
@@ -1463,7 +1468,6 @@ fn is_ignored_root_metadata(path: &Path) -> bool {
 
 fn plan_item_requires_manual_resolution(item: &SkillsMigrationPlanItem) -> bool {
     item.disposition == SkillsMigrationDisposition::UserResolve
-        && item.action != SkillsMigrationAction::PreserveUnsupportedConsumerFiles
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -5,19 +5,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
 import type { LibrarySkill } from "@/lib/api/skills";
 
-const { applyMock, libraryRefetch, projectRefetch, refreshMock, state } =
-  vi.hoisted(() => ({
-    applyMock: vi.fn(),
-    libraryRefetch: vi.fn(),
-    projectRefetch: vi.fn(),
-    refreshMock: vi.fn(),
-    state: {
-      libraryError: false,
-      projectError: false,
-      refreshing: false,
-      recoveryFindings: [] as unknown[],
-    },
-  }));
+const {
+  applyMock,
+  libraryRefetch,
+  projectRefetch,
+  importRefetch,
+  refreshMock,
+  state,
+} = vi.hoisted(() => ({
+  applyMock: vi.fn(),
+  libraryRefetch: vi.fn(),
+  projectRefetch: vi.fn(),
+  importRefetch: vi.fn(),
+  refreshMock: vi.fn(),
+  state: {
+    libraryError: false,
+    projectError: false,
+    refreshing: false,
+    recoveryFindings: [] as unknown[],
+  },
+}));
 
 const skills: LibrarySkill[] = [
   {
@@ -74,6 +81,17 @@ vi.mock("@/hooks/useSkills", () => ({
     mutateAsync: applyMock,
     isPending: false,
   }),
+  useInspectGlobalSkillImports: () => ({
+    data: { observationToken: "empty", findings: [] },
+    isLoading: false,
+    isError: false,
+    isFetching: state.refreshing,
+    refetch: importRefetch,
+  }),
+  useApplyGlobalSkillImport: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
   useDeploymentRecovery: () => ({
     data: { findings: state.recoveryFindings },
     isLoading: false,
@@ -91,6 +109,7 @@ describe("GlobalSkillsPanel", () => {
     state.refreshing = false;
     libraryRefetch.mockReset().mockResolvedValue(undefined);
     projectRefetch.mockReset().mockResolvedValue(undefined);
+    importRefetch.mockReset().mockResolvedValue(undefined);
     refreshMock.mockReset().mockResolvedValue(undefined);
     applyMock.mockReset().mockResolvedValue({ items: [] });
     state.recoveryFindings = [];
@@ -116,6 +135,7 @@ describe("GlobalSkillsPanel", () => {
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
     expect(libraryRefetch).toHaveBeenCalledTimes(1);
     expect(projectRefetch).toHaveBeenCalledTimes(1);
+    expect(importRefetch).toHaveBeenCalledTimes(1);
     expect(screen.getByText("skills.recovery.title")).toBeInTheDocument();
   });
 

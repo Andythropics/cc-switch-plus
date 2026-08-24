@@ -29,8 +29,8 @@ use crate::services::skill::{
     LibrarySourceKind,
 };
 use crate::services::skill_deployment::{
-    DeploymentConsumer, DeploymentIntent, DeploymentMutationOutcome, DeploymentTarget,
-    SkillDeploymentService, WorkspaceKind,
+    global_target_root, DeploymentConsumer, DeploymentIntent, DeploymentMutationOutcome,
+    DeploymentTarget, SkillDeploymentService, WorkspaceKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +59,11 @@ pub struct ProjectSkillImportValidation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum ProjectSkillImportLibraryMatch {
     None,
     Identical {
@@ -163,7 +167,11 @@ pub enum ProjectSkillImportMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum ProjectSkillImportResolution {
     Reuse {
         library_skill_id: String,
@@ -177,6 +185,76 @@ pub enum ProjectSkillImportResolution {
         library_skill_id: String,
         confirmed: bool,
     },
+}
+
+#[cfg(test)]
+mod project_skill_import_serde_tests {
+    use super::{ProjectSkillImportLibraryMatch, ProjectSkillImportResolution};
+
+    #[test]
+    fn deserializes_frontend_camel_case_resolution_fields() {
+        let reuse: ProjectSkillImportResolution = serde_json::from_value(serde_json::json!({
+            "kind": "reuse",
+            "librarySkillId": "library-1"
+        }))
+        .expect("reuse must accept the frontend DTO");
+        let create_new: ProjectSkillImportResolution = serde_json::from_value(serde_json::json!({
+            "kind": "create_new",
+            "directory": "new-skill",
+            "displayName": "New Skill"
+        }))
+        .expect("createNew must accept the frontend DTO");
+        let replace_library: ProjectSkillImportResolution =
+            serde_json::from_value(serde_json::json!({
+                "kind": "replace_library",
+                "librarySkillId": "library-2",
+                "confirmed": true
+            }))
+            .expect("replaceLibrary must accept the frontend DTO");
+
+        assert_eq!(
+            reuse,
+            ProjectSkillImportResolution::Reuse {
+                library_skill_id: "library-1".to_string(),
+            }
+        );
+        assert_eq!(
+            create_new,
+            ProjectSkillImportResolution::CreateNew {
+                directory: "new-skill".to_string(),
+                display_name: Some("New Skill".to_string()),
+            }
+        );
+        assert_eq!(
+            replace_library,
+            ProjectSkillImportResolution::ReplaceLibrary {
+                library_skill_id: "library-2".to_string(),
+                confirmed: true,
+            }
+        );
+    }
+
+    #[test]
+    fn serializes_library_match_fields_for_the_frontend() {
+        let identical = serde_json::to_value(ProjectSkillImportLibraryMatch::Identical {
+            library_skill_id: "library-1".to_string(),
+            display_name: Some("Library Skill".to_string()),
+            directory: Some("library-skill".to_string()),
+        })
+        .expect("library match must serialize");
+
+        assert_eq!(
+            identical,
+            serde_json::json!({
+                "kind": "identical",
+                "librarySkillId": "library-1",
+                "displayName": "Library Skill",
+                "directory": "library-skill"
+            })
+        );
+        assert!(identical.get("library_skill_id").is_none());
+        assert!(identical.get("display_name").is_none());
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,11 +297,92 @@ pub struct ProjectSkillImportResult {
     pub backup_path: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSkillImportFinding {
+    pub id: String,
+    pub consumer: DeploymentConsumer,
+    /// Display-only source location. Apply always re-derives it from the
+    /// consumer root and finding identity.
+    pub source_path: String,
+    pub directory: String,
+    pub validation: ProjectSkillImportValidation,
+    pub compatibility: LibrarySkillCompatibility,
+    pub library_match: ProjectSkillImportLibraryMatch,
+    pub directory_collision: ProjectSkillImportDirectoryCollision,
+    pub replace_eligibility: ProjectSkillImportReplaceEligibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSkillImportInspection {
+    pub observation_token: String,
+    pub findings: Vec<GlobalSkillImportFinding>,
+}
+
+pub type GlobalSkillImportMode = ProjectSkillImportMode;
+pub type GlobalSkillImportResolution = ProjectSkillImportResolution;
+pub type GlobalSkillImportOutcome = ProjectSkillImportOutcome;
+pub type GlobalSkillImportResult = ProjectSkillImportResult;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSkillImportIntent {
+    pub finding_id: String,
+    pub observation_token: String,
+    pub mode: GlobalSkillImportMode,
+    pub resolution: GlobalSkillImportResolution,
+}
+
 #[derive(Debug, Clone)]
 struct FindingRecord {
     finding: ProjectSkillImportFinding,
     source: PathBuf,
     content_hash: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct GlobalFindingRecord {
+    finding: GlobalSkillImportFinding,
+    source: PathBuf,
+    content_hash: Option<String>,
+}
+
+/// Minimal input required by the shared Library admission transaction. Scope
+/// scanners retain their own richer finding models and cannot inject paths at
+/// the command boundary.
+trait ImportSourceRecord {
+    fn source(&self) -> &Path;
+    fn content_hash(&self) -> Option<&str>;
+    fn library_match(&self) -> &ProjectSkillImportLibraryMatch;
+}
+
+impl ImportSourceRecord for FindingRecord {
+    fn source(&self) -> &Path {
+        &self.source
+    }
+
+    fn content_hash(&self) -> Option<&str> {
+        self.content_hash.as_deref()
+    }
+
+    fn library_match(&self) -> &ProjectSkillImportLibraryMatch {
+        &self.finding.library_match
+    }
+}
+
+impl ImportSourceRecord for GlobalFindingRecord {
+    fn source(&self) -> &Path {
+        &self.source
+    }
+
+    fn content_hash(&self) -> Option<&str> {
+        self.content_hash.as_deref()
+    }
+
+    fn library_match(&self) -> &ProjectSkillImportLibraryMatch {
+        &self.finding.library_match
+    }
 }
 
 // Replaced carries the old and new snapshots plus rollback paths. Boxing the
@@ -327,6 +486,19 @@ impl ImportAdmission {
 
 pub struct ProjectSkillImportService {
     db: Arc<Database>,
+}
+
+/// Scope-neutral transaction boundary for admitting a validated source into
+/// the private Library. Project and Global adapters share this exact create,
+/// replacement, staging, backup, and rollback implementation.
+struct ImportAdmissionService {
+    db: Arc<Database>,
+}
+
+impl ImportAdmissionService {
+    fn new(db: Arc<Database>) -> Self {
+        Self { db }
+    }
 }
 
 impl ProjectSkillImportService {
@@ -467,7 +639,8 @@ impl ProjectSkillImportService {
             }
         }
 
-        let admission = match self.admit(&record, &intent.resolution) {
+        let admission_service = ImportAdmissionService::new(self.db.clone());
+        let admission = match admission_service.admit(&record, &intent.resolution) {
             Ok(admission) => admission,
             Err(error) => {
                 let message = error.to_string();
@@ -504,7 +677,7 @@ impl ProjectSkillImportService {
             _ => true,
         };
         if source_changed {
-            return match self.rollback_admission(&admission) {
+            return match admission_service.rollback_admission(&admission) {
                 Ok(()) => Ok(ProjectSkillImportResult::stale(
                     &intent.finding_id,
                     "project Skill source changed during admission; inspect again before retrying",
@@ -533,7 +706,7 @@ impl ProjectSkillImportService {
                         && deployment.library_skill_id != admission.skill().id
                 });
             if let Some(competing) = competing {
-                return match self.rollback_admission(&admission) {
+                return match admission_service.rollback_admission(&admission) {
                     Ok(()) => Ok(ProjectSkillImportResult::blocked(
                         &intent.finding_id,
                         ProjectSkillImportReplaceBlockReason::DirectoryIdentityMismatch,
@@ -561,7 +734,7 @@ impl ProjectSkillImportService {
 
         let target_directory = admission.skill().directory.clone();
         if target_directory != record.finding.directory {
-            return match self.rollback_admission(&admission) {
+            return match admission_service.rollback_admission(&admission) {
                 Ok(()) => Ok(ProjectSkillImportResult::blocked(
                     &intent.finding_id,
                     ProjectSkillImportReplaceBlockReason::DirectoryIdentityMismatch,
@@ -583,7 +756,7 @@ impl ProjectSkillImportService {
                 .replace_eligibility
                 .reason
                 .unwrap_or(ProjectSkillImportReplaceBlockReason::InvalidSource);
-            return match self.rollback_admission(&admission) {
+            return match admission_service.rollback_admission(&admission) {
                 Ok(()) => Ok(ProjectSkillImportResult::blocked(
                     &intent.finding_id,
                     reason,
@@ -599,15 +772,16 @@ impl ProjectSkillImportService {
         }
 
         if intent.mode == ProjectSkillImportMode::ImportAndReplace {
-            let stale_after_recheck = |message: String| match self.rollback_admission(&admission) {
-                Ok(()) => ProjectSkillImportResult::stale(&intent.finding_id, message),
-                Err(error) => ProjectSkillImportResult::recovery_required(
-                    &intent.finding_id,
-                    format!("{message}; compensation failed: {error}"),
-                    None,
-                    &admission,
-                ),
-            };
+            let stale_after_recheck =
+                |message: String| match admission_service.rollback_admission(&admission) {
+                    Ok(()) => ProjectSkillImportResult::stale(&intent.finding_id, message),
+                    Err(error) => ProjectSkillImportResult::recovery_required(
+                        &intent.finding_id,
+                        format!("{message}; compensation failed: {error}"),
+                        None,
+                        &admission,
+                    ),
+                };
             match workspace_root_matches_identity(&workspace) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -643,10 +817,12 @@ impl ProjectSkillImportService {
 
         self.apply_and_replace(&workspace, &record, admission, &intent.finding_id)
     }
+}
 
-    fn admit(
+impl ImportAdmissionService {
+    fn admit<R: ImportSourceRecord>(
         &self,
-        record: &FindingRecord,
+        record: &R,
         resolution: &ProjectSkillImportResolution,
     ) -> Result<ImportAdmission> {
         match resolution {
@@ -654,7 +830,7 @@ impl ProjectSkillImportService {
                 let Some(existing) = self.db.get_library_skill_by_id(library_skill_id)? else {
                     return Err(anyhow!("Library Skill not found: {library_skill_id}"));
                 };
-                let Some(hash) = record.content_hash.as_deref() else {
+                let Some(hash) = record.content_hash() else {
                     return Err(anyhow!("source content is not valid"));
                 };
                 if existing.content_hash != hash {
@@ -669,9 +845,10 @@ impl ProjectSkillImportService {
                 display_name,
             } => {
                 let directory = validate_import_directory(directory)?;
-                if let Some(existing) = self.db.get_library_skill_by_content_hash(
-                    record.content_hash.as_deref().unwrap_or(""),
-                )? {
+                if let Some(existing) = self
+                    .db
+                    .get_library_skill_by_content_hash(record.content_hash().unwrap_or(""))?
+                {
                     return Ok(ImportAdmission::Existing(existing));
                 }
                 if self
@@ -689,7 +866,7 @@ impl ProjectSkillImportService {
                 }
                 let skill = LibrarySkillAcquisitionService::acquire_from_directory_locked(
                     &self.db,
-                    &record.source,
+                    record.source(),
                     local_import_source(),
                     Some(&directory),
                 )?;
@@ -742,7 +919,7 @@ impl ProjectSkillImportService {
                 let Some(existing) = self.db.get_library_skill_by_id(library_skill_id)? else {
                     return Err(anyhow!("Library Skill not found: {library_skill_id}"));
                 };
-                match &record.finding.library_match {
+                match record.library_match() {
                     ProjectSkillImportLibraryMatch::Different {
                         library_skill_id: matched,
                         ..
@@ -758,10 +935,10 @@ impl ProjectSkillImportService {
         }
     }
 
-    fn replace_library_snapshot(
+    fn replace_library_snapshot<R: ImportSourceRecord>(
         &self,
         existing: &LibrarySkill,
-        record: &FindingRecord,
+        record: &R,
     ) -> Result<ImportAdmission> {
         let library_root = LibrarySkillAcquisitionService::library_directory_path();
         fs::create_dir_all(&library_root)?;
@@ -777,7 +954,7 @@ impl ProjectSkillImportService {
         let old_staging = backup_root.join("library-old");
         let rollback_staging = backup_root.join("library-rollback");
         if let Err(error) =
-            LibrarySkillAcquisitionService::copy_tree_preserving_links(&record.source, &staging)
+            LibrarySkillAcquisitionService::copy_tree_preserving_links(record.source(), &staging)
         {
             let staging_cleanup = fs::remove_dir_all(&staging).err();
             let cleanup = fs::remove_dir_all(&backup_root).err();
@@ -806,7 +983,7 @@ impl ProjectSkillImportService {
                 });
             }
         };
-        if record.content_hash.as_deref() != Some(metadata.content_hash.as_str()) {
+        if record.content_hash() != Some(metadata.content_hash.as_str()) {
             let cleanup = cleanup_paths(&[&staging, &backup_root]);
             return Err(anyhow!(
                 "project Skill changed while staging replacement; inspect again before retrying{}",
@@ -1082,7 +1259,9 @@ impl ProjectSkillImportService {
             }
         }
     }
+}
 
+impl ProjectSkillImportService {
     fn apply_and_replace(
         &self,
         workspace: &crate::services::project_workspace::ProjectWorkspace,
@@ -1090,34 +1269,39 @@ impl ProjectSkillImportService {
         admission: ImportAdmission,
         finding_id: &str,
     ) -> Result<ProjectSkillImportResult> {
-        let backup_root = match backup_source_for_admission(&record.source, &admission) {
-            Ok(path) => path,
-            Err(error) => {
-                let compensation = self.rollback_admission(&admission).err();
-                let compensation_failed = compensation.is_some();
-                let backup = admission.backup_path();
-                let message = match compensation {
-                    Some(compensation) => {
-                        format!(
+        let backup_root =
+            match backup_source_for_admission(&record.source, &admission, "project-source") {
+                Ok(path) => path,
+                Err(error) => {
+                    let compensation = ImportAdmissionService::new(self.db.clone())
+                        .rollback_admission(&admission)
+                        .err();
+                    let compensation_failed = compensation.is_some();
+                    let backup = admission.backup_path();
+                    let message = match compensation {
+                        Some(compensation) => {
+                            format!(
                             "source backup failed ({error}); compensation failed ({compensation})"
                         )
-                    }
-                    None => {
-                        format!("source backup failed ({error}); Library admission rolled back")
-                    }
-                };
-                return Ok(if compensation_failed {
-                    ProjectSkillImportResult::recovery_required(
-                        finding_id, message, backup, &admission,
-                    )
-                } else {
-                    ProjectSkillImportResult::rolled_back(finding_id, message, backup)
-                });
-            }
-        };
+                        }
+                        None => {
+                            format!("source backup failed ({error}); Library admission rolled back")
+                        }
+                    };
+                    return Ok(if compensation_failed {
+                        ProjectSkillImportResult::recovery_required(
+                            finding_id, message, backup, &admission,
+                        )
+                    } else {
+                        ProjectSkillImportResult::rolled_back(finding_id, message, backup)
+                    });
+                }
+            };
         if let Err(error) = self.revalidate_before_park(workspace, record, &admission, &backup_root)
         {
-            let compensation = self.rollback_admission(&admission).err();
+            let compensation = ImportAdmissionService::new(self.db.clone())
+                .rollback_admission(&admission)
+                .err();
             let compensation_failed = compensation.is_some();
             let message = match compensation {
                 Some(compensation) => format!(
@@ -1141,7 +1325,9 @@ impl ProjectSkillImportService {
         let parked_source =
             source_parent.join(format!(".cc-switch-import-old-{}", uuid::Uuid::new_v4()));
         if let Err(error) = fs::rename(&record.source, &parked_source) {
-            let compensation = self.rollback_admission(&admission).err();
+            let compensation = ImportAdmissionService::new(self.db.clone())
+                .rollback_admission(&admission)
+                .err();
             let compensation_failed = compensation.is_some();
             let message = match compensation {
                 Some(compensation) => format!(
@@ -1223,7 +1409,9 @@ impl ProjectSkillImportService {
             }
         }
         if source_restored {
-            if let Err(error) = self.rollback_admission(&admission) {
+            if let Err(error) =
+                ImportAdmissionService::new(self.db.clone()).rollback_admission(&admission)
+            {
                 compensation_errors.push(format!("Library compensation failed: {error}"));
             }
         } else {
@@ -1566,6 +1754,571 @@ impl ProjectSkillImportService {
     }
 }
 
+/// Recurring inspection and explicit import of real directories found in the
+/// two Global consumer roots. This is independent of the one-time migration:
+/// inspection is read-only and no external directory is adopted implicitly.
+pub struct GlobalSkillImportService {
+    db: Arc<Database>,
+}
+
+impl GlobalSkillImportService {
+    pub fn new(db: Arc<Database>) -> Self {
+        Self { db }
+    }
+
+    pub fn inspect(&self) -> Result<GlobalSkillImportInspection> {
+        LibrarySkillAcquisitionService::ensure_supported_platform()?;
+        let (records, observation_token) = self.current_records()?;
+        Ok(GlobalSkillImportInspection {
+            observation_token,
+            findings: records.into_iter().map(|record| record.finding).collect(),
+        })
+    }
+
+    fn current_records(&self) -> Result<(Vec<GlobalFindingRecord>, String)> {
+        let mut records = Vec::new();
+        for consumer in [DeploymentConsumer::Claude, DeploymentConsumer::Codex] {
+            let Some(root) = existing_real_global_target_root(consumer)? else {
+                continue;
+            };
+            for entry in fs::read_dir(&root)? {
+                let entry = entry?;
+                let directory = entry.file_name().to_string_lossy().to_string();
+                if directory.starts_with('.') {
+                    continue;
+                }
+                let source = entry.path();
+                let metadata = fs::symlink_metadata(&source)?;
+                if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                    continue;
+                }
+                let manifest_metadata = match fs::symlink_metadata(source.join("SKILL.md")) {
+                    Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                        metadata
+                    }
+                    _ => continue,
+                };
+                if !manifest_metadata.is_file() {
+                    continue;
+                }
+                let content = LibrarySkillAcquisitionService::inspect_source_directory(&source);
+                let (validation, compatibility, content_hash) = match content {
+                    Ok(content) => (
+                        ProjectSkillImportValidation {
+                            status: ProjectSkillImportValidationStatus::Valid,
+                            issues: Vec::new(),
+                            display_name: Some(content.display_name),
+                            description: content.description,
+                        },
+                        content.compatibility,
+                        Some(content.content_hash),
+                    ),
+                    Err(error) => {
+                        let issue = error.to_string();
+                        (
+                            ProjectSkillImportValidation {
+                                status: ProjectSkillImportValidationStatus::Invalid,
+                                issues: vec![issue.clone()],
+                                display_name: None,
+                                description: None,
+                            },
+                            invalid_compatibility(issue),
+                            None,
+                        )
+                    }
+                };
+                let admission = ProjectSkillImportService::new(self.db.clone());
+                let library_match = admission.library_match(content_hash.as_deref(), &directory)?;
+                let directory_collision = admission.directory_collision(&directory)?;
+                let mut reason = None;
+                if validation.status != ProjectSkillImportValidationStatus::Valid
+                    || !consumer_compatible(&compatibility, consumer)
+                {
+                    reason = Some(ProjectSkillImportReplaceBlockReason::InvalidSource);
+                } else if library_match
+                    .directory()
+                    .is_some_and(|library_directory| library_directory != directory)
+                {
+                    reason = Some(ProjectSkillImportReplaceBlockReason::DirectoryIdentityMismatch);
+                }
+                let canonical_source = fs::canonicalize(&source).unwrap_or_else(|_| source.clone());
+                let id = global_finding_id(consumer, &directory, &canonical_source);
+                records.push(GlobalFindingRecord {
+                    finding: GlobalSkillImportFinding {
+                        id,
+                        consumer,
+                        source_path: source.to_string_lossy().to_string(),
+                        directory,
+                        validation,
+                        compatibility,
+                        library_match,
+                        directory_collision,
+                        replace_eligibility: ProjectSkillImportReplaceEligibility {
+                            eligible: reason.is_none(),
+                            reason,
+                        },
+                    },
+                    source,
+                    content_hash,
+                });
+            }
+        }
+        records.sort_by(|left, right| left.finding.id.cmp(&right.finding.id));
+        let mut token_hasher = Sha256::new();
+        token_hasher.update(b"global-skill-import-v1");
+        for record in &records {
+            token_hasher.update(record.finding.id.as_bytes());
+            token_hasher.update(serde_json::to_vec(&record.finding)?);
+            token_hasher.update(
+                record
+                    .content_hash
+                    .as_deref()
+                    .unwrap_or("invalid")
+                    .as_bytes(),
+            );
+        }
+        Ok((records, format!("{:x}", token_hasher.finalize())))
+    }
+
+    pub fn apply(&self, intent: GlobalSkillImportIntent) -> Result<GlobalSkillImportResult> {
+        let consumer = self.current_records().ok().and_then(|(records, _)| {
+            records
+                .into_iter()
+                .find(|record| record.finding.id == intent.finding_id)
+                .map(|record| record.finding.consumer)
+        });
+        let mode = intent.mode;
+        let result = self.apply_inner(intent);
+        self.record_import_activity(consumer, mode, &result);
+        result
+    }
+
+    fn apply_inner(&self, intent: GlobalSkillImportIntent) -> Result<GlobalSkillImportResult> {
+        LibrarySkillAcquisitionService::ensure_supported_platform()?;
+        let _library_guard = LibrarySkillAcquisitionService::lock_for_composite()?;
+        let needs_deployment_lock = intent.mode == GlobalSkillImportMode::ImportAndReplace
+            || matches!(
+                &intent.resolution,
+                GlobalSkillImportResolution::ReplaceLibrary { .. }
+            );
+        let _deployment_guard = needs_deployment_lock
+            .then(SkillDeploymentService::lock_for_composite)
+            .transpose()?;
+
+        let (records, observation_token) = self.current_records()?;
+        if observation_token != intent.observation_token {
+            return Ok(GlobalSkillImportResult::stale(
+                &intent.finding_id,
+                "Global Skill changed since the preview; inspect again before retrying",
+            ));
+        }
+        let Some(record) = records
+            .into_iter()
+            .find(|record| record.finding.id == intent.finding_id)
+        else {
+            return Ok(GlobalSkillImportResult::blocked(
+                &intent.finding_id,
+                ProjectSkillImportReplaceBlockReason::InvalidSource,
+                "Global Skill finding is no longer available",
+            ));
+        };
+        if record.finding.validation.status != ProjectSkillImportValidationStatus::Valid
+            || (intent.mode == GlobalSkillImportMode::ImportAndReplace
+                && !consumer_compatible(&record.finding.compatibility, record.finding.consumer))
+        {
+            return Ok(GlobalSkillImportResult::blocked(
+                &intent.finding_id,
+                ProjectSkillImportReplaceBlockReason::InvalidSource,
+                "canonical SKILL.md or consumer compatibility validation failed",
+            ));
+        }
+
+        // This is the shared high-risk Library transaction used by Project
+        // import: content reuse, staged create/replace, DB mutation, and full
+        // admission rollback all stay on one code path.
+        let admission_service = ImportAdmissionService::new(self.db.clone());
+        let admission = match admission_service.admit(&record, &intent.resolution) {
+            Ok(admission) => admission,
+            Err(error) => {
+                let message = error.to_string();
+                if let Some(recoverable) = error.downcast_ref::<RecoverableAdmissionError>() {
+                    return Ok(
+                        GlobalSkillImportResult::recovery_required_without_admission(
+                            &intent.finding_id,
+                            message,
+                            Some(recoverable.backup_path.to_string_lossy().to_string()),
+                        ),
+                    );
+                }
+                return Ok(GlobalSkillImportResult::blocked_without_reason(
+                    &intent.finding_id,
+                    message,
+                ));
+            }
+        };
+
+        let fresh_source = fs::symlink_metadata(&record.source)
+            .ok()
+            .filter(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            .and_then(|_| {
+                LibrarySkillAcquisitionService::inspect_source_directory(&record.source).ok()
+            });
+        let source_changed = match (record.content_hash.as_deref(), fresh_source) {
+            (Some(expected), Some(actual)) => {
+                actual.content_hash != expected || admission.skill().content_hash != expected
+            }
+            _ => true,
+        };
+        if source_changed {
+            return Ok(match admission_service.rollback_admission(&admission) {
+                Ok(()) => GlobalSkillImportResult::stale(
+                    &intent.finding_id,
+                    "Global Skill source changed during admission; inspect again before retrying",
+                ),
+                Err(error) => GlobalSkillImportResult::recovery_required(
+                    &intent.finding_id,
+                    format!(
+                        "Global Skill source changed during admission; compensation failed: {error}"
+                    ),
+                    None,
+                    &admission,
+                ),
+            });
+        }
+
+        if intent.mode == GlobalSkillImportMode::ImportOnly {
+            admission.finish_success();
+            return Ok(admission.result(&intent.finding_id));
+        }
+        if admission.skill().directory != record.finding.directory
+            || !record.finding.replace_eligibility.eligible
+        {
+            let reason = record
+                .finding
+                .replace_eligibility
+                .reason
+                .unwrap_or(ProjectSkillImportReplaceBlockReason::DirectoryIdentityMismatch);
+            return Ok(match admission_service.rollback_admission(&admission) {
+                Ok(()) => GlobalSkillImportResult::blocked(
+                    &intent.finding_id,
+                    reason,
+                    "Library directory must match the external Global Skill directory",
+                ),
+                Err(error) => GlobalSkillImportResult::recovery_required(
+                    &intent.finding_id,
+                    format!("replacement blocked; admission compensation failed: {error}"),
+                    None,
+                    &admission,
+                ),
+            });
+        }
+
+        let target = DeploymentTarget::global(record.finding.consumer);
+        if let Some(competing) = self
+            .db
+            .list_skill_deployments()?
+            .into_iter()
+            .find(|deployment| {
+                deployment.target == target
+                    && deployment.library_directory == record.finding.directory
+                    && deployment.library_skill_id != admission.skill().id
+            })
+        {
+            return Ok(match admission_service.rollback_admission(&admission) {
+                Ok(()) => GlobalSkillImportResult::blocked(
+                    &intent.finding_id,
+                    ProjectSkillImportReplaceBlockReason::DirectoryIdentityMismatch,
+                    format!(
+                        "target directory is already desired by another Library Skill ({})",
+                        competing.library_skill_id
+                    ),
+                ),
+                Err(error) => GlobalSkillImportResult::recovery_required(
+                    &intent.finding_id,
+                    format!("target conflict; admission compensation failed: {error}"),
+                    None,
+                    &admission,
+                ),
+            });
+        }
+
+        self.apply_and_replace(&record, admission, &intent.finding_id)
+    }
+
+    fn apply_and_replace(
+        &self,
+        record: &GlobalFindingRecord,
+        admission: ImportAdmission,
+        finding_id: &str,
+    ) -> Result<GlobalSkillImportResult> {
+        let admission_service = ImportAdmissionService::new(self.db.clone());
+        let backup_root =
+            match backup_source_for_admission(&record.source, &admission, "global-source") {
+                Ok(path) => path,
+                Err(error) => {
+                    let compensation = admission_service.rollback_admission(&admission).err();
+                    let failed = compensation.is_some();
+                    let message = compensation.map_or_else(
+                        || format!("source backup failed ({error}); Library admission rolled back"),
+                        |compensation| {
+                            format!(
+                            "source backup failed ({error}); compensation failed ({compensation})"
+                        )
+                        },
+                    );
+                    return Ok(if failed {
+                        GlobalSkillImportResult::recovery_required(
+                            finding_id,
+                            message,
+                            admission.backup_path(),
+                            &admission,
+                        )
+                    } else {
+                        GlobalSkillImportResult::rolled_back(
+                            finding_id,
+                            message,
+                            admission.backup_path(),
+                        )
+                    });
+                }
+            };
+        if let Err(error) = self.revalidate_before_park(record, &admission, &backup_root) {
+            let compensation = admission_service.rollback_admission(&admission).err();
+            let failed = compensation.is_some();
+            let message = compensation.map_or_else(
+                || format!("Global Skill changed before replacement ({error}); Library admission rolled back"),
+                |compensation| format!("Global Skill changed before replacement ({error}); compensation failed: {compensation}"),
+            );
+            return Ok(if failed {
+                GlobalSkillImportResult::recovery_required(
+                    finding_id,
+                    message,
+                    Some(backup_root.to_string_lossy().to_string()),
+                    &admission,
+                )
+            } else {
+                GlobalSkillImportResult::stale(finding_id, message)
+            });
+        }
+
+        let source_parent = record
+            .source
+            .parent()
+            .ok_or_else(|| anyhow!("Global Skill source has no parent"))?;
+        let parked_source =
+            source_parent.join(format!(".cc-switch-import-old-{}", uuid::Uuid::new_v4()));
+        if let Err(error) = fs::rename(&record.source, &parked_source) {
+            let compensation = admission_service.rollback_admission(&admission).err();
+            let failed = compensation.is_some();
+            let message = compensation.map_or_else(
+                || format!("park Global Skill source failed ({error}); Library admission rolled back"),
+                |compensation| format!("park Global Skill source failed ({error}); compensation failed: {compensation}"),
+            );
+            return Ok(if failed {
+                GlobalSkillImportResult::recovery_required(
+                    finding_id,
+                    message,
+                    Some(backup_root.to_string_lossy().to_string()),
+                    &admission,
+                )
+            } else {
+                GlobalSkillImportResult::rolled_back(
+                    finding_id,
+                    message,
+                    Some(backup_root.to_string_lossy().to_string()),
+                )
+            });
+        }
+
+        let target = DeploymentTarget::global(record.finding.consumer);
+        let deployment = SkillDeploymentService::new(self.db.clone());
+        let deploy_intent = DeploymentIntent::Deploy {
+            library_skill_id: admission.skill().id.clone(),
+            target,
+        };
+        let deploy_result = deployment.apply_one_for_composite(&deploy_intent);
+        deployment.record_composite_activity(&deploy_intent, &deploy_result);
+        let success = matches!(
+            deploy_result,
+            Ok(ref item)
+                if matches!(
+                    item.outcome,
+                    DeploymentMutationOutcome::Applied
+                        | DeploymentMutationOutcome::AlreadyInSync
+                )
+        );
+        if success {
+            if let Err(error) = fs::remove_dir_all(&parked_source) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("Global Skill import cleanup failed: {error}");
+                }
+            }
+            admission.finish_success();
+            let mut result = admission.result(finding_id);
+            result.outcome = GlobalSkillImportOutcome::Deployed;
+            result.backup_path = Some(backup_root.to_string_lossy().to_string());
+            return Ok(result);
+        }
+
+        let primary = match deploy_result {
+            Ok(item) => format!(
+                "Deployment returned {:?}: {}",
+                item.outcome,
+                item.message.unwrap_or_default()
+            ),
+            Err(error) => error.to_string(),
+        };
+        let mut compensation_errors = Vec::new();
+        let link_cleanup_succeeded =
+            match ProjectSkillImportService::remove_expected_deployment_link(
+                &record.source,
+                admission.skill(),
+            ) {
+                Ok(_) => true,
+                Err(error) => {
+                    compensation_errors.push(format!("remove failed Deployment link: {error}"));
+                    false
+                }
+            };
+        let source_restored = if link_cleanup_succeeded {
+            match fs::rename(&parked_source, &record.source) {
+                Ok(()) => true,
+                Err(error) => {
+                    compensation_errors.push(format!("restore Global source failed: {error}"));
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        if source_restored {
+            if let Err(error) = admission_service.rollback_admission(&admission) {
+                compensation_errors.push(format!("Library compensation failed: {error}"));
+            }
+        } else {
+            compensation_errors.push(
+                "Library compensation skipped until the Global source can be restored from backup"
+                    .to_string(),
+            );
+        }
+        let backup = Some(backup_root.to_string_lossy().to_string());
+        if compensation_errors.is_empty() {
+            Ok(GlobalSkillImportResult::rolled_back(
+                finding_id,
+                format!("{primary}; Global import rolled back"),
+                backup,
+            ))
+        } else {
+            Ok(GlobalSkillImportResult::recovery_required(
+                finding_id,
+                format!(
+                    "{primary}; compensation failed: {}",
+                    compensation_errors.join("; ")
+                ),
+                backup,
+                &admission,
+            ))
+        }
+    }
+
+    fn revalidate_before_park(
+        &self,
+        record: &GlobalFindingRecord,
+        admission: &ImportAdmission,
+        backup_root: &Path,
+    ) -> Result<()> {
+        let expected_root = existing_real_global_target_root(record.finding.consumer)?
+            .ok_or_else(|| anyhow!("Global Skill target root disappeared"))?;
+        let expected = expected_root.join(&record.finding.directory);
+        if expected != record.source {
+            return Err(anyhow!("Global Skill source identity changed"));
+        }
+        let metadata = fs::symlink_metadata(&record.source)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(anyhow!("Global Skill source is no longer a real directory"));
+        }
+        let source = LibrarySkillAcquisitionService::inspect_source_directory(&record.source)?;
+        if record.content_hash.as_deref() != Some(source.content_hash.as_str())
+            || admission.skill().content_hash != source.content_hash
+        {
+            return Err(anyhow!("Global Skill content hash changed"));
+        }
+        let backup_source = if backup_root.join("global-source").is_dir() {
+            backup_root.join("global-source")
+        } else {
+            backup_root.join("source")
+        };
+        if LibrarySkillAcquisitionService::compute_library_hash(&backup_source)?
+            != source.content_hash
+        {
+            return Err(anyhow!("Global Skill backup content hash changed"));
+        }
+        Ok(())
+    }
+
+    fn record_import_activity(
+        &self,
+        consumer: Option<DeploymentConsumer>,
+        mode: GlobalSkillImportMode,
+        result: &Result<GlobalSkillImportResult>,
+    ) {
+        let (outcome, detail_code, library_skill_id) = match result {
+            Ok(result) => {
+                let (outcome, detail) = match result.outcome {
+                    GlobalSkillImportOutcome::Reused => {
+                        (ActivityOutcome::NoOp, ActivityDetailCode::AlreadyInSync)
+                    }
+                    GlobalSkillImportOutcome::Created
+                    | GlobalSkillImportOutcome::LibraryReplaced
+                    | GlobalSkillImportOutcome::Deployed => {
+                        (ActivityOutcome::Success, ActivityDetailCode::None)
+                    }
+                    GlobalSkillImportOutcome::Blocked => (
+                        ActivityOutcome::Blocked,
+                        ActivityDetailCode::ValidationFailure,
+                    ),
+                    GlobalSkillImportOutcome::Stale => (
+                        ActivityOutcome::Blocked,
+                        ActivityDetailCode::StaleObservation,
+                    ),
+                    GlobalSkillImportOutcome::RolledBack => (
+                        ActivityOutcome::RolledBack,
+                        ActivityDetailCode::FilesystemFailure,
+                    ),
+                    GlobalSkillImportOutcome::RecoveryRequired => (
+                        ActivityOutcome::CompensationFailed,
+                        ActivityDetailCode::CompensationFailure,
+                    ),
+                };
+                (outcome, detail, result.library_skill_id.clone())
+            }
+            Err(error) => (
+                ActivityOutcome::Failed,
+                ProjectSkillImportService::activity_detail_for_error(error),
+                None,
+            ),
+        };
+        ActivityRecorder::new(self.db.clone()).record_best_effort(ActivityEventInput {
+            operation: ActivityOperation::Library,
+            reason: match mode {
+                GlobalSkillImportMode::ImportOnly => ActivityReason::Import,
+                GlobalSkillImportMode::ImportAndReplace => ActivityReason::ImportAndReplace,
+            },
+            outcome,
+            actor: ActivityActor::User,
+            trigger: ActivityTrigger::Command,
+            target: ActivityTarget {
+                library_skill_id,
+                consumer,
+                workspace_kind: Some(WorkspaceKind::Global),
+                ..ActivityTarget::default()
+            },
+            batch: None,
+            detail_code,
+        });
+    }
+}
+
 impl ProjectSkillImportResult {
     fn blocked(
         finding_id: &str,
@@ -1691,10 +2444,14 @@ fn validate_import_directory(raw: &str) -> Result<String> {
     Ok(trimmed.to_string())
 }
 
-fn backup_source_for_admission(source: &Path, admission: &ImportAdmission) -> Result<PathBuf> {
+fn backup_source_for_admission(
+    source: &Path,
+    admission: &ImportAdmission,
+    replaced_source_name: &str,
+) -> Result<PathBuf> {
     match admission {
         ImportAdmission::Replaced { backup_root, .. } => {
-            let destination = backup_root.join("project-source");
+            let destination = backup_root.join(replaced_source_name);
             if let Err(error) =
                 LibrarySkillAcquisitionService::copy_tree_preserving_links(source, &destination)
             {
@@ -1842,6 +2599,43 @@ fn finding_id(
     hasher.update(serde_json::to_vec(scope).unwrap_or_default());
     hasher.update(source.to_string_lossy().as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn global_finding_id(consumer: DeploymentConsumer, directory: &str, source: &Path) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"global");
+    hasher.update([0]);
+    hasher.update(format!("{consumer:?}").as_bytes());
+    hasher.update([0]);
+    hasher.update(directory.as_bytes());
+    hasher.update([0]);
+    hasher.update(source.to_string_lossy().as_bytes());
+    format!("global:{:x}", hasher.finalize())
+}
+
+/// Return an existing Global root only when both consumer-owned path segments
+/// are real directories. Checking the leaf alone is insufficient because a
+/// symlinked `~/.agents` or `~/.claude` ancestor could redirect destructive
+/// replacement outside the official Consumer root.
+fn existing_real_global_target_root(consumer: DeploymentConsumer) -> Result<Option<PathBuf>> {
+    let root = global_target_root(consumer);
+    let consumer_root = root
+        .parent()
+        .ok_or_else(|| anyhow!("Global Skill target root has no Consumer parent"))?;
+    for (label, path) in [("Consumer", consumer_root), ("skills", root.as_path())] {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Ok(_) => {
+                return Err(anyhow!(
+                    "Global Skill {label} root must be a real directory: {}",
+                    path.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(Some(root))
 }
 
 fn git_status(

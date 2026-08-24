@@ -2424,7 +2424,34 @@
       "libraryId": "Library ID：{{id}}",
       "loadError": "無法載入 Library 或全域部署狀態，請重新整理後再試。",
       "empty": "沒有 Library Skill",
-      "emptyDescription": "請先將 Skill 收入 Library，再部署到全域目標。"
+      "emptyDescription": "請先將 Skill 收入 Library，再部署到全域目標。",
+      "import": {
+        "title": "匯入未受管理的全域 Skill",
+        "description": "檢查由 CC Switch 以外工具安裝的真實 Skill 目錄。掃描不會變更檔案，也不會自動接管。",
+        "scanning": "正在掃描 Claude 與 Codex 全域目錄…",
+        "selectFinding": "選取 {{consumer}} 中的 {{directory}}",
+        "modeImportOnly": "僅匯入 Library 副本",
+        "modeImportAndReplace": "匯入並交由管理",
+        "createNew": "建立新的 Library Skill",
+        "replaceLibrary": "取代相符的 Library Skill",
+        "directory": "Library 目錄",
+        "submit": "匯入 Skill",
+        "replaceTitle": "讓 CC Switch 管理此外部 Skill？",
+        "replaceDescription": "系統會先備份目錄、匯入 Library，再以受管理的絕對連結取代它。",
+        "installerWarning": "之後再次執行原始 npx 安裝命令，可能覆寫此受管理部署或與其衝突。",
+        "cancel": "取消",
+        "replaceConfirm": "匯入並管理",
+        "outcome": {
+          "reused": "已重用",
+          "created": "已匯入",
+          "library_replaced": "已取代 Library",
+          "deployed": "已受管理",
+          "blocked": "已阻擋",
+          "stale": "預覽已過期",
+          "rolled_back": "已復原",
+          "recovery_required": "需要復原"
+        }
+      }
     },
     "batch": {
       "title": "批次部署",
@@ -2581,6 +2608,7 @@
       "disposition": {
         "perform": "CC Switch 可執行",
         "preserve": "保留",
+        "preserve_with_consent": "確認後保留",
         "user_resolve": "需要使用者處理"
       },
       "action": {
@@ -2629,6 +2657,39 @@
         "notRequired": "此計畫無需備份。",
         "recoveryAvailable": "復原資訊可用。",
         "recoveryUnavailable": "復原資訊尚不可用。"
+      },
+      "continueReview": "繼續檢視遷移",
+      "report": {
+        "title": "遷移報告",
+        "description": "遷移完成後仍會保留此報告，方便檢視已保留內容和未解決衝突。",
+        "details": "檢視詳細資料",
+        "detailsTitle": "遷移報告詳細資料",
+        "detailsDescription": "此處路徑僅供顯示；操作會使用報告中的不透明識別碼。",
+        "detailIncomplete": "已驗證的遷移證據已無法使用，因此無法確認舊版 Consumer。請手動檢查此項目。",
+        "historyEntry": "檢視遷移報告",
+        "performed": "已完成 {{count}} 項操作",
+        "preserved": "已保留 {{count}} 項",
+        "open": "有 {{count}} 項需要檢視",
+        "noFindings": "沒有記錄後續處理項目。",
+        "acknowledge": "確認提醒",
+        "acknowledged": "提醒已確認；報告仍可從此頁面開啟。",
+        "acknowledgeError": "無法確認提醒，請重試。",
+        "reveal": "在 Finder 中顯示",
+        "revealError": "無法開啟此項目，請重新整理報告後再試。",
+        "verifiedBackupDescription": "存在經過驗證的遷移備份，可用於復原。",
+        "restore": "復原已驗證備份",
+        "restoreError": "無法復原已驗證備份，請重新整理報告後再試。",
+        "restoreConfirmTitle": "要復原遷移備份嗎？",
+        "restoreConfirmDescription": "CC Switch 將復原此報告識別的已驗證備份，目前的遷移狀態可能會被取代。",
+        "restoreConfirm": "確認復原",
+        "state": {
+          "prepared": "已準備",
+          "running": "處理中",
+          "blocked": "已封鎖",
+          "recovery_required": "需要復原",
+          "completed": "已完成",
+          "restored": "已復原"
+        }
       }
     },
     "activity": {

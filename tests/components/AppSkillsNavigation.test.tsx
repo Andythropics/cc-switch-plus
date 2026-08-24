@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -33,7 +33,7 @@ vi.mock("@/components/skills/SkillsMigrationGate", async () => {
     }: React.PropsWithChildren<{
       deferredToken?: string | null;
       enabled: boolean;
-      onDefer?: (token: string) => void;
+      onDefer?: (token: string | null) => void;
       onReadOnlyChange?: (readOnly: boolean) => void;
     }>) => {
       migrationGateRenderMock({ deferredToken, enabled });
@@ -41,7 +41,8 @@ vi.mock("@/components/skills/SkillsMigrationGate", async () => {
         onReadOnlyChange?.(enabled && migrationGateState.readOnly);
         return () => onReadOnlyChange?.(false);
       }, [enabled, onReadOnlyChange]);
-      return enabled && migrationGateState.readOnly
+      const deferred = Boolean(deferredToken);
+      return enabled && migrationGateState.readOnly && !deferred
         ? React.createElement(
             "div",
             { "data-testid": "migration-gate" },
@@ -56,7 +57,26 @@ vi.mock("@/components/skills/SkillsMigrationGate", async () => {
               "defer-migration",
             ),
           )
-        : children;
+        : enabled && migrationGateState.readOnly
+          ? React.createElement(
+              "div",
+              {
+                "aria-readonly": "true",
+                "data-testid": "migration-gate-deferred",
+              },
+              React.createElement(
+                "span",
+                { "data-testid": "migration-deferred-token" },
+                deferredToken ?? "none",
+              ),
+              React.createElement(
+                "button",
+                { type: "button", onClick: () => onDefer?.(null) },
+                "continue-migration-review",
+              ),
+              children,
+            )
+          : children;
     },
   };
 });
@@ -358,22 +378,27 @@ describe("App Skills navigation", () => {
     expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
       "migration-plan-v1",
     );
+    expect(screen.getByTestId("library-view")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "continue-migration-review" }),
+    ).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "skills.global.title" }),
     );
-    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(screen.getByTestId("migration-gate-deferred")).toBeInTheDocument();
     expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
       "migration-plan-v1",
     );
+    expect(await screen.findByTestId("global-view")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
     await user.click(screen.getByRole("button", { name: "skills.discover" }));
     expect(
       screen.getByRole("heading", { name: "skills.library.discoveryTitle" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
-    expect(screen.queryByTestId("discovery-view")).not.toBeInTheDocument();
+    expect(screen.getByTestId("migration-gate-deferred")).toBeInTheDocument();
+    expect(await screen.findByTestId("discovery-view")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
     await user.click(
@@ -385,7 +410,7 @@ describe("App Skills navigation", () => {
     expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
       "migration-plan-v1",
     );
-    expect(screen.queryByTestId("projects-view")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("projects-view")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
     await user.click(
@@ -397,7 +422,7 @@ describe("App Skills navigation", () => {
     expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
       "migration-plan-v1",
     );
-    expect(screen.queryByTestId("activity-view")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("activity-view")).toBeInTheDocument();
   });
 
   it("never mounts migration preflight on non-macOS", () => {
@@ -411,6 +436,60 @@ describe("App Skills navigation", () => {
 
     expect(screen.getByText("skills.library.macOnlyTitle")).toBeInTheDocument();
     expect(migrationGateRenderMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a blocked migration gate after the Skills shell is remounted", () => {
+    migrationGateState.readOnly = true;
+    const first = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+
+    first.unmount();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("resets the shared Skills scroll root when switching all five views", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+    const scrollRoot = document.querySelector<HTMLElement>(
+      '[data-skills-scroll-root="true"]',
+    );
+    expect(scrollRoot).not.toBeNull();
+    const scrollTo = vi.fn();
+    Object.defineProperty(scrollRoot, "scrollTo", {
+      configurable: true,
+      value: scrollTo,
+    });
+
+    for (const view of [
+      "skills.global.title",
+      "skills.projects.title",
+      "skills.discover",
+      "skills.activity.title",
+      "skills.library.title",
+    ]) {
+      await user.click(screen.getByRole("button", { name: view }));
+    }
+
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledTimes(5));
+    expect(scrollTo).toHaveBeenLastCalledWith({
+      top: 0,
+      left: 0,
+      behavior: "auto",
+    });
   });
 
   it("navigates Library → Global → Projects and back with view titles", async () => {

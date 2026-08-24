@@ -13,13 +13,16 @@ use crate::services::skill::{
 use crate::services::{
     ActivityPage, ActivityQuery, ActivityRecorder, DeploymentBatch, DeploymentBatchResult,
     DeploymentInspectionResult, DeploymentQuery, DeploymentRecoveryInspectionResult,
-    DeploymentRecoveryQuery, DeploymentRecoveryService, LibrarySkillDeletionInspection,
-    LibrarySkillDeletionIntent, LibrarySkillDeletionResult, LibrarySkillUpdateApplyIntent,
-    LibrarySkillUpdateCheck, LibrarySkillUpdateResult, LibrarySkillUpdateService,
-    ProjectSkillImportInspection, ProjectSkillImportIntent, ProjectSkillImportResult,
-    ProjectSkillImportService, SkillDeploymentService, SkillsMigrationExecutionResult,
-    SkillsMigrationExecutionService, SkillsMigrationIntent, SkillsMigrationPreflight,
-    SkillsMigrationPreviewService, SkillsMigrationRestoreIntent, SkillsMigrationRevealIntent,
+    DeploymentRecoveryQuery, DeploymentRecoveryService, GlobalSkillImportInspection,
+    GlobalSkillImportIntent, GlobalSkillImportResult, GlobalSkillImportService,
+    LibrarySkillDeletionInspection, LibrarySkillDeletionIntent, LibrarySkillDeletionResult,
+    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateCheck, LibrarySkillUpdateResult,
+    LibrarySkillUpdateService, ProjectSkillImportInspection, ProjectSkillImportIntent,
+    ProjectSkillImportResult, ProjectSkillImportService, SkillDeploymentService,
+    SkillsMigrationExecutionResult, SkillsMigrationExecutionService,
+    SkillsMigrationFindingRevealIntent, SkillsMigrationIntent, SkillsMigrationPreflight,
+    SkillsMigrationPreviewService, SkillsMigrationReport, SkillsMigrationReportAckIntent,
+    SkillsMigrationRestoreIntent, SkillsMigrationRevealIntent,
 };
 #[cfg(target_os = "macos")]
 use crate::store::AppState;
@@ -83,6 +86,49 @@ pub fn inspectSkillsMigrationPreflight(
     SkillsMigrationPreviewService::new(app_state.db.clone())
         .inspect()
         .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn inspectLatestSkillsMigrationReport(
+    app_state: State<'_, AppState>,
+) -> Result<Option<SkillsMigrationReport>, String> {
+    SkillsMigrationExecutionService::new(app_state.db.clone())
+        .inspect_latest_report()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn acknowledgeSkillsMigrationReport(
+    runId: String,
+    app_state: State<'_, AppState>,
+) -> Result<SkillsMigrationReport, String> {
+    SkillsMigrationExecutionService::new(app_state.db.clone())
+        .acknowledge_report(SkillsMigrationReportAckIntent { run_id: runId })
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn revealSkillsMigrationFinding(
+    findingId: String,
+    app_state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<bool, String> {
+    let directory = SkillsMigrationExecutionService::new(app_state.db.clone())
+        .reveal_finding(SkillsMigrationFindingRevealIntent {
+            finding_id: findingId,
+            observation_token: None,
+        })
+        .map_err(|error| error.to_string())?;
+    app.opener()
+        .open_path(directory.to_string_lossy().to_string(), None::<String>)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
 }
 
 #[cfg(target_os = "macos")]
@@ -183,6 +229,29 @@ pub fn applyProjectSkillImport(
     app_state: State<'_, AppState>,
 ) -> Result<ProjectSkillImportResult, String> {
     ProjectSkillImportService::new(app_state.db.clone())
+        .apply(intent)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn inspectGlobalSkillImports(
+    app_state: State<'_, AppState>,
+) -> Result<GlobalSkillImportInspection, String> {
+    GlobalSkillImportService::new(app_state.db.clone())
+        .inspect()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn applyGlobalSkillImport(
+    intent: GlobalSkillImportIntent,
+    app_state: State<'_, AppState>,
+) -> Result<GlobalSkillImportResult, String> {
+    GlobalSkillImportService::new(app_state.db.clone())
         .apply(intent)
         .map_err(|error| error.to_string())
 }

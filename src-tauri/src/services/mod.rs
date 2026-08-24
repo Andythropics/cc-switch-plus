@@ -87,13 +87,15 @@ pub use skill_deployment::{
 };
 #[cfg(target_os = "macos")]
 pub use skill_import::{
-    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
-    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
-    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
-    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
-    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
-    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
-    ProjectSkillImportValidationStatus,
+    GlobalSkillImportFinding, GlobalSkillImportInspection, GlobalSkillImportIntent,
+    GlobalSkillImportMode, GlobalSkillImportOutcome, GlobalSkillImportResolution,
+    GlobalSkillImportResult, GlobalSkillImportService, ProjectSkillImportDirectoryCollision,
+    ProjectSkillImportDirectoryCollisionKind, ProjectSkillImportFinding,
+    ProjectSkillImportGitState, ProjectSkillImportInspection, ProjectSkillImportIntent,
+    ProjectSkillImportLibraryMatch, ProjectSkillImportMode, ProjectSkillImportOutcome,
+    ProjectSkillImportReplaceBlockReason, ProjectSkillImportReplaceEligibility,
+    ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
+    ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
 };
 #[cfg(target_os = "macos")]
 pub use skill_update::{
@@ -106,8 +108,10 @@ pub use skill_update::{
 #[cfg(target_os = "macos")]
 pub use skills_migration::{
     SkillsMigrationBackupReference, SkillsMigrationExecutionOutcome,
-    SkillsMigrationExecutionResult, SkillsMigrationExecutionService, SkillsMigrationIntent,
-    SkillsMigrationItemOutcome, SkillsMigrationItemResult, SkillsMigrationProgress,
+    SkillsMigrationExecutionResult, SkillsMigrationExecutionService, SkillsMigrationFinding,
+    SkillsMigrationFindingRevealIntent, SkillsMigrationIntent, SkillsMigrationItemOutcome,
+    SkillsMigrationItemResult, SkillsMigrationProgress, SkillsMigrationReport,
+    SkillsMigrationReportAckIntent, SkillsMigrationReportState, SkillsMigrationReportSummary,
     SkillsMigrationRestoreIntent,
 };
 #[cfg(target_os = "macos")]

@@ -38,10 +38,15 @@ pub fn reset_test_fs() {
         "profiles",
     ] {
         let path = home.join(sub);
-        if path.exists() {
-            if let Err(err) = std::fs::remove_dir_all(&path) {
-                eprintln!("failed to clean {}: {}", path.display(), err);
-            }
+        let cleanup = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => std::fs::remove_file(&path),
+            Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(&path),
+            Ok(_) => std::fs::remove_file(&path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => Err(error),
+        };
+        if let Err(err) = cleanup {
+            eprintln!("failed to clean {}: {}", path.display(), err);
         }
     }
     let claude_json = home.join(".claude.json");

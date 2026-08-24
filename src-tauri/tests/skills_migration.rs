@@ -2,12 +2,15 @@
 
 use std::fs;
 
+use rusqlite::Connection;
+
 use cc_switch_lib::{
     ActivityOperation, ActivityOutcome, ActivityQuery, ActivityReason, ActivityRecorder,
     DeploymentConsumer, DeploymentQuery, DeploymentStatus, DeploymentTarget, InstalledSkill,
     SkillApps, SkillDeploymentService, SkillsMigrationAction, SkillsMigrationExecutionOutcome,
-    SkillsMigrationExecutionService, SkillsMigrationIntent, SkillsMigrationPageMode,
-    SkillsMigrationPreviewService, SkillsMigrationRestoreIntent,
+    SkillsMigrationExecutionService, SkillsMigrationFindingRevealIntent, SkillsMigrationIntent,
+    SkillsMigrationItemOutcome, SkillsMigrationPageMode, SkillsMigrationPreviewService,
+    SkillsMigrationReportAckIntent, SkillsMigrationRestoreIntent,
 };
 
 #[path = "support.rs"]
@@ -620,7 +623,327 @@ fn unsupported_enabled_consumer_requires_consent_and_preserves_external_content(
         fs::read_to_string(hermes_file).expect("read preserved Hermes state"),
         "external Hermes state"
     );
+    assert!(completed.items.iter().any(|item| {
+        item.action == SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+            && item.outcome == SkillsMigrationItemOutcome::Preserved
+    }));
     assert!(state.db.get_all_installed_skills().unwrap().is_empty());
+
+    let service = SkillsMigrationExecutionService::new(state.db.clone());
+    let report = service
+        .inspect_latest_report()
+        .expect("inspect completed migration report")
+        .expect("completed migration report");
+    assert_eq!(
+        report.state,
+        cc_switch_lib::SkillsMigrationReportState::Completed
+    );
+    assert_eq!(report.summary.preserved, 1);
+    assert_eq!(report.summary.open, 0);
+    assert!(report.findings.iter().any(|finding| {
+        finding.disposition == cc_switch_lib::SkillsMigrationDisposition::PreserveWithConsent
+            && finding.action == Some(SkillsMigrationAction::PreserveUnsupportedConsumerFiles)
+            && finding.unsupported_consumers == vec!["gemini".to_string()]
+    }));
+    let finding_id = report.findings[0].finding_id.clone();
+    assert_eq!(
+        service
+            .reveal_finding(SkillsMigrationFindingRevealIntent {
+                finding_id: finding_id.clone(),
+                observation_token: Some(report.observation_token.clone()),
+            })
+            .expect("reveal persisted finding by opaque identity"),
+        source.parent().expect("source parent")
+    );
+    assert!(service
+        .reveal_finding(SkillsMigrationFindingRevealIntent {
+            finding_id: source.to_string_lossy().into_owned(),
+            observation_token: None,
+        })
+        .is_err());
+    assert!(service
+        .reveal_finding(SkillsMigrationFindingRevealIntent {
+            finding_id: "finding:missing-run:unknown".to_string(),
+            observation_token: None,
+        })
+        .is_err());
+    assert!(service
+        .reveal_finding(SkillsMigrationFindingRevealIntent {
+            finding_id,
+            observation_token: Some("stale-report-observation".to_string()),
+        })
+        .is_err());
+    assert_eq!(
+        SkillsMigrationPreviewService::new(state.db.clone())
+            .inspect()
+            .expect("inspect after report query")
+            .page_mode,
+        cc_switch_lib::SkillsMigrationPageMode::Writable
+    );
+}
+
+#[test]
+fn completed_legacy_preserve_journal_is_backfilled_idempotently() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    let mut legacy = installed_skill("review", false, false);
+    legacy.apps.hermes = true;
+    state.db.save_skill(&legacy).expect("seed legacy Skill row");
+    write_skill(&home.join(".cc-switch/skills/review"), "review");
+    let preview = SkillsMigrationPreviewService::new(state.db.clone())
+        .inspect()
+        .expect("inspect migration");
+    let completed = SkillsMigrationExecutionService::new(state.db.clone())
+        .start(SkillsMigrationIntent {
+            observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: true,
+        })
+        .expect("complete migration with consent");
+    assert_eq!(
+        completed.outcome,
+        SkillsMigrationExecutionOutcome::Completed
+    );
+    let service = SkillsMigrationExecutionService::new(state.db.clone());
+    let run_id = completed
+        .backup
+        .as_ref()
+        .expect("verified run backup")
+        .backup_id
+        .clone();
+    let before = service
+        .inspect_latest_report()
+        .expect("inspect report before legacy rewrite")
+        .expect("report before legacy rewrite");
+    assert_eq!(before.summary.preserved, 1);
+    assert_eq!(before.findings.len(), 1);
+
+    let database_path = home.join(".cc-switch/cc-switch.db");
+    drop(service);
+    drop(state);
+    let connection = Connection::open(&database_path).expect("open migration database");
+    connection
+        .execute(
+            "DELETE FROM skills_migration_findings WHERE run_id = ?1",
+            [&run_id],
+        )
+        .expect("remove report findings to emulate an older journal");
+    connection
+        .execute(
+            "UPDATE skills_migration_runs
+             SET accepted_preflight_snapshot_version = NULL,
+                 accepted_preflight_snapshot = NULL
+             WHERE id = ?1",
+            [&run_id],
+        )
+        .expect("remove report snapshot to emulate an older journal");
+    drop(connection);
+
+    let state = create_test_state().expect("reopen migration state");
+    let service = SkillsMigrationExecutionService::new(state.db.clone());
+    let after = service
+        .inspect_latest_report()
+        .expect("backfill legacy migration report")
+        .expect("backfilled report");
+    assert_eq!(after.summary, before.summary);
+    let mut expected_findings = before.findings.clone();
+    expected_findings[0].origin = "legacy_backfill".to_string();
+    assert_eq!(after.findings, expected_findings);
+    assert_eq!(
+        after.findings[0].unsupported_consumers,
+        vec!["hermes".to_string()]
+    );
+    assert!(after.findings[0].detail_complete);
+
+    let repeated = service
+        .inspect_latest_report()
+        .expect("repeat backfill report query")
+        .expect("repeat backfilled report");
+    assert_eq!(repeated.findings, after.findings);
+    assert_eq!(repeated.summary, after.summary);
+}
+
+#[test]
+fn incomplete_legacy_evidence_stays_visible_and_repairs_when_verified_backup_returns() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    let mut legacy = installed_skill("review", false, false);
+    legacy.apps.hermes = true;
+    state.db.save_skill(&legacy).expect("seed legacy Skill row");
+    let source = home.join(".cc-switch/skills/review");
+    write_skill(&source, "review");
+    let hermes_file = home.join(".hermes/skills/review/keep.txt");
+    fs::create_dir_all(hermes_file.parent().unwrap()).expect("create Hermes Skill directory");
+    fs::write(&hermes_file, "user-owned Hermes state").expect("write Hermes state");
+    let preview = SkillsMigrationPreviewService::new(state.db.clone())
+        .inspect()
+        .expect("inspect migration");
+    let completed = SkillsMigrationExecutionService::new(state.db.clone())
+        .start(SkillsMigrationIntent {
+            observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: true,
+        })
+        .expect("complete migration with consent");
+    let run_id = completed
+        .backup
+        .expect("verified migration backup")
+        .backup_id;
+    let backup_root = home
+        .join(".cc-switch/skills-migration-backups")
+        .join(&run_id);
+    let marker_path = backup_root.join("backup-verified");
+    let marker_bytes = fs::read(&marker_path).expect("read verified marker");
+    let backup_database_path = backup_root.join("database.db");
+    let backup_database_bytes =
+        fs::read(&backup_database_path).expect("read migration database backup");
+    let source_bytes = fs::read(source.join("SKILL.md")).expect("read Library source");
+    let hermes_bytes = fs::read(&hermes_file).expect("read Hermes state");
+
+    let database_path = home.join(".cc-switch/cc-switch.db");
+    drop(state);
+    let connection = Connection::open(&database_path).expect("open migration database");
+    connection
+        .execute(
+            "DELETE FROM skills_migration_findings WHERE run_id = ?1",
+            [&run_id],
+        )
+        .expect("remove findings to emulate a legacy journal");
+    connection
+        .execute(
+            "UPDATE skills_migration_runs
+             SET accepted_preflight_snapshot_version = NULL,
+                 accepted_preflight_snapshot = NULL
+             WHERE id = ?1",
+            [&run_id],
+        )
+        .expect("remove snapshot to emulate a legacy journal");
+    drop(connection);
+    fs::remove_file(&marker_path).expect("make backup evidence temporarily unavailable");
+
+    let state = create_test_state().expect("reopen migration state");
+    let service = SkillsMigrationExecutionService::new(state.db.clone());
+    let incomplete = service
+        .inspect_latest_report()
+        .expect("inspect incomplete legacy report")
+        .expect("incomplete legacy report");
+    assert_eq!(incomplete.summary.preserved, 1);
+    assert_eq!(incomplete.summary.open, 1);
+    assert_eq!(incomplete.findings.len(), 1);
+    assert_eq!(incomplete.findings[0].status, "incomplete");
+    assert_eq!(incomplete.findings[0].origin, "legacy_backfill");
+    assert!(!incomplete.findings[0].detail_complete);
+    assert!(incomplete.findings[0].unsupported_consumers.is_empty());
+    assert!(
+        !incomplete
+            .backup
+            .as_ref()
+            .expect("backup reference")
+            .restore_available
+    );
+    assert_eq!(
+        service
+            .inspect_latest_report()
+            .expect("repeat incomplete report query")
+            .expect("repeated incomplete report"),
+        incomplete
+    );
+    assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), source_bytes);
+    assert_eq!(fs::read(&hermes_file).unwrap(), hermes_bytes);
+    assert_eq!(
+        fs::read(&backup_database_path).unwrap(),
+        backup_database_bytes
+    );
+    assert!(!marker_path.exists());
+
+    fs::write(&marker_path, marker_bytes).expect("restore verified marker");
+    let repaired = service
+        .inspect_latest_report()
+        .expect("repair legacy evidence")
+        .expect("repaired legacy report");
+    assert_eq!(repaired.summary.preserved, 1);
+    assert_eq!(repaired.summary.open, 0);
+    assert_eq!(repaired.findings[0].status, "preserved");
+    assert_eq!(repaired.findings[0].origin, "legacy_backfill");
+    assert!(repaired.findings[0].detail_complete);
+    assert_eq!(
+        repaired.findings[0].unsupported_consumers,
+        vec!["hermes".to_string()]
+    );
+    assert!(
+        repaired
+            .backup
+            .as_ref()
+            .expect("repaired backup")
+            .restore_available
+    );
+    assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), source_bytes);
+    assert_eq!(fs::read(&hermes_file).unwrap(), hermes_bytes);
+    assert_eq!(
+        fs::read(&backup_database_path).unwrap(),
+        backup_database_bytes
+    );
+}
+
+#[test]
+fn restore_retains_acknowledged_report_and_preserves_unsupported_consumer_content() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    let mut legacy = installed_skill("review", false, false);
+    legacy.apps.hermes = true;
+    state.db.save_skill(&legacy).expect("seed legacy Skill row");
+    write_skill(&home.join(".cc-switch/skills/review"), "review");
+    let hermes_file = home.join(".hermes/skills/review/keep.txt");
+    fs::create_dir_all(hermes_file.parent().unwrap()).expect("create Hermes Skill directory");
+    fs::write(&hermes_file, "preserve through restore").expect("write Hermes state");
+    let hermes_before = fs::read(&hermes_file).expect("read Hermes state");
+    let preview = SkillsMigrationPreviewService::new(state.db.clone())
+        .inspect()
+        .expect("inspect migration");
+    let completed = SkillsMigrationExecutionService::new(state.db.clone())
+        .start(SkillsMigrationIntent {
+            observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: true,
+        })
+        .expect("complete migration");
+    let backup_id = completed
+        .backup
+        .expect("verified migration backup")
+        .backup_id;
+    let service = SkillsMigrationExecutionService::new(state.db.clone());
+    let report = service
+        .inspect_latest_report()
+        .expect("inspect completed report")
+        .expect("completed report");
+    let acknowledged = service
+        .acknowledge_report(SkillsMigrationReportAckIntent {
+            run_id: report.run_id.clone(),
+        })
+        .expect("acknowledge report");
+    let acknowledged_at = acknowledged
+        .acknowledged_at
+        .expect("acknowledgement timestamp");
+    let findings_before = acknowledged.findings.clone();
+
+    let restored = service
+        .restore(SkillsMigrationRestoreIntent { backup_id })
+        .expect("restore verified backup");
+    assert_eq!(restored.outcome, SkillsMigrationExecutionOutcome::Restored);
+    let restored_report = service
+        .inspect_latest_report()
+        .expect("inspect restored report")
+        .expect("restored report");
+    assert_eq!(
+        restored_report.state,
+        cc_switch_lib::SkillsMigrationReportState::Restored
+    );
+    assert_eq!(restored_report.acknowledged_at, Some(acknowledged_at));
+    assert_eq!(restored_report.findings, findings_before);
+    assert_eq!(fs::read(&hermes_file).unwrap(), hermes_before);
 }
 
 #[test]
@@ -758,6 +1081,15 @@ fn backup_restore_recovers_exact_legacy_database_and_managed_content() {
         "post migration user change",
     )
     .unwrap();
+
+    let wrong_backup = SkillsMigrationExecutionService::new(state.db.clone()).restore(
+        SkillsMigrationRestoreIntent {
+            backup_id: "another-run-backup".to_string(),
+        },
+    );
+    assert!(wrong_backup.is_err());
+    assert_eq!(state.db.list_library_skills().unwrap().len(), 1);
+    assert_eq!(state.db.get_all_installed_skills().unwrap().len(), 0);
 
     let restored = SkillsMigrationExecutionService::new(state.db.clone())
         .restore(SkillsMigrationRestoreIntent { backup_id })

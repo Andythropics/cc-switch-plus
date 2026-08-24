@@ -27,12 +27,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  useAcknowledgeSkillsMigrationReport,
   useApplySkillsMigration,
   useRestoreSkillsMigrationBackup,
+  useRevealSkillsMigrationFinding,
   useRevealSkillsMigrationPlanItem,
   useResumeSkillsMigration,
+  useSkillsMigrationReport,
   useSkillsMigrationPreflight,
 } from "@/hooks/useSkills";
+import { SkillsMigrationReportBanner } from "@/components/skills/SkillsMigrationReport";
 import type {
   SkillsMigrationExecutionResult,
   SkillsMigrationInventoryItem,
@@ -43,8 +47,18 @@ import type {
 interface SkillsMigrationGateProps extends PropsWithChildren {
   deferredToken?: string | null;
   enabled: boolean;
-  onDefer?: (observationToken: string) => void;
+  onDefer?: (observationToken: string | null) => void;
   onReadOnlyChange?: (readOnly: boolean) => void;
+}
+
+const blockingExecutionOutcomes: ReadonlySet<
+  SkillsMigrationExecutionResult["outcome"]
+> = new Set(["stale_observation", "resumable", "blocked", "recovery_required"]);
+
+function executionBlocksSkills(
+  execution?: SkillsMigrationExecutionResult | null,
+) {
+  return Boolean(execution && blockingExecutionOutcomes.has(execution.outcome));
 }
 
 export function SkillsMigrationGate({
@@ -56,9 +70,12 @@ export function SkillsMigrationGate({
 }: SkillsMigrationGateProps) {
   const { t } = useTranslation();
   const preflight = useSkillsMigrationPreflight({ enabled });
+  const reportQuery = useSkillsMigrationReport({ enabled });
   const applyMigration = useApplySkillsMigration();
+  const acknowledgeReport = useAcknowledgeSkillsMigrationReport();
   const resumeMigration = useResumeSkillsMigration();
   const restoreMigration = useRestoreSkillsMigrationBackup();
+  const revealFinding = useRevealSkillsMigrationFinding();
   const revealMigrationPlanItem = useRevealSkillsMigrationPlanItem();
   const [drift, setDrift] = useState<"unchanged" | "changed" | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -69,13 +86,20 @@ export function SkillsMigrationGate({
   const [transientExecution, setTransientExecution] =
     useState<SkillsMigrationExecutionResult | null>(null);
   const observedToken = useRef<string | null>(null);
+  const effectiveExecution = preflight.data?.execution ?? transientExecution;
+  const deferred = Boolean(
+    preflight.data &&
+      deferredToken &&
+      deferredToken === preflight.data.observationToken,
+  );
   const writable =
     !enabled ||
     (!preflight.isFetching &&
       !preflight.isError &&
       preflight.data?.status === "not_required" &&
       preflight.data.pageMode === "writable" &&
-      !preflight.data.execution);
+      !deferred &&
+      !executionBlocksSkills(effectiveExecution));
 
   useLayoutEffect(() => {
     onReadOnlyChange?.(!writable);
@@ -94,7 +118,7 @@ export function SkillsMigrationGate({
     observedToken.current = nextToken;
   }, [preflight.data?.observationToken]);
 
-  if (writable) {
+  if (!enabled) {
     return children;
   }
 
@@ -127,8 +151,12 @@ export function SkillsMigrationGate({
   }
 
   const { inventory, plan, backup, status } = preflight.data;
-  const execution = preflight.data.execution ?? transientExecution;
-  const deferred = deferredToken === preflight.data.observationToken;
+  const execution = effectiveExecution;
+  const report = reportQuery.data ?? null;
+  const displayStatus =
+    status === "not_required" && executionBlocksSkills(execution)
+      ? "blocked"
+      : status;
   const pendingOperation = applyMigration.isPending
     ? "applying"
     : resumeMigration.isPending
@@ -175,9 +203,78 @@ export function SkillsMigrationGate({
       // The mutation exposes its typed error while onSettled refreshes state.
     }
   };
+  const acknowledgeMigrationReport = () => {
+    if (!report?.runId || acknowledgeReport.isPending) return;
+    void acknowledgeReport.mutateAsync(report.runId).catch(() => undefined);
+  };
+  const revealMigrationFinding = (findingId: string) => {
+    if (!findingId || revealFinding.isPending) return;
+    void revealFinding.mutateAsync(findingId).catch(() => undefined);
+  };
+
+  if (writable) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {report && (
+          <SkillsMigrationReportBanner
+            report={report}
+            acknowledgePending={acknowledgeReport.isPending}
+            acknowledgeError={acknowledgeReport.error}
+            onAcknowledge={acknowledgeMigrationReport}
+            onReveal={revealMigrationFinding}
+            revealPending={revealFinding.isPending}
+            revealError={revealFinding.error}
+            onRestore={
+              report.backup?.restoreAvailable
+                ? () => void restorePersistedBackup(report.backup!.backupId)
+                : undefined
+            }
+            restorePending={restoreMigration.isPending}
+            restoreError={restoreMigration.error}
+          />
+        )}
+        <div className="min-h-0 flex-1">{children}</div>
+      </div>
+    );
+  }
+
+  if (
+    deferred &&
+    status === "decision_needed" &&
+    !executionBlocksSkills(execution)
+  ) {
+    return (
+      <div
+        className="flex h-full min-h-0 flex-col"
+        aria-readonly="true"
+        data-skills-migration-readonly="true"
+      >
+        <div className="mx-5 mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <ArchiveRestore className="h-5 w-5 shrink-0 text-amber-600" />
+            <p className="min-w-0 flex-1 text-sm">
+              {t("skills.migration.deferredDescription")}
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onDefer?.(null)}
+            >
+              {t("skills.migration.continueReview")}
+            </Button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1">{children}</div>
+      </div>
+    );
+  }
+
   const executionOwnsActions = Boolean(execution);
   const requiresUnsupportedConsumerConsent = plan.some(
-    (item) => item.action === "preserve_unsupported_consumer_files",
+    (item) => item.disposition === "preserve_with_consent",
+  );
+  const hasUserResolve = plan.some(
+    (item) => item.disposition === "user_resolve",
   );
   const restorableBackup = execution?.backup?.restoreAvailable
     ? execution.backup
@@ -194,6 +291,7 @@ export function SkillsMigrationGate({
   const canApply =
     status === "decision_needed" &&
     backup.ready &&
+    !hasUserResolve &&
     !deferred &&
     !executionOwnsActions;
 
@@ -212,7 +310,7 @@ export function SkillsMigrationGate({
               </p>
             </div>
             <Badge variant="secondary">
-              {t(`skills.migration.status.${status}`)}
+              {t(`skills.migration.status.${displayStatus}`)}
             </Badge>
           </div>
 
@@ -587,12 +685,19 @@ function PlanRow({
   revealPending: boolean;
 }) {
   const { t } = useTranslation();
+  const isUserResolve = item.disposition === "user_resolve";
+  const isConsent = item.disposition === "preserve_with_consent";
   return (
     <div className="rounded-lg border p-3" data-testid="migration-plan-item">
       <div className="flex flex-wrap items-center gap-2">
         <Badge
           variant={
-            item.disposition === "user_resolve" ? "destructive" : "outline"
+            isUserResolve ? "destructive" : isConsent ? "secondary" : "outline"
+          }
+          className={
+            isConsent
+              ? "border-amber-500/40 text-amber-800 dark:text-amber-200"
+              : undefined
           }
         >
           {t(`skills.migration.disposition.${item.disposition}`)}
@@ -607,7 +712,7 @@ function PlanRow({
       <p className="mt-1 text-xs text-muted-foreground">
         {t(`skills.migration.reason.${item.reason}`)}
       </p>
-      {item.disposition === "user_resolve" && (
+      {(isUserResolve || isConsent) && (
         <p className="mt-2 text-sm">
           {t(`skills.migration.guidance.${item.reason}`)}
         </p>

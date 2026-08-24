@@ -77,27 +77,32 @@ pub use services::{
     ActivityRecord, ActivityRecorder, ActivityTarget, ActivityTrigger,
     DeploymentRecoveryDisposition, DeploymentRecoveryFinding, DeploymentRecoveryInspectionResult,
     DeploymentRecoveryQuery, DeploymentRecoveryReason, DeploymentRecoveryService,
-    LibrarySkillDeletionAction, LibrarySkillDeletionInspection, LibrarySkillDeletionIntent,
-    LibrarySkillDeletionOutcome, LibrarySkillDeletionResult, LibrarySkillDeletionTarget,
-    LibrarySkillUpdateApplyIntent, LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck,
-    LibrarySkillUpdateCheckOutcome, LibrarySkillUpdateReason, LibrarySkillUpdateResult,
-    LibrarySkillUpdateService, ProjectSkillImportDirectoryCollision,
-    ProjectSkillImportDirectoryCollisionKind, ProjectSkillImportFinding,
-    ProjectSkillImportGitState, ProjectSkillImportInspection, ProjectSkillImportIntent,
-    ProjectSkillImportLibraryMatch, ProjectSkillImportMode, ProjectSkillImportOutcome,
-    ProjectSkillImportReplaceBlockReason, ProjectSkillImportReplaceEligibility,
-    ProjectSkillImportResolution, ProjectSkillImportResult, ProjectSkillImportScope,
-    ProjectSkillImportService, ProjectSkillImportValidation, ProjectSkillImportValidationStatus,
-    ProjectWorkspace, ProjectWorkspaceService, SkillsMigrationAction, SkillsMigrationBackupPlan,
-    SkillsMigrationBackupReference, SkillsMigrationDisposition, SkillsMigrationExecutionOutcome,
-    SkillsMigrationExecutionResult, SkillsMigrationExecutionService, SkillsMigrationIntent,
-    SkillsMigrationInventoryItem, SkillsMigrationInventoryKind, SkillsMigrationInventoryState,
-    SkillsMigrationItemOutcome, SkillsMigrationItemResult, SkillsMigrationPageMode,
-    SkillsMigrationPlanItem, SkillsMigrationPreflight, SkillsMigrationPreviewService,
-    SkillsMigrationProgress, SkillsMigrationReason, SkillsMigrationRestoreIntent,
-    SkillsMigrationRevealIntent, SkillsMigrationStatus, UpdateDeploymentImpact, WorkspaceLifecycle,
-    WorkspaceRegistration, WorkspaceRegistrationScan, WorkspaceRelocation,
-    WorkspaceRelocationOutcome, WorkspaceRootKind, WorkspaceScopeKind, WorkspaceSkillScope,
+    GlobalSkillImportFinding, GlobalSkillImportInspection, GlobalSkillImportIntent,
+    GlobalSkillImportMode, GlobalSkillImportOutcome, GlobalSkillImportResolution,
+    GlobalSkillImportResult, GlobalSkillImportService, LibrarySkillDeletionAction,
+    LibrarySkillDeletionInspection, LibrarySkillDeletionIntent, LibrarySkillDeletionOutcome,
+    LibrarySkillDeletionResult, LibrarySkillDeletionTarget, LibrarySkillUpdateApplyIntent,
+    LibrarySkillUpdateApplyOutcome, LibrarySkillUpdateCheck, LibrarySkillUpdateCheckOutcome,
+    LibrarySkillUpdateReason, LibrarySkillUpdateResult, LibrarySkillUpdateService,
+    ProjectSkillImportDirectoryCollision, ProjectSkillImportDirectoryCollisionKind,
+    ProjectSkillImportFinding, ProjectSkillImportGitState, ProjectSkillImportInspection,
+    ProjectSkillImportIntent, ProjectSkillImportLibraryMatch, ProjectSkillImportMode,
+    ProjectSkillImportOutcome, ProjectSkillImportReplaceBlockReason,
+    ProjectSkillImportReplaceEligibility, ProjectSkillImportResolution, ProjectSkillImportResult,
+    ProjectSkillImportScope, ProjectSkillImportService, ProjectSkillImportValidation,
+    ProjectSkillImportValidationStatus, ProjectWorkspace, ProjectWorkspaceService,
+    SkillsMigrationAction, SkillsMigrationBackupPlan, SkillsMigrationBackupReference,
+    SkillsMigrationDisposition, SkillsMigrationExecutionOutcome, SkillsMigrationExecutionResult,
+    SkillsMigrationExecutionService, SkillsMigrationFinding, SkillsMigrationFindingRevealIntent,
+    SkillsMigrationIntent, SkillsMigrationInventoryItem, SkillsMigrationInventoryKind,
+    SkillsMigrationInventoryState, SkillsMigrationItemOutcome, SkillsMigrationItemResult,
+    SkillsMigrationPageMode, SkillsMigrationPlanItem, SkillsMigrationPreflight,
+    SkillsMigrationPreviewService, SkillsMigrationProgress, SkillsMigrationReason,
+    SkillsMigrationReport, SkillsMigrationReportAckIntent, SkillsMigrationReportState,
+    SkillsMigrationReportSummary, SkillsMigrationRestoreIntent, SkillsMigrationRevealIntent,
+    SkillsMigrationStatus, UpdateDeploymentImpact, WorkspaceLifecycle, WorkspaceRegistration,
+    WorkspaceRegistrationScan, WorkspaceRelocation, WorkspaceRelocationOutcome, WorkspaceRootKind,
+    WorkspaceScopeKind, WorkspaceSkillScope,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1481,7 +1486,13 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             commands::inspectSkillsMigrationPreflight,
             #[cfg(target_os = "macos")]
+            commands::inspectLatestSkillsMigrationReport,
+            #[cfg(target_os = "macos")]
+            commands::acknowledgeSkillsMigrationReport,
+            #[cfg(target_os = "macos")]
             commands::revealSkillsMigrationPlanItem,
+            #[cfg(target_os = "macos")]
+            commands::revealSkillsMigrationFinding,
             #[cfg(target_os = "macos")]
             commands::inspectSkillDeployments,
             #[cfg(target_os = "macos")]
@@ -1490,6 +1501,10 @@ pub fn run() {
             commands::inspectProjectSkillImports,
             #[cfg(target_os = "macos")]
             commands::applyProjectSkillImport,
+            #[cfg(target_os = "macos")]
+            commands::inspectGlobalSkillImports,
+            #[cfg(target_os = "macos")]
+            commands::applyGlobalSkillImport,
             #[cfg(target_os = "macos")]
             commands::checkLibrarySkillUpdate,
             #[cfg(target_os = "macos")]

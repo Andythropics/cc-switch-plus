@@ -582,6 +582,14 @@ impl Database {
                         Self::migrate_v23_to_v24(conn)?;
                         Self::set_user_version(conn, 24)?;
                     }
+                    #[cfg(target_os = "macos")]
+                    24 => {
+                        log::info!(
+                            "迁移数据库从 v24 到 v25（添加 Skills migration report 与 findings）"
+                        );
+                        Self::migrate_v24_to_v25(conn)?;
+                        Self::set_user_version(conn, 25)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1551,13 +1559,28 @@ impl Database {
                 plan_hash TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                completed_at INTEGER
+                completed_at INTEGER,
+                accepted_preflight_snapshot_version INTEGER,
+                accepted_preflight_snapshot TEXT,
+                report_seen_at INTEGER,
+                report_acknowledged_at INTEGER
             )",
             [],
         )
         .map_err(|error| {
             AppError::Database(format!("创建 skills_migration_runs 表失败: {error}"))
         })?;
+
+        // The journal predates the durable report.  Keep these columns nullable
+        // so existing runs remain readable and can be backfilled lazily.
+        for (column, definition) in [
+            ("accepted_preflight_snapshot_version", "INTEGER"),
+            ("accepted_preflight_snapshot", "TEXT"),
+            ("report_seen_at", "INTEGER"),
+            ("report_acknowledged_at", "INTEGER"),
+        ] {
+            Self::add_column_if_missing(conn, "skills_migration_runs", column, definition)?;
+        }
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS skills_migration_items (
@@ -1603,6 +1626,42 @@ impl Database {
         )
         .map_err(|error| {
             AppError::Database(format!("创建 skills_migration_items 状态索引失败: {error}"))
+        })?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skills_migration_findings (
+                run_id TEXT NOT NULL,
+                finding_key TEXT NOT NULL,
+                disposition TEXT NOT NULL,
+                action TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                directory TEXT,
+                consumer TEXT,
+                source_location TEXT,
+                target_location TEXT,
+                observed_location TEXT,
+                consumer_codes TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'open',
+                detail_code TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(run_id, finding_key),
+                FOREIGN KEY(run_id) REFERENCES skills_migration_runs(id) ON DELETE CASCADE
+            )",
+            [],
+        )
+        .map_err(|error| {
+            AppError::Database(format!("创建 skills_migration_findings 表失败: {error}"))
+        })?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skills_migration_findings_run_status
+             ON skills_migration_findings(run_id, status, finding_key)",
+            [],
+        )
+        .map_err(|error| {
+            AppError::Database(format!(
+                "创建 skills_migration_findings 状态索引失败: {error}"
+            ))
         })?;
         Ok(())
     }
@@ -1685,6 +1744,13 @@ impl Database {
         .map_err(|error| AppError::Database(format!("重建 skill_deployments 表失败: {error}")))?;
 
         log::info!("v23 -> v24 迁移完成：Deployment intent 可保留为可检查的 orphan 状态");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
+        Self::create_skills_migration_journal_tables(conn)?;
+        log::info!("v24 -> v25 迁移完成：已添加 Skills migration report 与 findings");
         Ok(())
     }
 
@@ -4216,6 +4282,77 @@ mod tests {
             |row| row.get(0),
         )?;
         assert!(!definition.to_ascii_uppercase().contains("FOREIGN KEY"));
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrate_v24_to_v25_adds_skills_migration_report_storage_idempotently() -> Result<(), AppError>
+    {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+
+        // Recreate the v24 shape so this test exercises the compatibility
+        // path rather than only the current-table creation path.
+        conn.execute("DROP TABLE skills_migration_findings", [])?;
+        conn.execute("DROP TABLE skills_migration_runs", [])?;
+        conn.execute(
+            "CREATE TABLE skills_migration_runs (
+                id TEXT PRIMARY KEY,
+                accepted_observation_token TEXT NOT NULL UNIQUE,
+                resume_token TEXT NOT NULL UNIQUE,
+                state TEXT NOT NULL,
+                database_backup_filename TEXT,
+                content_backup_root TEXT,
+                plan_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                completed_at INTEGER
+            )",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO skills_migration_runs (
+                id, accepted_observation_token, resume_token, state,
+                plan_hash, created_at, updated_at
+             ) VALUES ('report-run', 'observation', 'resume', 'completed', 'plan', 1, 2)",
+            [],
+        )?;
+        Database::set_user_version(&conn, 24)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        for column in [
+            "accepted_preflight_snapshot_version",
+            "accepted_preflight_snapshot",
+            "report_seen_at",
+            "report_acknowledged_at",
+        ] {
+            assert!(Database::has_column(
+                &conn,
+                "skills_migration_runs",
+                column
+            )?);
+        }
+        assert!(Database::table_exists(&conn, "skills_migration_findings")?);
+        assert!(Database::has_column(
+            &conn,
+            "skills_migration_findings",
+            "consumer_codes"
+        )?);
+
+        // A second startup must preserve both the run and the report schema.
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM skills_migration_runs WHERE id = 'report-run'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            1
+        );
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
         Ok(())
     }
 }

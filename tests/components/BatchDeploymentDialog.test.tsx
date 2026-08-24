@@ -22,6 +22,36 @@ const makeSkill = (id: string, directory: string): LibrarySkill => ({
 });
 
 describe("BatchDeploymentDialog", () => {
+  it("renders above the fixed application header while keeping the list independently scrollable", () => {
+    render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={vi.fn()}
+        skills={Array.from({ length: 12 }, (_, index) =>
+          makeSkill(`skill-${index}`, `skill-${index}`),
+        )}
+        onApply={vi.fn().mockResolvedValue({ items: [] })}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const overlay = document.querySelector('[data-state="open"].fixed.inset-0');
+    const selection = screen.getByTestId("batch-skill-selection");
+    const scrollRegion = selection.parentElement;
+    const footer = screen.getByTestId("batch-apply").parentElement;
+
+    expect(dialog).toHaveClass("z-[60]", "max-h-[90vh]");
+    expect(overlay).toHaveClass("z-[60]");
+    expect(scrollRegion).toHaveClass("min-h-0", "overflow-auto");
+    expect(footer).toHaveClass("flex-shrink-0");
+    expect(scrollRegion).not.toContainElement(
+      screen.getByRole("heading", { name: "skills.batch.title" }),
+    );
+    expect(scrollRegion).not.toContainElement(
+      screen.getByTestId("batch-apply"),
+    );
+  });
+
   it("emits deterministic skill x consumer intents for a global deploy", async () => {
     const onApply = vi.fn().mockResolvedValue({
       items: [

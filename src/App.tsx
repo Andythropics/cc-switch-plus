@@ -19,10 +19,7 @@ import {
   BarChart2,
   Download,
   FolderArchive,
-  Search,
   FolderOpen,
-  Globe2,
-  Library,
   KeyRound,
   Shield,
   Cpu,
@@ -87,6 +84,12 @@ import { ProjectWorkspacesPanel } from "@/components/skills/ProjectWorkspacesPan
 import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
 import { SkillsActivityPanel } from "@/components/skills/SkillsActivityPanel";
 import { SkillsMigrationGate } from "@/components/skills/SkillsMigrationGate";
+import { SkillsAccessBoundary } from "@/components/skills/SkillsAccessContext";
+import {
+  isSkillsView,
+  SkillsShell,
+  type SkillsView,
+} from "@/components/skills/SkillsShell";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
@@ -297,6 +300,7 @@ function App() {
 
   const promptPanelRef = useRef<any>(null);
   const mcpPanelRef = useRef<any>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
   const skillsPageRef = useRef<SkillsPageHandle>(null);
   const librarySkillsPanelRef = useRef<LibrarySkillsPanelHandle>(null);
   const addActionButtonClass =
@@ -611,6 +615,24 @@ function App() {
 
   useEffect(() => {
     currentViewRef.current = currentView;
+  }, [currentView]);
+
+  useEffect(() => {
+    if (!isSkillsView(currentView)) return;
+
+    const main = mainContentRef.current;
+    if (!main) return;
+
+    if (typeof main.scrollTo === "function") {
+      main.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: "auto",
+      });
+    } else {
+      main.scrollTop = 0;
+      main.scrollLeft = 0;
+    }
   }, [currentView]);
 
   useEffect(() => {
@@ -929,6 +951,26 @@ function App() {
   };
   const handleOpenSkillsActivity = () => setCurrentView("skillsActivity");
 
+  const handleSkillsViewChange = (view: SkillsView) => {
+    switch (view) {
+      case "skills":
+        handleOpenSkillsLibrary();
+        return;
+      case "skillsDiscovery":
+        handleOpenSkillsDiscovery();
+        return;
+      case "skillsProjects":
+        handleOpenSkillsProjects();
+        return;
+      case "skillsGlobal":
+        handleOpenSkillsGlobal();
+        return;
+      case "skillsActivity":
+        handleOpenSkillsActivity();
+        return;
+    }
+  };
+
   const renderContent = () => {
     const content = (() => {
       switch (currentView) {
@@ -1113,15 +1155,7 @@ function App() {
       }
     })();
 
-    const skillsMigrationEnabled =
-      isMac() &&
-      [
-        "skills",
-        "skillsDiscovery",
-        "skillsProjects",
-        "skillsGlobal",
-        "skillsActivity",
-      ].includes(currentView);
+    const skillsMigrationEnabled = isMac() && isSkillsView(currentView);
     const animatedContent = (
       <AnimatePresence mode="wait">
         <motion.div
@@ -1137,17 +1171,32 @@ function App() {
       </AnimatePresence>
     );
 
-    return skillsMigrationEnabled ? (
+    const guardedContent = skillsMigrationEnabled ? (
       <SkillsMigrationGate
         deferredToken={skillsMigrationDeferredToken}
         enabled
         onDefer={setSkillsMigrationDeferredToken}
         onReadOnlyChange={setSkillsMigrationReadOnly}
       >
-        {animatedContent}
+        <SkillsAccessBoundary className="h-full min-h-0">
+          {animatedContent}
+        </SkillsAccessBoundary>
       </SkillsMigrationGate>
     ) : (
       animatedContent
+    );
+
+    return skillsMigrationEnabled && isSkillsView(currentView) ? (
+      <SkillsShell
+        view={currentView}
+        onViewChange={handleSkillsViewChange}
+        readOnly={skillsMigrationReadOnly}
+        navigationDisabled={skillsNavigationBusy}
+      >
+        {guardedContent}
+      </SkillsShell>
+    ) : (
+      guardedContent
     );
   };
 
@@ -1459,46 +1508,6 @@ function App() {
                         {t("skills.library.acquireZip")}
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={() => handleOpenSkillsProjects()}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <FolderOpen className="w-4 h-4 mr-2" />
-                      {t("skills.projects.title")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={handleOpenSkillsGlobal}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <Globe2 className="w-4 h-4 mr-2" />
-                      {t("skills.global.title")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={handleOpenSkillsDiscovery}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <Search className="w-4 h-4 mr-2" />
-                      {t("skills.discover")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={handleOpenSkillsActivity}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <History className="w-4 h-4 mr-2" />
-                      {t("skills.activity.title")}
-                    </Button>
                   </>
                 )}
                 {currentView === "skillsDiscovery" &&
@@ -1521,52 +1530,6 @@ function App() {
                       )}
                     </>
                   )}
-                {currentView === "skillsGlobal" && isMac() && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={() => handleOpenSkillsLibrary()}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <Library className="w-4 h-4 mr-2" />
-                      {t("skills.global.library")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={() => handleOpenSkillsProjects()}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <FolderOpen className="w-4 h-4 mr-2" />
-                      {t("skills.global.projects")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={skillsManagementBusy}
-                      onClick={handleOpenSkillsActivity}
-                      className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                    >
-                      <History className="w-4 h-4 mr-2" />
-                      {t("skills.activity.title")}
-                    </Button>
-                  </>
-                )}
-                {currentView === "skillsProjects" && isMac() && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={skillsManagementBusy}
-                    onClick={handleOpenSkillsActivity}
-                    className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
-                  >
-                    <History className="w-4 h-4 mr-2" />
-                    {t("skills.activity.title")}
-                  </Button>
-                )}
                 {currentView === "providers" && (
                   <>
                     <div className="flex items-center gap-1 p-1 bg-muted rounded-xl">
@@ -1748,7 +1711,13 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 flex flex-col overflow-y-auto animate-fade-in">
+      <main
+        ref={mainContentRef}
+        className={cn(
+          "flex-1 min-h-0 flex flex-col animate-fade-in",
+          isSkillsView(currentView) ? "overflow-hidden" : "overflow-y-auto",
+        )}
+      >
         {isOpenClawView && openclawHealthWarnings.length > 0 && (
           <OpenClawHealthBanner warnings={openclawHealthWarnings} />
         )}

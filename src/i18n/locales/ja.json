@@ -2423,7 +2423,34 @@
       "libraryId": "Library ID: {{id}}",
       "loadError": "Library またはグローバル配置状態を読み込めません。更新して再試行してください。",
       "empty": "Library Skill がありません",
-      "emptyDescription": "グローバルに配置する前に Library に Skill を取得してください。"
+      "emptyDescription": "グローバルに配置する前に Library に Skill を取得してください。",
+      "import": {
+        "title": "管理外のグローバル Skill をインポート",
+        "description": "CC Switch 以外でインストールされた実ディレクトリを確認します。スキャンはファイルを変更せず、自動的に管理対象にしません。",
+        "scanning": "Claude と Codex のグローバルディレクトリをスキャン中…",
+        "selectFinding": "{{consumer}} の {{directory}} を選択",
+        "modeImportOnly": "Library コピーのみ作成",
+        "modeImportAndReplace": "インポートして管理",
+        "createNew": "新しい Library Skill を作成",
+        "replaceLibrary": "一致する Library Skill を置換",
+        "directory": "Library ディレクトリ",
+        "submit": "Skill をインポート",
+        "replaceTitle": "この外部 Skill を CC Switch で管理しますか？",
+        "replaceDescription": "ディレクトリをバックアップして Library に取り込み、管理された絶対リンクに置き換えます。",
+        "installerWarning": "元の npx インストーラーを再実行すると、管理された配置が上書きまたは競合する可能性があります。",
+        "cancel": "キャンセル",
+        "replaceConfirm": "インポートして管理",
+        "outcome": {
+          "reused": "再利用",
+          "created": "インポート済み",
+          "library_replaced": "Library を置換済み",
+          "deployed": "管理対象",
+          "blocked": "ブロック済み",
+          "stale": "プレビューが古い",
+          "rolled_back": "ロールバック済み",
+          "recovery_required": "復旧が必要"
+        }
+      }
     },
     "batch": {
       "title": "一括配置",
@@ -2580,6 +2607,7 @@
       "disposition": {
         "perform": "CC Switch が実行可能",
         "preserve": "保持",
+        "preserve_with_consent": "確認して保持",
         "user_resolve": "ユーザーによる解決が必要"
       },
       "action": {
@@ -2628,6 +2656,39 @@
         "notRequired": "この計画にバックアップは不要です。",
         "recoveryAvailable": "復旧情報を利用できます。",
         "recoveryUnavailable": "復旧情報はまだ利用できません。"
+      },
+      "continueReview": "移行の確認を続ける",
+      "report": {
+        "title": "移行レポート",
+        "description": "移行後もこのレポートを確認できるため、保持されたコンテンツや未解決の競合を確認できます。",
+        "details": "詳細を表示",
+        "detailsTitle": "移行レポートの詳細",
+        "detailsDescription": "ここに表示されるパスは観測結果です。操作にはレポートの不透明な ID を使用します。",
+        "detailIncomplete": "検証済みの移行証拠が利用できないため、従来の Consumer を特定できませんでした。この項目を手動で確認してください。",
+        "historyEntry": "移行レポートを表示",
+        "performed": "{{count}} 件の操作を完了",
+        "preserved": "{{count}} 件を保持",
+        "open": "{{count}} 件の確認が必要",
+        "noFindings": "フォローアップ項目は記録されていません。",
+        "acknowledge": "リマインダーを確認",
+        "acknowledged": "リマインダーを確認しました。レポートはこのページから引き続き利用できます。",
+        "acknowledgeError": "リマインダーを確認できませんでした。もう一度お試しください。",
+        "reveal": "Finder で表示",
+        "revealError": "項目を開けませんでした。レポートを更新して再試行してください。",
+        "verifiedBackupDescription": "検証済みの移行バックアップを復旧に利用できます。",
+        "restore": "検証済みバックアップを復元",
+        "restoreError": "検証済みバックアップを復元できませんでした。レポートを更新して再試行してください。",
+        "restoreConfirmTitle": "移行バックアップを復元しますか？",
+        "restoreConfirmDescription": "このレポートで識別された検証済みバックアップを復元します。現在の移行状態が置き換えられる場合があります。",
+        "restoreConfirm": "復元を確認",
+        "state": {
+          "prepared": "準備済み",
+          "running": "処理中",
+          "blocked": "ブロック済み",
+          "recovery_required": "復旧が必要",
+          "completed": "完了",
+          "restored": "復元済み"
+        }
       }
     },
     "activity": {

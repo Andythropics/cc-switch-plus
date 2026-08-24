@@ -114,6 +114,8 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
               },
             ],
           };
+        case "inspectGlobalSkillImports":
+          return { observationToken: "global-empty", findings: [] };
         case "applySkillDeployments": {
           const batch = (
             args as { batch?: { intents?: { action?: string }[] } }

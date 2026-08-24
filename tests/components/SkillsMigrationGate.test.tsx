@@ -9,20 +9,43 @@ import type {
   SkillsMigrationPreflight,
 } from "@/lib/api/skills";
 
-const { applyState, preflightState, restoreState, resumeState, revealState } =
-  vi.hoisted(() => ({
-    preflightState: {
-      data: undefined as SkillsMigrationPreflight | undefined,
-      isLoading: false,
-      isFetching: false,
-      isError: false,
-      refetch: vi.fn(),
-    },
-    applyState: { isPending: false, mutateAsync: vi.fn() },
-    resumeState: { isPending: false, mutateAsync: vi.fn() },
-    restoreState: { isPending: false, mutateAsync: vi.fn() },
-    revealState: { isPending: false, mutateAsync: vi.fn() },
-  }));
+const {
+  acknowledgeReportState,
+  applyState,
+  preflightState,
+  reportState,
+  restoreState,
+  resumeState,
+  revealFindingState,
+  revealState,
+} = vi.hoisted(() => ({
+  acknowledgeReportState: {
+    error: undefined as unknown,
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  preflightState: {
+    data: undefined as SkillsMigrationPreflight | undefined,
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
+  applyState: { isPending: false, mutateAsync: vi.fn() },
+  reportState: {
+    data: null as any,
+    isError: false,
+    isFetching: false,
+  },
+  resumeState: { isPending: false, mutateAsync: vi.fn() },
+  restoreState: { isPending: false, mutateAsync: vi.fn() },
+  revealFindingState: {
+    error: undefined as unknown,
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  revealState: { isPending: false, mutateAsync: vi.fn() },
+}));
 
 vi.mock("@/hooks/useSkills", () => ({
   useSkillsMigrationPreflight: () => preflightState,
@@ -30,6 +53,9 @@ vi.mock("@/hooks/useSkills", () => ({
   useResumeSkillsMigration: () => resumeState,
   useRestoreSkillsMigrationBackup: () => restoreState,
   useRevealSkillsMigrationPlanItem: () => revealState,
+  useSkillsMigrationReport: () => reportState,
+  useAcknowledgeSkillsMigrationReport: () => acknowledgeReportState,
+  useRevealSkillsMigrationFinding: () => revealFindingState,
 }));
 
 const execution = (
@@ -50,12 +76,21 @@ describe("SkillsMigrationGate", () => {
     preflightState.isFetching = false;
     preflightState.isError = false;
     preflightState.refetch.mockReset().mockResolvedValue(undefined);
+    reportState.data = null;
+    reportState.isError = false;
+    reportState.isFetching = false;
+    acknowledgeReportState.error = undefined;
+    acknowledgeReportState.isPending = false;
+    acknowledgeReportState.mutateAsync.mockReset();
     applyState.isPending = false;
     applyState.mutateAsync.mockReset();
     resumeState.isPending = false;
     resumeState.mutateAsync.mockReset();
     restoreState.isPending = false;
     restoreState.mutateAsync.mockReset();
+    revealFindingState.error = undefined;
+    revealFindingState.isPending = false;
+    revealFindingState.mutateAsync.mockReset();
     revealState.isPending = false;
     revealState.mutateAsync.mockReset();
   });
@@ -68,7 +103,7 @@ describe("SkillsMigrationGate", () => {
       inventory: [],
       plan: [
         {
-          disposition: "user_resolve",
+          disposition: "preserve_with_consent",
           action: "preserve_unsupported_consumer_files",
           directory: "computer-use",
           fromLocation: "/legacy/skills/computer-use",
@@ -99,6 +134,19 @@ describe("SkillsMigrationGate", () => {
     expect(
       screen.getByText("skills.migration.legacyConsumer.hermes"),
     ).toBeInTheDocument();
+    const preserveItem = screen
+      .getAllByTestId("migration-plan-item")
+      .find((item) =>
+        within(item).queryByText(
+          "skills.migration.disposition.preserve_with_consent",
+        ),
+      );
+    expect(preserveItem).toBeDefined();
+    expect(
+      within(preserveItem!).getByText(
+        "skills.migration.disposition.preserve_with_consent",
+      ),
+    ).not.toHaveClass("bg-destructive");
     await user.click(
       screen.getByRole("button", { name: "skills.migration.apply" }),
     );
@@ -161,6 +209,35 @@ describe("SkillsMigrationGate", () => {
     });
   });
 
+  it("never offers Apply while any plan item still requires user resolution", () => {
+    preflightState.data = {
+      status: "decision_needed",
+      observationToken: "defensive-user-resolve-plan",
+      pageMode: "read_only",
+      inventory: [],
+      plan: [
+        {
+          disposition: "user_resolve",
+          action: "resolve_conflict",
+          directory: "foreign",
+          reason: "foreign_or_ambiguous",
+        },
+      ],
+      backup: {
+        required: true,
+        ready: true,
+        recoveryAvailable: true,
+        contentPaths: [],
+      },
+    };
+
+    render(<SkillsMigrationGate enabled />);
+
+    expect(
+      screen.queryByRole("button", { name: "skills.migration.apply" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the writable redesigned page only when migration needs no decision", () => {
     preflightState.data = {
       status: "not_required",
@@ -188,6 +265,213 @@ describe("SkillsMigrationGate", () => {
     expect(
       screen.queryByText("skills.migration.title"),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps a completed report entry after acknowledgement while collapsing the reminder", async () => {
+    preflightState.data = {
+      status: "not_required",
+      observationToken: "post-migration",
+      pageMode: "writable",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: false,
+        ready: true,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    };
+    const report = {
+      runId: "migration-run-opaque",
+      state: "completed",
+      createdAt: 1_700_000_000_000,
+      completedAt: 1_700_000_000_100,
+      summary: { performed: 4, preserved: 8, open: 0 },
+      findings: [
+        {
+          findingId: "finding-run-opaque-hermes",
+          disposition: "preserve_with_consent",
+          action: "preserve_unsupported_consumer_files",
+          directory: "computer-use",
+          fromLocation: "/legacy/skills/computer-use",
+          reason: "unsupported_consumer_enabled",
+          unsupportedConsumers: ["hermes"],
+        },
+      ],
+    };
+    reportState.data = report;
+    acknowledgeReportState.mutateAsync.mockResolvedValueOnce({
+      ...report,
+      acknowledgedAt: 1_700_000_000_200,
+    });
+    revealFindingState.mutateAsync.mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    const view = render(
+      <SkillsMigrationGate enabled>
+        <button type="button">mutable-skills-action</button>
+      </SkillsMigrationGate>,
+    );
+
+    expect(
+      screen.getByTestId("skills-migration-report-banner"),
+    ).toBeInTheDocument();
+    expect(report.summary.preserved).toBe(8);
+    expect(report.summary.open).toBe(0);
+    expect(
+      screen.getByTestId("skills-migration-report-preserved"),
+    ).toHaveTextContent("skills.migration.report.preserved");
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.migration.report.acknowledge",
+      }),
+    );
+    expect(acknowledgeReportState.mutateAsync).toHaveBeenCalledWith(
+      "migration-run-opaque",
+    );
+
+    reportState.data = {
+      ...report,
+      acknowledgedAt: 1_700_000_000_200,
+    };
+    view.rerender(
+      <SkillsMigrationGate enabled>
+        <button type="button">mutable-skills-action</button>
+      </SkillsMigrationGate>,
+    );
+    expect(
+      screen.getByTestId("skills-migration-report-banner"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "skills.migration.report.acknowledge",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("skills.migration.report.acknowledged"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.migration.report.details" }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.report.details" }),
+    );
+    expect(
+      screen.getByText("skills.migration.legacyConsumer.hermes"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.report.reveal" }),
+    );
+    expect(revealFindingState.mutateAsync).toHaveBeenCalledWith(
+      "finding-run-opaque-hermes",
+    );
+  });
+
+  it("keeps incomplete legacy evidence visible without offering an invalid Finder action", async () => {
+    preflightState.data = {
+      status: "not_required",
+      observationToken: "post-migration",
+      pageMode: "writable",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: false,
+        ready: true,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    };
+    reportState.data = {
+      runId: "legacy-run-opaque",
+      state: "completed",
+      createdAt: 1_700_000_000_000,
+      observationToken: "report-observation",
+      summary: { performed: 4, preserved: 1, open: 1 },
+      findings: [
+        {
+          findingId: "finding:legacy-run-opaque:hash",
+          disposition: "preserve_with_consent",
+          action: "preserve_unsupported_consumer_files",
+          directory: "computer-use",
+          reason: "unsupported_consumer_enabled",
+          status: "incomplete",
+          origin: "legacy_backfill",
+          detailComplete: false,
+          unsupportedConsumers: [],
+        },
+      ],
+      backup: {
+        backupId: "legacy-run-opaque",
+        createdAt: 1_700_000_000_000,
+        restoreAvailable: false,
+      },
+    };
+    const user = userEvent.setup();
+    render(<SkillsMigrationGate enabled />);
+
+    expect(
+      screen.getByTestId("skills-migration-report-open"),
+    ).toHaveTextContent("skills.migration.report.open");
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.report.details" }),
+    );
+    expect(
+      screen.getByText("skills.migration.report.detailIncomplete"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("skills.migration.disposition.preserve_with_consent"),
+    ).not.toHaveClass("bg-destructive");
+    expect(
+      screen.queryByRole("button", { name: "skills.migration.report.reveal" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("requires report-level confirmation before restoring an opaque backup id", async () => {
+    preflightState.data = {
+      status: "not_required",
+      observationToken: "post-migration",
+      pageMode: "writable",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: false,
+        ready: true,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    };
+    reportState.data = {
+      runId: "migration-run-opaque",
+      state: "completed",
+      createdAt: 1_700_000_000_000,
+      observationToken: "report-observation",
+      summary: { performed: 4, preserved: 0, open: 0 },
+      findings: [],
+      backup: {
+        backupId: "opaque-report-backup-v1",
+        createdAt: 1_700_000_000_000,
+        restoreAvailable: true,
+      },
+    };
+    restoreState.mutateAsync.mockResolvedValueOnce(execution("restored"));
+    const user = userEvent.setup();
+    render(<SkillsMigrationGate enabled />);
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.report.details" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.report.restore" }),
+    );
+    expect(restoreState.mutateAsync).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.migration.report.restoreConfirm",
+      }),
+    );
+    expect(restoreState.mutateAsync).toHaveBeenCalledWith(
+      "opaque-report-backup-v1",
+    );
   });
 
   it("keeps stale writable data read-only while a refetch is pending", () => {
@@ -615,6 +899,34 @@ describe("SkillsMigrationGate", () => {
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 
+  it("does not offer Restore from generic recovery metadata without an execution backup", () => {
+    preflightState.data = {
+      status: "blocked",
+      observationToken: "migration-plan-v1",
+      pageMode: "read_only",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: true,
+        ready: false,
+        recoveryAvailable: true,
+        contentPaths: [],
+      },
+      execution: execution("blocked", {
+        progress: { completedItems: 1, totalItems: 3 },
+      }),
+    };
+
+    render(<SkillsMigrationGate enabled />);
+
+    expect(
+      screen.queryByRole("button", { name: "skills.migration.restore" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("skills.migration.execution.blockedNoBackup"),
+    ).toBeInTheDocument();
+  });
+
   it("offers opaque backup restore for high-visibility recovery", async () => {
     preflightState.data = {
       status: "blocked",
@@ -686,7 +998,7 @@ describe("SkillsMigrationGate", () => {
     ).toBeInTheDocument();
   });
 
-  it("fails closed when a nominally writable preview still reports persisted execution", () => {
+  it("allows the writable page after a completed execution while the report remains durable", () => {
     preflightState.data = {
       status: "not_required",
       observationToken: "post-migration",
@@ -711,13 +1023,10 @@ describe("SkillsMigrationGate", () => {
       </SkillsMigrationGate>,
     );
 
-    expect(screen.queryByText("mutable-skills-action")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("skills.migration.execution.awaitingPreview"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("mutable-skills-action")).toBeInTheDocument();
   });
 
-  it("defers only in session and keeps the redesigned page read-only", async () => {
+  it("defers only in session, renders children read-only, and keeps a review entry point", async () => {
     preflightState.data = {
       status: "decision_needed",
       observationToken: "migration-plan-v1",
@@ -753,7 +1062,14 @@ describe("SkillsMigrationGate", () => {
     expect(
       screen.getByText("skills.migration.deferredDescription"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("mutable-skills-action")).not.toBeInTheDocument();
+    expect(screen.getByText("mutable-skills-action")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-skills-migration-readonly="true"]'),
+    ).toHaveAttribute("aria-readonly", "true");
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.continueReview" }),
+    );
+    expect(screen.getByText("skills.migration.plan")).toBeInTheDocument();
     expect(preflightState.refetch).not.toHaveBeenCalled();
   });
 

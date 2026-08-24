@@ -277,6 +277,41 @@ describe("Skills Library API", () => {
     expect(invokeMock).toHaveBeenCalledWith("inspectSkillsMigrationPreflight");
   });
 
+  it("loads the latest durable migration report", async () => {
+    invokeMock.mockResolvedValueOnce({
+      runId: "run-v1",
+      state: "completed",
+      createdAt: 1,
+      observationToken: "report-observation-v1",
+      summary: { performed: 2, preserved: 1, open: 0 },
+      findings: [],
+    });
+
+    await expect(
+      skillsApi.inspectLatestSkillsMigrationReport(),
+    ).resolves.toMatchObject({
+      runId: "run-v1",
+      summary: { preserved: 1 },
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "inspectLatestSkillsMigrationReport",
+    );
+  });
+
+  it("acknowledges a report by run identity and reveals by finding identity", async () => {
+    await skillsApi.acknowledgeSkillsMigrationReport("run-v1");
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "acknowledgeSkillsMigrationReport",
+      { runId: "run-v1" },
+    );
+
+    await skillsApi.revealSkillsMigrationFinding("finding:run-v1:0");
+    expect(invokeMock).toHaveBeenLastCalledWith("revealSkillsMigrationFinding", {
+      findingId: "finding:run-v1:0",
+    });
+    expect(invokeMock.mock.calls[1][1]).not.toHaveProperty("path");
+  });
+
   it("confirms recovery through the normal ordered Deployment seam", async () => {
     await skillsApi.applyDeployments({
       intents: [

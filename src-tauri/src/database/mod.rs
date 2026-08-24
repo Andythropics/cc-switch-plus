@@ -42,7 +42,8 @@ pub(crate) use dao::proxy::{
 };
 #[cfg(target_os = "macos")]
 pub(crate) use dao::skills_migration::{
-    SkillsMigrationItemRecord, SkillsMigrationItemUpdate, SkillsMigrationRunRecord,
+    SkillsMigrationFindingRecord, SkillsMigrationItemRecord, SkillsMigrationItemUpdate,
+    SkillsMigrationRunRecord,
 };
 pub use dao::FailoverQueueItem;
 pub use dao::Profile;
@@ -58,7 +59,7 @@ use std::sync::Mutex;
 /// 当前 Schema 版本号
 /// 每次修改表结构时递增，并在 schema.rs 中添加相应的迁移逻辑
 #[cfg(target_os = "macos")]
-pub(crate) const SCHEMA_VERSION: i32 = 24;
+pub(crate) const SCHEMA_VERSION: i32 = 25;
 #[cfg(not(target_os = "macos"))]
 pub(crate) const SCHEMA_VERSION: i32 = 16;
 

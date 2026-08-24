@@ -2,8 +2,10 @@
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
+use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufReader, Read};
 use std::os::unix::fs::MetadataExt;
@@ -12,7 +14,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::config::get_home_dir;
 use crate::database::{
-    Database, SkillsMigrationItemRecord, SkillsMigrationItemUpdate, SkillsMigrationRunRecord,
+    Database, SkillsMigrationFindingRecord, SkillsMigrationItemRecord, SkillsMigrationItemUpdate,
+    SkillsMigrationRunRecord,
 };
 use crate::services::skill::{
     LibrarySkillAcquisitionService, LibrarySkillSource, LibrarySourceKind,
@@ -102,6 +105,128 @@ pub struct SkillsMigrationExecutionResult {
     pub backup: Option<SkillsMigrationBackupReference>,
 }
 
+/// The durable report is intentionally narrower than the execution result.
+/// It remains available after the active migration gate has disappeared and
+/// contains only display data plus opaque identities. Filesystem paths are
+/// observations, never accepted as mutation input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillsMigrationReportState {
+    Prepared,
+    Running,
+    Blocked,
+    RecoveryRequired,
+    Completed,
+    Restored,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationReportSummary {
+    pub performed: u32,
+    pub preserved: u32,
+    pub open: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationFinding {
+    pub finding_id: String,
+    pub disposition: SkillsMigrationDisposition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<SkillsMigrationAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consumer: Option<DeploymentConsumer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_location: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_location: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<SkillsMigrationReason>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_consumers: Vec<String>,
+    /// The finding status is useful to native consumers. Existing web clients
+    /// may ignore this additive field while still rendering the finding.
+    pub status: String,
+    /// `preflight` is the immutable new-run source; `legacy_backfill` marks
+    /// evidence reconstructed from an older journal/verified backup.
+    pub origin: String,
+    pub detail_complete: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationReport {
+    pub run_id: String,
+    pub state: SkillsMigrationReportState,
+    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_at: Option<i64>,
+    /// Opaque token for revealing a finding after re-observation. It changes
+    /// when any persisted finding's observed location changes.
+    pub observation_token: String,
+    pub summary: SkillsMigrationReportSummary,
+    pub findings: Vec<SkillsMigrationFinding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup: Option<SkillsMigrationBackupReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationReportAckIntent {
+    pub run_id: String,
+}
+
+/// A typed reveal seam for durable findings. `observation_token` is optional
+/// only for older clients; when omitted the service re-observes the finding
+/// immediately before returning its containing directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationFindingRevealIntent {
+    pub finding_id: String,
+    #[serde(default)]
+    pub observation_token: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationPreflightSnapshot {
+    pub version: i64,
+    pub observation_token: String,
+    pub captured_at: i64,
+    pub status: SkillsMigrationStatus,
+    pub page_mode: SkillsMigrationPageMode,
+    pub inventory: Vec<crate::services::skills_migration_preview::SkillsMigrationInventoryItem>,
+    pub plan: Vec<SkillsMigrationPlanItem>,
+    pub backup: crate::services::skills_migration_preview::SkillsMigrationBackupPlan,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<SkillsMigrationFindingSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsMigrationFindingSnapshot {
+    pub finding_id: String,
+    pub plan_index: u32,
+    pub disposition: SkillsMigrationDisposition,
+    pub action: SkillsMigrationAction,
+    pub reason: SkillsMigrationReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consumer: Option<DeploymentConsumer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_location: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_location: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_consumers: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SkillsMigrationBackupManifest {
@@ -176,8 +301,8 @@ impl SkillsMigrationExecutionService {
         }
         let has_unresolved_plan_item = preflight.plan.iter().any(|item| {
             item.disposition == SkillsMigrationDisposition::UserResolve
-                && (item.action != SkillsMigrationAction::PreserveUnsupportedConsumerFiles
-                    || !intent.preserve_unsupported_consumer_files)
+                || (item.disposition == SkillsMigrationDisposition::PreserveWithConsent
+                    && !intent.preserve_unsupported_consumer_files)
         });
         if preflight.status != SkillsMigrationStatus::DecisionNeeded
             || !preflight.backup.ready
@@ -263,6 +388,11 @@ impl SkillsMigrationExecutionService {
         }
         self.db
             .insert_skills_migration_run_with_items(&run, &items)?;
+        if let Err(error) = self.persist_preflight_snapshot(&run, &preflight) {
+            log::warn!("Skills migration preflight snapshot persistence failed: {error}");
+            self.db.delete_skills_migration_run(&run.id)?;
+            return Ok(blocked_result());
+        }
 
         match self.create_verified_backup(&run, &items) {
             Ok((database_backup_filename, content_backup_root)) => {
@@ -396,7 +526,11 @@ impl SkillsMigrationExecutionService {
                         SkillsMigrationItemUpdate {
                             state: "completed",
                             library_skill_id: item.library_skill_id.as_deref(),
-                            detail_code: Some("already_in_sync"),
+                            detail_code: if item.action == "preserve_unsupported_consumer_files" {
+                                Some("preserved_with_consent")
+                            } else {
+                                Some("already_in_sync")
+                            },
                             started_at: item.started_at,
                             completed_at: item.completed_at,
                         },
@@ -478,7 +612,10 @@ impl SkillsMigrationExecutionService {
                             SkillsMigrationItemUpdate {
                                 state: "completed",
                                 library_skill_id: library_skill_id.as_deref(),
-                                detail_code: if resumed {
+                                detail_code: if item.action == "preserve_unsupported_consumer_files"
+                                {
+                                    Some("preserved_with_consent")
+                                } else if resumed {
                                     Some("already_in_sync")
                                 } else {
                                     None
@@ -1131,6 +1268,291 @@ impl SkillsMigrationExecutionService {
         attempt
     }
 
+    fn persist_preflight_snapshot(
+        &self,
+        run: &SkillsMigrationRunRecord,
+        preflight: &SkillsMigrationPreflight,
+    ) -> Result<()> {
+        let snapshot = preflight_snapshot(run, preflight);
+        let encoded = serde_json::to_string(&snapshot)?;
+        self.db.save_skills_migration_preflight_snapshot(
+            run.id.as_str(),
+            snapshot.version,
+            &encoded,
+        )?;
+        let findings = snapshot
+            .findings
+            .iter()
+            .map(|finding| Ok(finding_record_from_snapshot(run, finding)))
+            .collect::<Result<Vec<_>>>()?;
+        self.db.upsert_skills_migration_findings(&findings)?;
+        Ok(())
+    }
+
+    /// Return the most recent completed/restored migration report. The query
+    /// also performs the idempotent legacy-findings backfill, which is what
+    /// makes reports from installs that predate the report schema honest and
+    /// durable across restarts.
+    pub fn inspect_latest_report(&self) -> Result<Option<SkillsMigrationReport>> {
+        let Some(record) = self.db.get_latest_skills_migration_report()? else {
+            return Ok(None);
+        };
+        self.ensure_report_backfill(&record.run)?;
+        let Some(report) = self.report_for_run_id(&record.run.id)? else {
+            return Ok(None);
+        };
+        self.db
+            .mark_skills_migration_report_seen(&record.run.id, Utc::now().timestamp_millis())?;
+        Ok(Some(report))
+    }
+
+    pub fn acknowledge_report(
+        &self,
+        intent: SkillsMigrationReportAckIntent,
+    ) -> Result<SkillsMigrationReport> {
+        validate_opaque_identity(&intent.run_id, "migration report")?;
+        let run = self
+            .db
+            .get_skills_migration_run_by_backup_id(&intent.run_id)?
+            .ok_or_else(|| anyhow!("Skills migration report does not exist"))?;
+        if !matches!(run.state.as_str(), "completed" | "restored") {
+            return Err(anyhow!("Skills migration report is not complete"));
+        }
+        self.ensure_report_backfill(&run)?;
+        self.db
+            .acknowledge_skills_migration_report(&run.id, Utc::now().timestamp_millis())?;
+        self.report_for_run_id(&run.id)?
+            .ok_or_else(|| anyhow!("Skills migration report disappeared"))
+    }
+
+    /// Resolve a persisted finding to its containing directory. The caller
+    /// may supply the report's opaque observation token; older clients may
+    /// omit it and rely on the service's immediate re-observation fallback.
+    pub fn reveal_finding(&self, intent: SkillsMigrationFindingRevealIntent) -> Result<PathBuf> {
+        validate_opaque_identity(&intent.finding_id, "migration finding")?;
+        let run_id = finding_run_id(&intent.finding_id)
+            .ok_or_else(|| anyhow!("Skills migration finding identity is invalid"))?;
+        let run = self
+            .db
+            .get_skills_migration_run_by_backup_id(run_id)?
+            .ok_or_else(|| anyhow!("Skills migration finding does not exist"))?;
+        self.ensure_report_backfill(&run)?;
+        let report = self
+            .report_for_run_id(&run.id)?
+            .ok_or_else(|| anyhow!("Skills migration report does not exist"))?;
+        if intent
+            .observation_token
+            .as_deref()
+            .is_some_and(|token| token != report.observation_token)
+        {
+            return Err(anyhow!(
+                "Skills migration report changed; recheck before revealing a finding"
+            ));
+        }
+        let finding = report
+            .findings
+            .iter()
+            .find(|finding| finding.finding_id == intent.finding_id)
+            .ok_or_else(|| anyhow!("Skills migration finding no longer exists"))?;
+        let location = finding
+            .from_location
+            .as_deref()
+            .or(finding.to_location.as_deref())
+            .ok_or_else(|| anyhow!("Skills migration finding has no revealable location"))?;
+        let path = Path::new(location);
+        let directory = path
+            .parent()
+            .ok_or_else(|| anyhow!("Skills migration finding has no containing directory"))?;
+        if !directory.is_dir() {
+            return Err(anyhow!(
+                "Skills migration finding containing directory is unavailable"
+            ));
+        }
+        Ok(directory.to_path_buf())
+    }
+
+    fn report_for_run_id(&self, run_id: &str) -> Result<Option<SkillsMigrationReport>> {
+        let Some(record) = self.db.get_skills_migration_report(run_id)? else {
+            return Ok(None);
+        };
+        let items = self.db.list_skills_migration_items(run_id)?;
+        let snapshot = self
+            .db
+            .get_skills_migration_preflight_snapshot(run_id)?
+            .and_then(|record| {
+                serde_json::from_str::<SkillsMigrationPreflightSnapshot>(&record.snapshot).ok()
+            });
+        let findings = record
+            .findings
+            .iter()
+            .map(finding_from_record)
+            .collect::<Result<Vec<_>>>()?;
+        let summary = report_summary(&items, &record.findings);
+        let observation_token =
+            report_observation_token(&record.run, snapshot.as_ref(), &record.findings)?;
+        let backup = backup_reference(&record.run, &items);
+        Ok(Some(SkillsMigrationReport {
+            run_id: record.run.id,
+            state: report_state(&record.run.state)?,
+            created_at: record.run.created_at,
+            completed_at: record.run.completed_at,
+            acknowledged_at: record.metadata.report_acknowledged_at,
+            observation_token,
+            summary,
+            findings,
+            backup,
+        }))
+    }
+
+    /// Ensure the report tables contain one finding per legacy preserve item.
+    /// Existing rows are never deleted; repeated calls only fill missing rows
+    /// or repair an incomplete evidence status.
+    fn ensure_report_backfill(&self, run: &SkillsMigrationRunRecord) -> Result<()> {
+        let items = self.db.list_skills_migration_items(&run.id)?;
+        let existing = self.db.list_skills_migration_findings(&run.id)?;
+        let snapshot_record = self.db.get_skills_migration_preflight_snapshot(&run.id)?;
+        if let Some(record) = snapshot_record.as_ref() {
+            if let Ok(snapshot) =
+                serde_json::from_str::<SkillsMigrationPreflightSnapshot>(&record.snapshot)
+            {
+                let records = snapshot
+                    .findings
+                    .iter()
+                    .map(|finding| Ok(finding_record_from_snapshot(run, finding)))
+                    .collect::<Result<Vec<_>>>()?;
+                let missing = records
+                    .into_iter()
+                    .filter(|candidate| {
+                        !existing.iter().any(|stored| {
+                            stored.run_id == candidate.run_id
+                                && stored.finding_key == candidate.finding_key
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                self.db.upsert_skills_migration_findings(&missing)?;
+                // A synthetic legacy snapshot can outlive a temporarily
+                // unavailable backup. Keep the immutable snapshot, but retry
+                // the verified-backup evidence recovery until every
+                // unsupported-consumer finding has complete detail.
+                let has_incomplete_legacy_evidence = existing.iter().any(|stored| {
+                    stored.status == "incomplete"
+                        && stored.action == "preserve_unsupported_consumer_files"
+                });
+                if !has_incomplete_legacy_evidence {
+                    return Ok(());
+                }
+            }
+        }
+
+        let preserve_items = items
+            .iter()
+            .filter(|item| {
+                item.action == "preserve_unsupported_consumer_files"
+                    || item.action == "preserve_content"
+            })
+            .collect::<Vec<_>>();
+        if preserve_items.is_empty() {
+            return Ok(());
+        }
+        let recovered = recover_unsupported_consumers(run, &items);
+        let mut records = Vec::new();
+        let mut plan = Vec::new();
+        let mut findings = Vec::new();
+        for item in preserve_items {
+            let action = action_from_name(&item.action)
+                .ok_or_else(|| anyhow!("unknown migration journal action: {}", item.action))?;
+            let disposition = if action == SkillsMigrationAction::PreserveUnsupportedConsumerFiles {
+                SkillsMigrationDisposition::PreserveWithConsent
+            } else {
+                SkillsMigrationDisposition::Preserve
+            };
+            let reason = if action == SkillsMigrationAction::PreserveUnsupportedConsumerFiles {
+                SkillsMigrationReason::UnsupportedConsumerEnabled
+            } else {
+                SkillsMigrationReason::Unmanaged
+            };
+            let unsupported = if action == SkillsMigrationAction::PreserveUnsupportedConsumerFiles {
+                recovered
+                    .get(item.directory.as_deref().unwrap_or_default())
+                    .cloned()
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let finding_id = finding_id_for_item(run, item);
+            let incomplete = action == SkillsMigrationAction::PreserveUnsupportedConsumerFiles
+                && unsupported.is_empty();
+            let finding = SkillsMigrationFindingSnapshot {
+                finding_id: finding_id.clone(),
+                plan_index: item.ordinal,
+                disposition,
+                action,
+                reason,
+                directory: item.directory.clone(),
+                consumer: parse_consumer(item.consumer.as_deref()),
+                from_location: item.source_location.clone(),
+                to_location: item.target_location.clone(),
+                unsupported_consumers: unsupported.clone(),
+            };
+            findings.push(finding.clone());
+            records.push(finding_record_from_snapshot_with_status(
+                run,
+                &finding,
+                if incomplete {
+                    "incomplete"
+                } else {
+                    "preserved"
+                },
+                Some(if incomplete {
+                    "unsupported_consumer_evidence_unavailable"
+                } else {
+                    "legacy_backfill"
+                }),
+            ));
+            plan.push(SkillsMigrationPlanItem {
+                disposition,
+                action,
+                directory: item.directory.clone(),
+                consumer: parse_consumer(item.consumer.as_deref()),
+                from_location: item.source_location.clone(),
+                to_location: item.target_location.clone(),
+                reason,
+                unsupported_consumers: unsupported,
+            });
+        }
+        self.db.upsert_skills_migration_findings(&records)?;
+        if self
+            .db
+            .get_skills_migration_preflight_snapshot(&run.id)?
+            .is_none()
+        {
+            let snapshot = SkillsMigrationPreflightSnapshot {
+                version: 1,
+                observation_token: run.accepted_observation_token.clone(),
+                captured_at: run.created_at,
+                status: if run.state == "completed" {
+                    SkillsMigrationStatus::DecisionNeeded
+                } else {
+                    SkillsMigrationStatus::Blocked
+                },
+                page_mode: SkillsMigrationPageMode::ReadOnly,
+                inventory: Vec::new(),
+                plan,
+                backup: backup_plan_for_run(run, &items),
+                findings,
+            };
+            let encoded = serde_json::to_string(&snapshot)?;
+            // A legacy run has no accepted snapshot; this write is immutable
+            // and therefore safe to retry after a crash.
+            self.db.save_skills_migration_preflight_snapshot(
+                &run.id,
+                snapshot.version,
+                &encoded,
+            )?;
+        }
+        Ok(())
+    }
+
     fn result_for_run(
         &self,
         run: &SkillsMigrationRunRecord,
@@ -1313,6 +1735,13 @@ impl SkillsMigrationExecutionService {
             completed_at: None,
             ..run.clone()
         };
+        // Restoring the pre-migration database also restores the report
+        // lifecycle columns to their pre-view values. Preserve the immutable
+        // snapshot, findings, and first-view/acknowledgement timestamps so the
+        // aftercare report remains truthful after Restore.
+        let accepted_snapshot = self.db.get_skills_migration_preflight_snapshot(&run.id)?;
+        let accepted_findings = self.db.list_skills_migration_findings(&run.id)?;
+        let report_metadata = self.db.get_skills_migration_report_metadata(&run.id)?;
         let recovery_items = items
             .iter()
             .cloned()
@@ -1367,6 +1796,25 @@ impl SkillsMigrationExecutionService {
             .collect::<Vec<_>>();
         self.db
             .replace_skills_migration_run_with_items(&restored, &restored_items)?;
+        if let Some(snapshot) = accepted_snapshot {
+            self.db.save_skills_migration_preflight_snapshot(
+                &restored.id,
+                snapshot.version,
+                &snapshot.snapshot,
+            )?;
+        }
+        self.db
+            .upsert_skills_migration_findings(&accepted_findings)?;
+        if let Some(metadata) = report_metadata {
+            if let Some(seen_at) = metadata.report_seen_at {
+                self.db
+                    .mark_skills_migration_report_seen(&restored.id, seen_at)?;
+            }
+            if let Some(acknowledged_at) = metadata.report_acknowledged_at {
+                self.db
+                    .acknowledge_skills_migration_report(&restored.id, acknowledged_at)?;
+            }
+        }
         self.record_restore_activity();
         self.result_for_run(&restored, SkillsMigrationExecutionOutcome::Restored)
     }
@@ -1404,6 +1852,380 @@ fn stale_result() -> SkillsMigrationExecutionResult {
         items: Vec::new(),
         backup: None,
     }
+}
+
+const SKILLS_MIGRATION_PREFLIGHT_SNAPSHOT_VERSION: i64 = 1;
+
+fn preflight_snapshot(
+    run: &SkillsMigrationRunRecord,
+    preflight: &SkillsMigrationPreflight,
+) -> SkillsMigrationPreflightSnapshot {
+    let findings = preflight
+        .plan
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            matches!(
+                item.disposition,
+                SkillsMigrationDisposition::Preserve
+                    | SkillsMigrationDisposition::PreserveWithConsent
+            )
+        })
+        .map(|(plan_index, item)| SkillsMigrationFindingSnapshot {
+            finding_id: finding_id_for_plan(&run.id, item),
+            plan_index: plan_index as u32,
+            disposition: item.disposition,
+            action: item.action,
+            reason: item.reason,
+            directory: item.directory.clone(),
+            consumer: item.consumer,
+            from_location: item.from_location.clone(),
+            to_location: item.to_location.clone(),
+            unsupported_consumers: item.unsupported_consumers.clone(),
+        })
+        .collect();
+    SkillsMigrationPreflightSnapshot {
+        version: SKILLS_MIGRATION_PREFLIGHT_SNAPSHOT_VERSION,
+        observation_token: preflight.observation_token.clone(),
+        captured_at: run.created_at,
+        status: preflight.status,
+        page_mode: preflight.page_mode,
+        inventory: preflight.inventory.clone(),
+        plan: preflight.plan.clone(),
+        backup: preflight.backup.clone(),
+        findings,
+    }
+}
+
+fn finding_id_for_plan(run_id: &str, item: &SkillsMigrationPlanItem) -> String {
+    let identity = serde_json::to_vec(&(
+        run_id,
+        item.action,
+        item.directory.as_deref(),
+        item.consumer,
+        item.from_location.as_deref(),
+        item.to_location.as_deref(),
+    ))
+    .unwrap_or_default();
+    format!("finding:{run_id}:{:x}", Sha256::digest(identity))
+}
+
+fn finding_id_for_item(run: &SkillsMigrationRunRecord, item: &SkillsMigrationItemRecord) -> String {
+    let plan = SkillsMigrationPlanItem {
+        disposition: if item.action == "preserve_unsupported_consumer_files" {
+            SkillsMigrationDisposition::PreserveWithConsent
+        } else {
+            SkillsMigrationDisposition::Preserve
+        },
+        action: action_from_name(&item.action).unwrap_or(SkillsMigrationAction::PreserveContent),
+        directory: item.directory.clone(),
+        consumer: parse_consumer(item.consumer.as_deref()),
+        from_location: item.source_location.clone(),
+        to_location: item.target_location.clone(),
+        reason: if item.action == "preserve_unsupported_consumer_files" {
+            SkillsMigrationReason::UnsupportedConsumerEnabled
+        } else {
+            SkillsMigrationReason::Unmanaged
+        },
+        unsupported_consumers: Vec::new(),
+    };
+    finding_id_for_plan(&run.id, &plan)
+}
+
+fn finding_run_id(finding_id: &str) -> Option<&str> {
+    finding_id.strip_prefix("finding:")?.split(':').next()
+}
+
+fn validate_opaque_identity(value: &str, kind: &str) -> Result<()> {
+    if value.is_empty()
+        || value.contains('/')
+        || value.contains('\\')
+        || value.contains("..")
+        || value.len() > 256
+    {
+        return Err(anyhow!("invalid Skills migration {kind} identity"));
+    }
+    Ok(())
+}
+
+fn disposition_name(disposition: SkillsMigrationDisposition) -> &'static str {
+    match disposition {
+        SkillsMigrationDisposition::Perform => "perform",
+        SkillsMigrationDisposition::Preserve => "preserve",
+        SkillsMigrationDisposition::PreserveWithConsent => "preserve_with_consent",
+        SkillsMigrationDisposition::UserResolve => "user_resolve",
+    }
+}
+
+fn finding_record_from_snapshot(
+    run: &SkillsMigrationRunRecord,
+    finding: &SkillsMigrationFindingSnapshot,
+) -> SkillsMigrationFindingRecord {
+    finding_record_from_snapshot_with_status(run, finding, "preserved", None)
+}
+
+fn finding_record_from_snapshot_with_status(
+    run: &SkillsMigrationRunRecord,
+    finding: &SkillsMigrationFindingSnapshot,
+    status: &str,
+    detail_code: Option<&str>,
+) -> SkillsMigrationFindingRecord {
+    SkillsMigrationFindingRecord {
+        run_id: run.id.clone(),
+        finding_key: finding.finding_id.clone(),
+        disposition: disposition_name(finding.disposition).to_string(),
+        action: action_name(finding.action).to_string(),
+        reason: serde_json::to_string(&finding.reason)
+            .unwrap_or_else(|_| "\"invalid_legacy_state\"".to_string())
+            .trim_matches('"')
+            .to_string(),
+        directory: finding.directory.clone(),
+        consumer: finding.consumer.map(|consumer| match consumer {
+            DeploymentConsumer::Claude => "claude".to_string(),
+            DeploymentConsumer::Codex => "codex".to_string(),
+        }),
+        source_location: finding.from_location.clone(),
+        target_location: finding.to_location.clone(),
+        observed_location: finding
+            .from_location
+            .clone()
+            .or_else(|| finding.to_location.clone()),
+        unsupported_consumers_json: serde_json::to_string(&finding.unsupported_consumers)
+            .unwrap_or_else(|_| "[]".to_string()),
+        status: status.to_string(),
+        detail_code: detail_code.map(str::to_string),
+        created_at: run.created_at,
+        updated_at: Utc::now().timestamp_millis(),
+    }
+}
+
+fn finding_from_record(record: &SkillsMigrationFindingRecord) -> Result<SkillsMigrationFinding> {
+    let unsupported_consumers =
+        serde_json::from_str::<Vec<String>>(&record.unsupported_consumers_json).unwrap_or_default();
+    Ok(SkillsMigrationFinding {
+        finding_id: record.finding_key.clone(),
+        disposition: disposition_from_name(&record.disposition)?,
+        action: action_from_name(&record.action),
+        directory: record.directory.clone(),
+        consumer: parse_consumer(record.consumer.as_deref()),
+        from_location: record.source_location.clone(),
+        to_location: record.target_location.clone(),
+        reason: reason_from_name(&record.reason),
+        unsupported_consumers,
+        status: record.status.clone(),
+        origin: if matches!(
+            record.detail_code.as_deref(),
+            Some("legacy_backfill" | "unsupported_consumer_evidence_unavailable")
+        ) {
+            "legacy_backfill".to_string()
+        } else {
+            "preflight".to_string()
+        },
+        detail_complete: record.status != "incomplete",
+    })
+}
+
+fn disposition_from_name(raw: &str) -> Result<SkillsMigrationDisposition> {
+    match raw {
+        "perform" => Ok(SkillsMigrationDisposition::Perform),
+        "preserve" => Ok(SkillsMigrationDisposition::Preserve),
+        "preserve_with_consent" => Ok(SkillsMigrationDisposition::PreserveWithConsent),
+        "user_resolve" => Ok(SkillsMigrationDisposition::UserResolve),
+        _ => Err(anyhow!("invalid Skills migration finding disposition")),
+    }
+}
+
+fn reason_from_name(raw: &str) -> Option<SkillsMigrationReason> {
+    serde_json::from_str(&format!("\"{raw}\"")).ok()
+}
+
+fn report_state(raw: &str) -> Result<SkillsMigrationReportState> {
+    match raw {
+        "prepared" => Ok(SkillsMigrationReportState::Prepared),
+        "running" => Ok(SkillsMigrationReportState::Running),
+        "blocked" => Ok(SkillsMigrationReportState::Blocked),
+        "recovery_required" => Ok(SkillsMigrationReportState::RecoveryRequired),
+        "completed" => Ok(SkillsMigrationReportState::Completed),
+        "restored" => Ok(SkillsMigrationReportState::Restored),
+        _ => Err(anyhow!("invalid Skills migration report state")),
+    }
+}
+
+fn report_summary(
+    items: &[SkillsMigrationItemRecord],
+    findings: &[SkillsMigrationFindingRecord],
+) -> SkillsMigrationReportSummary {
+    let performed = items
+        .iter()
+        .filter(|item| {
+            item.state == "completed"
+                && !matches!(
+                    item.action.as_str(),
+                    "preserve_content" | "preserve_unsupported_consumer_files" | "finalize"
+                )
+        })
+        .count() as u32;
+    let preserved = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.action.as_str(),
+                "preserve_content" | "preserve_unsupported_consumer_files"
+            )
+        })
+        .count() as u32;
+    let open = findings
+        .iter()
+        .filter(|finding| matches!(finding.status.as_str(), "open" | "incomplete"))
+        .count() as u32;
+    SkillsMigrationReportSummary {
+        performed,
+        preserved,
+        open,
+    }
+}
+
+fn backup_reference(
+    run: &SkillsMigrationRunRecord,
+    items: &[SkillsMigrationItemRecord],
+) -> Option<SkillsMigrationBackupReference> {
+    run.database_backup_filename
+        .as_ref()
+        .map(|_| SkillsMigrationBackupReference {
+            backup_id: run.id.clone(),
+            created_at: run.created_at,
+            restore_available: migration_backup_is_verified(run, items),
+        })
+}
+
+fn backup_plan_for_run(
+    run: &SkillsMigrationRunRecord,
+    items: &[SkillsMigrationItemRecord],
+) -> crate::services::skills_migration_preview::SkillsMigrationBackupPlan {
+    crate::services::skills_migration_preview::SkillsMigrationBackupPlan {
+        required: true,
+        ready: migration_backup_is_verified(run, items),
+        recovery_available: migration_backup_is_verified(run, items),
+        database_path: None,
+        content_paths: Vec::new(),
+    }
+}
+
+fn report_observation_token(
+    run: &SkillsMigrationRunRecord,
+    snapshot: Option<&SkillsMigrationPreflightSnapshot>,
+    findings: &[SkillsMigrationFindingRecord],
+) -> Result<String> {
+    let mut observations = Vec::new();
+    for finding in findings {
+        let location = finding
+            .observed_location
+            .as_deref()
+            .or(finding.source_location.as_deref())
+            .or(finding.target_location.as_deref());
+        let fingerprint = location
+            .map(|path| {
+                path_fingerprint(Path::new(path)).unwrap_or_else(|error| format!("error:{error}"))
+            })
+            .unwrap_or_else(|| "none".to_string());
+        observations.push((finding.finding_key.as_str(), location, fingerprint));
+    }
+    let bytes = serde_json::to_vec(&(
+        "skills-migration-report-v1",
+        run.id.as_str(),
+        run.state.as_str(),
+        snapshot.map(|snapshot| snapshot.version),
+        snapshot.map(|snapshot| snapshot.observation_token.as_str()),
+        observations,
+    ))?;
+    Ok(format!(
+        "skills-migration-report-v1:{:x}",
+        Sha256::digest(bytes)
+    ))
+}
+
+fn recover_unsupported_consumers(
+    run: &SkillsMigrationRunRecord,
+    items: &[SkillsMigrationItemRecord],
+) -> BTreeMap<String, Vec<String>> {
+    let mut recovered = BTreeMap::new();
+    let Some(database) = run.database_backup_filename.as_deref().map(Path::new) else {
+        return recovered;
+    };
+    if !migration_backup_is_verified(run, items) {
+        return recovered;
+    }
+    let Ok(connection) = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return recovered;
+    };
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT directory, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes FROM skills",
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            let mut consumers = Vec::new();
+            if row.get::<_, bool>(1).unwrap_or(false) {
+                consumers.push("gemini".to_string());
+            }
+            if row.get::<_, bool>(2).unwrap_or(false) {
+                consumers.push("grokbuild".to_string());
+            }
+            if row.get::<_, bool>(3).unwrap_or(false) {
+                consumers.push("opencode".to_string());
+            }
+            if row.get::<_, bool>(4).unwrap_or(false) {
+                consumers.push("hermes".to_string());
+            }
+            Ok((row.get::<_, String>(0)?, consumers))
+        }) {
+            for row in rows.flatten() {
+                recovered.insert(row.0, row.1);
+            }
+        }
+    }
+    if !recovered.is_empty() {
+        return recovered;
+    }
+    // Older verified backups can lack the redesigned enablement columns. The
+    // preflight snapshot is a read-only fallback and may legitimately be
+    // absent; callers mark that case incomplete instead of guessing.
+    let Ok(snapshot) = connection.query_row(
+        "SELECT value FROM settings WHERE key = 'skills_ssot_migration_snapshot'",
+        [],
+        |row| row.get::<_, String>(0),
+    ) else {
+        return recovered;
+    };
+    #[derive(Deserialize)]
+    struct LegacyRow {
+        directory: String,
+        app_type: String,
+        #[serde(default = "legacy_installed_default")]
+        installed: bool,
+    }
+    let Ok(rows) = serde_json::from_str::<Vec<LegacyRow>>(&snapshot) else {
+        return recovered;
+    };
+    for row in rows.into_iter().filter(|row| row.installed) {
+        if matches!(
+            row.app_type.as_str(),
+            "gemini" | "grokbuild" | "opencode" | "hermes"
+        ) {
+            recovered
+                .entry(row.directory)
+                .or_default()
+                .push(row.app_type);
+        }
+    }
+    for consumers in recovered.values_mut() {
+        consumers.sort();
+        consumers.dedup();
+    }
+    recovered
+}
+
+fn legacy_installed_default() -> bool {
+    true
 }
 
 fn local_source() -> LibrarySkillSource {
@@ -1461,6 +2283,7 @@ fn action_from_name(raw: &str) -> Option<SkillsMigrationAction> {
 
 fn reason_from_detail(raw: Option<&str>) -> Option<SkillsMigrationReason> {
     match raw {
+        Some("preserved_with_consent") => Some(SkillsMigrationReason::UnsupportedConsumerEnabled),
         Some("already_in_sync") => Some(SkillsMigrationReason::AlreadyInLibrary),
         Some("target_conflict") => Some(SkillsMigrationReason::ForeignOrAmbiguous),
         Some("missing_library" | "filesystem_failure") => {
@@ -1494,6 +2317,9 @@ fn detail_code(raw: &str) -> crate::services::activity::ActivityDetailCode {
 fn result_item(item: &SkillsMigrationItemRecord) -> Option<SkillsMigrationItemResult> {
     let action = action_from_name(&item.action)?;
     let outcome = match item.state.as_str() {
+        "completed" if item.action == "preserve_unsupported_consumer_files" => {
+            SkillsMigrationItemOutcome::Preserved
+        }
         "completed" if item.detail_code.as_deref() == Some("already_in_sync") => {
             SkillsMigrationItemOutcome::AlreadyCompleted
         }
