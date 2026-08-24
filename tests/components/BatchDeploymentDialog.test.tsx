@@ -52,6 +52,40 @@ describe("BatchDeploymentDialog", () => {
     );
   });
 
+  it("starts deploy with no targets selected and shows the selected count", async () => {
+    const user = userEvent.setup();
+    render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={vi.fn()}
+        skills={[makeSkill("skill-a", "a"), makeSkill("skill-b", "b")]}
+        onApply={vi.fn().mockResolvedValue({ items: [] })}
+      />,
+    );
+
+    expect(screen.getAllByRole("checkbox")).toHaveLength(4);
+    screen
+      .getAllByRole("checkbox")
+      .forEach((checkbox) => expect(checkbox).not.toBeChecked());
+    expect(screen.getByTestId("batch-selection-count")).toHaveAttribute(
+      "data-count",
+      "0",
+    );
+    expect(screen.getByTestId("batch-apply")).toBeDisabled();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skill-a skills.library.consumerClaude",
+      }),
+    );
+
+    expect(screen.getByTestId("batch-selection-count")).toHaveAttribute(
+      "data-count",
+      "1",
+    );
+    expect(screen.getByTestId("batch-apply")).toBeEnabled();
+  });
+
   it("emits deterministic skill x consumer intents for a global deploy", async () => {
     const onApply = vi.fn().mockResolvedValue({
       items: [
@@ -72,6 +106,9 @@ describe("BatchDeploymentDialog", () => {
       />,
     );
 
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      await user.click(checkbox);
+    }
     await user.click(screen.getByTestId("batch-apply"));
 
     await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1));
@@ -128,6 +165,11 @@ describe("BatchDeploymentDialog", () => {
       />,
     );
 
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skill-a skills.library.consumerClaude",
+      }),
+    );
     await user.click(screen.getByTestId("batch-apply"));
 
     expect(await screen.findByTestId("batch-results")).toBeInTheDocument();
@@ -157,6 +199,11 @@ describe("BatchDeploymentDialog", () => {
       />,
     );
 
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skill-recovery skills.library.consumerClaude",
+      }),
+    );
     await user.click(screen.getByTestId("batch-apply"));
 
     expect(
@@ -461,6 +508,11 @@ describe("BatchDeploymentDialog", () => {
       />,
     );
 
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skill-pending skills.library.consumerClaude",
+      }),
+    );
     await user.click(screen.getByTestId("batch-apply"));
     view.rerender(
       <BatchDeploymentDialog
@@ -504,6 +556,11 @@ describe("BatchDeploymentDialog", () => {
       />,
     );
 
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "skill-result skills.library.consumerClaude",
+      }),
+    );
     await user.click(screen.getByTestId("batch-apply"));
     expect(await screen.findByTestId("batch-results")).toHaveTextContent(
       "applied once",

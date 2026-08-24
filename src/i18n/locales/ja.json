@@ -2470,6 +2470,7 @@
       "unknownTarget": "不明なターゲット",
       "deploy": "選択を配置",
       "undeploy": "選択を解除",
+      "selectedCount": "{{count}} 件の配置対象を選択済み",
       "compatible": "互換",
       "incompatible": "非互換",
       "noSkills": "利用可能な Library Skill がありません。",

@@ -2470,6 +2470,7 @@
       "unknownTarget": "Unknown target",
       "deploy": "Deploy selected",
       "undeploy": "Undeploy selected",
+      "selectedCount": "{{count}} deployment target(s) selected",
       "compatible": "Compatible",
       "incompatible": "Incompatible",
       "noSkills": "No Library Skills available.",

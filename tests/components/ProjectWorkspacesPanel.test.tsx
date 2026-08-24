@@ -306,6 +306,11 @@ describe("ProjectWorkspacesPanel", () => {
     expect(
       screen.getByRole("combobox", { name: "skills.batch.target" }),
     ).toBeDisabled();
+    for (const checkbox of screen.getAllByRole("checkbox", {
+      name: /Careful review skills\.library\.consumer/,
+    })) {
+      await user.click(checkbox);
+    }
     await user.click(screen.getByTestId("batch-apply"));
 
     await waitFor(() => expect(applyDeploymentsMock).toHaveBeenCalledTimes(1));

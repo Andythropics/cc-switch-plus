@@ -2471,6 +2471,7 @@
       "unknownTarget": "未知目標",
       "deploy": "部署所選",
       "undeploy": "取消部署所選",
+      "selectedCount": "已選擇 {{count}} 個部署目標",
       "compatible": "相容",
       "incompatible": "不相容",
       "noSkills": "沒有可用的 Library Skill。",

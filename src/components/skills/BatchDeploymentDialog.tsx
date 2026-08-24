@@ -78,11 +78,11 @@ const targetFromKey = (
 };
 
 /**
- * Build the consumer selection for a decision point. Deploy starts with
- * compatible consumers selected; undeploy starts only with recorded desired
- * links for the selected target so an unrelated Library item cannot be
- * unlinked accidentally. The same derivation is used when switching action or
- * target inside the dialog.
+ * Build the consumer selection for a decision point. Deploy starts empty so a
+ * single confirmation cannot expose every compatible Skill accidentally;
+ * undeploy starts only with recorded desired links for the selected target so
+ * an unrelated Library item cannot be unlinked accidentally. The same
+ * derivation is used when switching action or target inside the dialog.
  */
 const selectionFor = (
   action: BatchDeploymentAction,
@@ -102,7 +102,7 @@ const selectionFor = (
       Object.fromEntries(
         consumers.map((consumer) => {
           if (action === "deploy") {
-            return [consumer, skill.compatibility[consumer].compatible];
+            return [consumer, false];
           }
           const desired = inspections.some(
             (inspection) =>
@@ -489,6 +489,16 @@ export function BatchDeploymentDialog({
         </div>
 
         <DialogFooter>
+          <span
+            className="mr-auto text-sm text-muted-foreground"
+            data-testid="batch-selection-count"
+            data-count={selectedIntents.length}
+            aria-live="polite"
+          >
+            {t("skills.batch.selectedCount", {
+              count: selectedIntents.length,
+            })}
+          </span>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
