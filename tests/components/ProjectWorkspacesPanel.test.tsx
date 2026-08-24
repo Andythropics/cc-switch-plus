@@ -171,6 +171,14 @@ const unavailableWorkspace: ProjectWorkspace = {
 };
 
 describe("ProjectWorkspacesPanel", () => {
+  it("leaves the Projects view title to the shared Skills header", () => {
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.queryByRole("heading", { name: "skills.projects.title" }),
+    ).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     pickDirectoryMock.mockReset().mockResolvedValue("/tmp/new-workspace");
     registerWorkspaceMock.mockReset().mockResolvedValue({

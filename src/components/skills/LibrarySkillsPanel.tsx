@@ -635,16 +635,7 @@ export const LibrarySkillsPanel = forwardRef<
 
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex items-center gap-3 border-b px-5 py-3">
-          <Library className="h-5 w-5 text-primary" />
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold">
-              {t("skills.library.title")}
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {t("skills.library.privateDescription")}
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
           <Button
             variant="outline"
             size="sm"

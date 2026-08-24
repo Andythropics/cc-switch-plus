@@ -225,15 +225,7 @@ export function SkillsActivityPanel({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">
-            {t("skills.activity.title")}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {t("skills.activity.description")}
-          </p>
-        </div>
+      <div className="flex justify-end">
         <Button
           type="button"
           variant="outline"

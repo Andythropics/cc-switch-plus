@@ -10,7 +10,6 @@ import { useTranslation } from "react-i18next";
 import {
   Archive,
   ArchiveRestore,
-  FolderOpen,
   Loader2,
   MapPin,
   Pencil,
@@ -661,16 +660,7 @@ export const ProjectWorkspacesPanel = forwardRef<
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-3 border-b px-5 py-3">
-        <FolderOpen className="h-5 w-5 text-primary" />
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold">
-            {t("skills.projects.title")}
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {t("skills.projects.description")}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
         {onOpenLibrary && (
           <Button
             variant="outline"

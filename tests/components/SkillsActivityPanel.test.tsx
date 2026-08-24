@@ -75,6 +75,14 @@ const makeEntry = (
 });
 
 describe("SkillsActivityPanel", () => {
+  it("leaves the Activity view title to the shared Skills header", () => {
+    render(<SkillsActivityPanel />);
+
+    expect(
+      screen.queryByRole("heading", { name: "skills.activity.title" }),
+    ).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     activityQueryMock.mockReset();
     refetchMock.mockReset().mockResolvedValue(undefined);

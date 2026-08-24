@@ -103,6 +103,14 @@ vi.mock("@/hooks/useSkills", () => ({
 }));
 
 describe("GlobalSkillsPanel", () => {
+  it("leaves the Global view title to the shared Skills header", () => {
+    render(<GlobalSkillsPanel />);
+
+    expect(
+      screen.queryByRole("heading", { name: "skills.global.title" }),
+    ).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     state.libraryError = false;
     state.projectError = false;

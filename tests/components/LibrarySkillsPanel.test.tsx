@@ -124,6 +124,14 @@ vi.mock("sonner", () => ({
 }));
 
 describe("LibrarySkillsPanel", () => {
+  it("leaves the Library view title to the shared Skills header", () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(
+      screen.queryByRole("heading", { name: "skills.library.title" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("wraps long dynamic Skill metadata without widening the panel", () => {
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 

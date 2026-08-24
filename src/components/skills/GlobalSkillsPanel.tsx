@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Globe2, Loader2, RefreshCw, Search } from "lucide-react";
+import { Loader2, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -275,16 +275,7 @@ export function GlobalSkillsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b px-5 py-3">
-        <Globe2 className="h-5 w-5 text-primary" />
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold">
-            {t("skills.global.title")}
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {t("skills.global.description")}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
         {onOpenLibrary && (
           <Button
             variant="outline"
