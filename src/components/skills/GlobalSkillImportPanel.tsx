@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApplyGlobalSkillImport } from "@/hooks/useSkills";
@@ -351,7 +351,7 @@ export function GlobalSkillImportPanel({
       )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={applyImport.isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.global.import.replaceTitle")}</DialogTitle>
             <DialogDescription>
@@ -377,7 +377,7 @@ export function GlobalSkillImportPanel({
               {t("skills.global.import.replaceConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </section>
   );

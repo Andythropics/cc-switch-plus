@@ -24,12 +24,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -797,9 +797,16 @@ export const ProjectWorkspacesPanel = forwardRef<
 
       <Dialog
         open={Boolean(renameTarget)}
-        onOpenChange={(open) => !open && setRenameTarget(null)}
+        onOpenChange={(open) => {
+          if (!open && !rename.isPending) setRenameTarget(null);
+        }}
       >
-        <DialogContent>
+        <SkillsDialogContent
+          closeBlocked={
+            rename.isPending ||
+            Boolean(renameTarget && renameName !== renameTarget.displayName)
+          }
+        >
           <DialogHeader>
             <DialogTitle>{t("skills.projects.renameTitle")}</DialogTitle>
             <DialogDescription>
@@ -818,7 +825,11 @@ export const ProjectWorkspacesPanel = forwardRef<
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+            <Button
+              variant="outline"
+              disabled={rename.isPending}
+              onClick={() => setRenameTarget(null)}
+            >
               {t("skills.projects.cancel")}
             </Button>
             <Button
@@ -828,14 +839,16 @@ export const ProjectWorkspacesPanel = forwardRef<
               {t("skills.projects.renameConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
 
       <Dialog
         open={Boolean(archiveTarget)}
-        onOpenChange={(open) => !open && setArchiveTarget(null)}
+        onOpenChange={(open) => {
+          if (!open && !archive.isPending) setArchiveTarget(null);
+        }}
       >
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={archive.isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.projects.archiveTitle")}</DialogTitle>
             <DialogDescription>
@@ -843,7 +856,11 @@ export const ProjectWorkspacesPanel = forwardRef<
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setArchiveTarget(null)}>
+            <Button
+              variant="outline"
+              disabled={archive.isPending}
+              onClick={() => setArchiveTarget(null)}
+            >
               {t("skills.projects.cancel")}
             </Button>
             <Button
@@ -854,14 +871,16 @@ export const ProjectWorkspacesPanel = forwardRef<
               {t("skills.projects.archiveConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
 
       <Dialog
         open={Boolean(relocateTarget)}
-        onOpenChange={(open) => !open && setRelocateTarget(null)}
+        onOpenChange={(open) => {
+          if (!open && !relocate.isPending) setRelocateTarget(null);
+        }}
       >
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={relocate.isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.projects.relocateTitle")}</DialogTitle>
             <DialogDescription>
@@ -872,7 +891,11 @@ export const ProjectWorkspacesPanel = forwardRef<
             {relocatePath}
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRelocateTarget(null)}>
+            <Button
+              variant="outline"
+              disabled={relocate.isPending}
+              onClick={() => setRelocateTarget(null)}
+            >
               {t("skills.projects.cancel")}
             </Button>
             <Button
@@ -882,14 +905,16 @@ export const ProjectWorkspacesPanel = forwardRef<
               {t("skills.projects.relocateConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
 
       <Dialog
         open={Boolean(forgetTarget)}
-        onOpenChange={(open) => !open && setForgetTarget(null)}
+        onOpenChange={(open) => {
+          if (!open && !forget.isPending) setForgetTarget(null);
+        }}
       >
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={forget.isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.projects.forgetTitle")}</DialogTitle>
             <DialogDescription>
@@ -897,7 +922,11 @@ export const ProjectWorkspacesPanel = forwardRef<
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setForgetTarget(null)}>
+            <Button
+              variant="outline"
+              disabled={forget.isPending}
+              onClick={() => setForgetTarget(null)}
+            >
               {t("skills.projects.cancel")}
             </Button>
             <Button
@@ -908,7 +937,7 @@ export const ProjectWorkspacesPanel = forwardRef<
               {t("skills.projects.forgetConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </div>
   );

@@ -20,12 +20,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import {
   useAcknowledgeSkillsMigrationReport,
   useApplySkillsMigration,
@@ -504,8 +504,19 @@ export function SkillsMigrationGate({
           )}
         </section>
       </div>
-      <Dialog open={confirming} onOpenChange={setConfirming}>
-        <DialogContent zIndex="alert">
+      <Dialog
+        open={confirming}
+        onOpenChange={(open) => {
+          setConfirming(open);
+          if (!open) setPreserveUnsupportedConsumerFiles(false);
+        }}
+      >
+        <SkillsDialogContent
+          zIndex="alert"
+          closeBlocked={
+            applyMigration.isPending || preserveUnsupportedConsumerFiles
+          }
+        >
           <DialogHeader>
             <DialogTitle>{t("skills.migration.confirm.title")}</DialogTitle>
             <DialogDescription>
@@ -530,7 +541,14 @@ export function SkillsMigrationGate({
             </label>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirming(false)}>
+            <Button
+              variant="outline"
+              disabled={applyMigration.isPending}
+              onClick={() => {
+                setConfirming(false);
+                setPreserveUnsupportedConsumerFiles(false);
+              }}
+            >
               {t("common.cancel")}
             </Button>
             <Button
@@ -543,7 +561,7 @@ export function SkillsMigrationGate({
               {t("skills.migration.confirm.apply")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </div>
   );

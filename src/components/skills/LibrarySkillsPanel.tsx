@@ -26,12 +26,12 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogBody,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -276,6 +276,14 @@ export const LibrarySkillsPanel = forwardRef<
       items: DeploymentItemResult[];
     } | null>(null);
     const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+    const editingDirty = Boolean(
+      editing &&
+        (displayName !== editing.displayName ||
+          description !== (editing.description ?? "")),
+    );
+    const zipCollisionDirty = Boolean(
+      zipCollision && uniqueDirectory !== `${zipCollision.directory}-2`,
+    );
 
     const blocked =
       updateMetadata.isPending ||
@@ -1024,10 +1032,20 @@ export const LibrarySkillsPanel = forwardRef<
         <Dialog
           open={updateConfirmation !== null}
           onOpenChange={(open) => {
-            if (!open) setUpdateConfirmation(null);
+            if (!open && !applyLibraryUpdate.isPending) {
+              setUpdateConfirmation(null);
+            }
           }}
         >
-          <DialogContent>
+          <SkillsDialogContent
+            closeBlocked={
+              applyLibraryUpdate.isPending ||
+              Boolean(
+                updateConfirmation?.check.localModified &&
+                  confirmLocalModifications,
+              )
+            }
+          >
             <DialogHeader>
               <DialogTitle>
                 {t("skills.library.update.confirmTitle")}
@@ -1070,6 +1088,7 @@ export const LibrarySkillsPanel = forwardRef<
             <DialogFooter>
               <Button
                 variant="outline"
+                disabled={applyLibraryUpdate.isPending}
                 onClick={() => setUpdateConfirmation(null)}
               >
                 {t("common.cancel")}
@@ -1088,16 +1107,18 @@ export const LibrarySkillsPanel = forwardRef<
                 {t("skills.library.update.confirmApply")}
               </Button>
             </DialogFooter>
-          </DialogContent>
+          </SkillsDialogContent>
         </Dialog>
 
         <Dialog
           open={deletionInspection !== null}
           onOpenChange={(open) => {
-            if (!open) setDeletionInspection(null);
+            if (!open && !deleteLibrary.isPending) {
+              setDeletionInspection(null);
+            }
           }}
         >
-          <DialogContent>
+          <SkillsDialogContent closeBlocked={deleteLibrary.isPending}>
             <DialogHeader>
               <DialogTitle>{t("skills.library.delete.title")}</DialogTitle>
               <DialogDescription>
@@ -1227,6 +1248,7 @@ export const LibrarySkillsPanel = forwardRef<
             <DialogFooter>
               <Button
                 variant="outline"
+                disabled={deleteLibrary.isPending}
                 onClick={() => setDeletionInspection(null)}
               >
                 {t("common.cancel")}
@@ -1242,11 +1264,18 @@ export const LibrarySkillsPanel = forwardRef<
                 {t("skills.library.delete.confirm")}
               </Button>
             </DialogFooter>
-          </DialogContent>
+          </SkillsDialogContent>
         </Dialog>
 
-        <Dialog open={editing !== null} onOpenChange={() => setEditing(null)}>
-          <DialogContent>
+        <Dialog
+          open={editing !== null}
+          onOpenChange={(open) => {
+            if (!open && !updateMetadata.isPending) setEditing(null);
+          }}
+        >
+          <SkillsDialogContent
+            closeBlocked={updateMetadata.isPending || editingDirty}
+          >
             <DialogHeader>
               <DialogTitle>{t("skills.library.editTitle")}</DialogTitle>
               <DialogDescription>
@@ -1279,7 +1308,11 @@ export const LibrarySkillsPanel = forwardRef<
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setEditing(null)}>
+              <Button
+                variant="outline"
+                disabled={updateMetadata.isPending}
+                onClick={() => setEditing(null)}
+              >
                 {t("common.cancel")}
               </Button>
               <Button
@@ -1292,14 +1325,18 @@ export const LibrarySkillsPanel = forwardRef<
                 {t("skills.library.save")}
               </Button>
             </DialogFooter>
-          </DialogContent>
+          </SkillsDialogContent>
         </Dialog>
 
         <Dialog
           open={zipCollision !== null}
-          onOpenChange={() => setZipCollision(null)}
+          onOpenChange={(open) => {
+            if (!open && !acquireZip.isPending) setZipCollision(null);
+          }}
         >
-          <DialogContent>
+          <SkillsDialogContent
+            closeBlocked={acquireZip.isPending || zipCollisionDirty}
+          >
             <DialogHeader>
               <DialogTitle>{t("skills.library.collisionTitle")}</DialogTitle>
               <DialogDescription>
@@ -1319,7 +1356,11 @@ export const LibrarySkillsPanel = forwardRef<
               />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setZipCollision(null)}>
+              <Button
+                variant="outline"
+                disabled={acquireZip.isPending}
+                onClick={() => setZipCollision(null)}
+              >
                 {t("common.cancel")}
               </Button>
               <Button
@@ -1337,7 +1378,7 @@ export const LibrarySkillsPanel = forwardRef<
                 {t("skills.library.acquire")}
               </Button>
             </DialogFooter>
-          </DialogContent>
+          </SkillsDialogContent>
         </Dialog>
       </div>
     );

@@ -628,6 +628,41 @@ describe("BatchDeploymentDialog", () => {
 
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(screen.getByTestId("batch-apply")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "common.cancel" }),
+    ).toBeDisabled();
+  });
+
+  it("allows Escape and backdrop dismissal while idle", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const view = render(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={onOpenChange}
+        skills={[makeSkill("skill-idle", "idle")]}
+        onApply={vi.fn().mockResolvedValue({ items: [] })}
+      />,
+    );
+
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    onOpenChange.mockClear();
+    view.rerender(
+      <BatchDeploymentDialog
+        open
+        onOpenChange={onOpenChange}
+        skills={[makeSkill("skill-idle", "idle")]}
+        onApply={vi.fn().mockResolvedValue({ items: [] })}
+      />,
+    );
+    const overlay = document.querySelector(
+      "[data-state='open'].fixed.inset-0",
+    ) as HTMLElement;
+    fireEvent.pointerDown(overlay);
+    fireEvent.click(overlay);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("preserves structured batch results when inspections reconcile after apply", async () => {

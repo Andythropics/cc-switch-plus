@@ -12,12 +12,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import type {
   SkillsMigrationFinding,
   SkillsMigrationReport,
@@ -172,7 +172,11 @@ export function SkillsMigrationReportBanner({
       </section>
 
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto" zIndex="alert">
+        <SkillsDialogContent
+          className="max-h-[85vh] overflow-y-auto"
+          zIndex="alert"
+          closeBlocked={revealPending || restorePending}
+        >
           <DialogHeader>
             <DialogTitle>
               {t("skills.migration.report.detailsTitle")}
@@ -237,15 +241,19 @@ export function SkillsMigrationReportBanner({
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailsOpen(false)}>
+            <Button
+              variant="outline"
+              disabled={revealPending || restorePending}
+              onClick={() => setDetailsOpen(false)}
+            >
               {t("common.close")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
 
       <Dialog open={restoreConfirmOpen} onOpenChange={setRestoreConfirmOpen}>
-        <DialogContent zIndex="alert">
+        <SkillsDialogContent zIndex="alert" closeBlocked={restorePending}>
           <DialogHeader>
             <DialogTitle>
               {t("skills.migration.report.restoreConfirmTitle")}
@@ -257,6 +265,7 @@ export function SkillsMigrationReportBanner({
           <DialogFooter>
             <Button
               variant="outline"
+              disabled={restorePending}
               onClick={() => setRestoreConfirmOpen(false)}
             >
               {t("common.cancel")}
@@ -275,7 +284,7 @@ export function SkillsMigrationReportBanner({
               {t("skills.migration.report.restoreConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </>
   );

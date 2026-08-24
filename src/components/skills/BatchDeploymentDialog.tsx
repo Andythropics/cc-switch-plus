@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -266,7 +266,11 @@ export function BatchDeploymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl" zIndex="alert">
+      <SkillsDialogContent
+        className="max-w-2xl"
+        zIndex="alert"
+        closeBlocked={isPending}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Layers className="h-4 w-4" />
@@ -541,7 +545,7 @@ export function BatchDeploymentDialog({
               : t("skills.batch.undeploy")}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </SkillsDialogContent>
     </Dialog>
   );
 }

@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogBody,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import type {
   DeploymentInspection,
   DeploymentIntent,
@@ -168,7 +168,7 @@ export function DeploymentResolutionActions({
           if (!undeployPending) setUndeployDialogOpen(open);
         }}
       >
-        <DialogContent zIndex="alert">
+        <SkillsDialogContent zIndex="alert" closeBlocked={undeployPending}>
           <DialogHeader>
             <DialogTitle>
               {t("skills.library.undeployConfirmTitle")}
@@ -214,7 +214,7 @@ export function DeploymentResolutionActions({
               {t("skills.library.undeployConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
 
       {canRepair && (
@@ -272,7 +272,7 @@ export function DeploymentResolutionActions({
       )}
 
       <Dialog open={replaceDialogOpen} onOpenChange={setReplaceDialogOpen}>
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={isPending}>
           <DialogHeader>
             <DialogTitle>
               {t("skills.library.replaceForeignLinkTitle")}
@@ -284,12 +284,14 @@ export function DeploymentResolutionActions({
           <DialogFooter>
             <Button
               variant="outline"
+              disabled={isPending}
               onClick={() => setReplaceDialogOpen(false)}
             >
               {t("skills.library.resolutionCancel")}
             </Button>
             <Button
               variant="destructive"
+              disabled={isPending}
               onClick={() => {
                 setReplaceDialogOpen(false);
                 if (!observationToken) return;
@@ -305,11 +307,11 @@ export function DeploymentResolutionActions({
               {t("skills.library.replaceForeignLinkConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
 
       <Dialog open={forgetDialogOpen} onOpenChange={setForgetDialogOpen}>
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.library.forgetTitle")}</DialogTitle>
             <DialogDescription>
@@ -319,12 +321,14 @@ export function DeploymentResolutionActions({
           <DialogFooter>
             <Button
               variant="outline"
+              disabled={isPending}
               onClick={() => setForgetDialogOpen(false)}
             >
               {t("skills.library.resolutionCancel")}
             </Button>
             <Button
               variant="destructive"
+              disabled={isPending}
               onClick={() => {
                 setForgetDialogOpen(false);
                 apply({
@@ -337,7 +341,7 @@ export function DeploymentResolutionActions({
               {t("skills.library.forgetConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </>
   );

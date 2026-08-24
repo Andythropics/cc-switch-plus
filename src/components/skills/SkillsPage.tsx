@@ -10,12 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import {
   Select,
   SelectContent,
@@ -711,9 +711,20 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
 
         <Dialog
           open={collision !== null}
-          onOpenChange={() => setCollision(null)}
+          onOpenChange={(open) => {
+            if (!open && !acquireMutation.isPending) setCollision(null);
+          }}
         >
-          <DialogContent>
+          <SkillsDialogContent
+            closeBlocked={
+              acquireMutation.isPending ||
+              Boolean(
+                collision &&
+                  uniqueDirectory !==
+                    `${collision.skill.directory.split(/[/\\]/).pop()}-2`,
+              )
+            }
+          >
             <DialogHeader>
               <DialogTitle>{t("skills.library.collisionTitle")}</DialogTitle>
               <DialogDescription>
@@ -728,7 +739,11 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
               onChange={(event) => setUniqueDirectory(event.target.value)}
             />
             <DialogFooter>
-              <Button variant="outline" onClick={() => setCollision(null)}>
+              <Button
+                variant="outline"
+                disabled={acquireMutation.isPending}
+                onClick={() => setCollision(null)}
+              >
                 {t("common.cancel")}
               </Button>
               <Button
@@ -755,7 +770,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                 {t("skills.library.acquire")}
               </Button>
             </DialogFooter>
-          </DialogContent>
+          </SkillsDialogContent>
         </Dialog>
 
         {/* 仓库管理面板 */}

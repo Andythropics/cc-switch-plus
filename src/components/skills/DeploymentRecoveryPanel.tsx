@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import {
   useApplySkillDeployments,
   useDeploymentRecovery,
@@ -402,7 +402,7 @@ export function DeploymentRecoveryPanel({
           if (!apply.isPending) setConfirmOpen(open);
         }}
       >
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={apply.isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.recovery.confirmTitle")}</DialogTitle>
             <DialogDescription>
@@ -426,7 +426,7 @@ export function DeploymentRecoveryPanel({
               {t("skills.recovery.confirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </section>
   );

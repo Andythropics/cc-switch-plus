@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -211,6 +211,31 @@ describe("LibrarySkillsPanel", () => {
       }),
     );
     expect(updateMetadataMock.mock.calls[0][0]).not.toHaveProperty("directory");
+  });
+
+  it("blocks implicit dismissal of dirty metadata but allows explicit cancel", async () => {
+    const user = userEvent.setup();
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.edit" }),
+    );
+    const name = screen.getByLabelText("skills.library.displayName");
+    await user.type(name, " changed");
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("data-close-blocked", "true");
+
+    await user.keyboard("{Escape}");
+    const overlay = document.querySelector(
+      "[data-state='open'].fixed.inset-0",
+    ) as HTMLElement;
+    fireEvent.pointerDown(overlay);
+    fireEvent.click(overlay);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(updateMetadataMock).not.toHaveBeenCalled();
   });
 
   it("labels local imports without implying a live source origin", () => {

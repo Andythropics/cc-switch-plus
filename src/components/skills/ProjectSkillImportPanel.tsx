@@ -13,12 +13,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -552,7 +552,7 @@ export function ProjectSkillImportPanel({
       )}
 
       <Dialog open={replaceDialogOpen} onOpenChange={setReplaceDialogOpen}>
-        <DialogContent>
+        <SkillsDialogContent closeBlocked={applyImport.isPending}>
           <DialogHeader>
             <DialogTitle>
               {t("skills.projects.import.replaceTitle")}
@@ -579,7 +579,7 @@ export function ProjectSkillImportPanel({
               {t("skills.projects.import.replaceConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </section>
   );

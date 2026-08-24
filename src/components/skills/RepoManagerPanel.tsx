@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogBody,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trash2, ExternalLink, Loader2, Plus } from "lucide-react";
@@ -238,7 +238,7 @@ export function RepoManagerPanel({
           if (!open && !isRemoving) setPendingRemoval(null);
         }}
       >
-        <DialogContent zIndex="top">
+        <SkillsDialogContent zIndex="top" closeBlocked={isRemoving}>
           <DialogHeader>
             <DialogTitle>{t("skills.repo.removeTitle")}</DialogTitle>
             <DialogDescription>
@@ -277,7 +277,7 @@ export function RepoManagerPanel({
               {t("skills.repo.removeConfirm")}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SkillsDialogContent>
       </Dialog>
     </FullScreenPanel>
   );
