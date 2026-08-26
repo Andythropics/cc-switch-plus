@@ -49,6 +49,7 @@ interface SkillsMigrationGateProps extends PropsWithChildren {
   enabled: boolean;
   onDefer?: (observationToken: string | null) => void;
   onReadOnlyChange?: (readOnly: boolean) => void;
+  showReport?: boolean;
 }
 
 const blockingExecutionOutcomes: ReadonlySet<
@@ -67,10 +68,10 @@ export function SkillsMigrationGate({
   enabled,
   onDefer,
   onReadOnlyChange,
+  showReport = false,
 }: SkillsMigrationGateProps) {
   const { t } = useTranslation();
   const preflight = useSkillsMigrationPreflight({ enabled });
-  const reportQuery = useSkillsMigrationReport({ enabled });
   const applyMigration = useApplySkillsMigration();
   const acknowledgeReport = useAcknowledgeSkillsMigrationReport();
   const resumeMigration = useResumeSkillsMigration();
@@ -100,6 +101,9 @@ export function SkillsMigrationGate({
       preflight.data.pageMode === "writable" &&
       !deferred &&
       !executionBlocksSkills(effectiveExecution));
+  const reportQuery = useSkillsMigrationReport({
+    enabled: enabled && showReport && writable,
+  });
 
   useLayoutEffect(() => {
     onReadOnlyChange?.(!writable);
@@ -215,7 +219,7 @@ export function SkillsMigrationGate({
   if (writable) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        {report && (
+        {showReport && report && (
           <SkillsMigrationReportBanner
             report={report}
             acknowledgePending={acknowledgeReport.isPending}

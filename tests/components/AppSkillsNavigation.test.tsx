@@ -4,12 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import App from "@/App";
+import type { SkillsMigrationReport } from "@/lib/api/skills";
 
 const { Empty, migrationGateRenderMock, migrationGateState, platformState } =
   vi.hoisted(() => ({
     Empty: () => null,
     migrationGateRenderMock: vi.fn(),
-    migrationGateState: { readOnly: false },
+    migrationGateState: {
+      readOnly: false,
+      report: null as SkillsMigrationReport | null,
+    },
     platformState: { mac: true },
   }));
 
@@ -21,63 +25,61 @@ vi.mock("@/lib/platform", () => ({
   DRAG_REGION_STYLE: {},
 }));
 
-vi.mock("@/components/skills/SkillsMigrationGate", async () => {
-  const React = await import("react");
+vi.mock("@/hooks/useSkills", () => {
+  const idleMutation = () => ({
+    error: undefined,
+    isPending: false,
+    mutateAsync: vi.fn(),
+  });
   return {
-    SkillsMigrationGate: ({
-      children,
-      deferredToken,
-      enabled,
-      onDefer,
-      onReadOnlyChange,
-    }: React.PropsWithChildren<{
-      deferredToken?: string | null;
-      enabled: boolean;
-      onDefer?: (token: string | null) => void;
-      onReadOnlyChange?: (readOnly: boolean) => void;
-    }>) => {
-      migrationGateRenderMock({ deferredToken, enabled });
-      React.useEffect(() => {
-        onReadOnlyChange?.(enabled && migrationGateState.readOnly);
-        return () => onReadOnlyChange?.(false);
-      }, [enabled, onReadOnlyChange]);
-      const deferred = Boolean(deferredToken);
-      return enabled && migrationGateState.readOnly && !deferred
-        ? React.createElement(
-            "div",
-            { "data-testid": "migration-gate" },
-            React.createElement(
-              "span",
-              { "data-testid": "migration-deferred-token" },
-              deferredToken ?? "none",
-            ),
-            React.createElement(
-              "button",
-              { type: "button", onClick: () => onDefer?.("migration-plan-v1") },
-              "defer-migration",
-            ),
-          )
-        : enabled && migrationGateState.readOnly
-          ? React.createElement(
-              "div",
-              {
-                "aria-readonly": "true",
-                "data-testid": "migration-gate-deferred",
-              },
-              React.createElement(
-                "span",
-                { "data-testid": "migration-deferred-token" },
-                deferredToken ?? "none",
-              ),
-              React.createElement(
-                "button",
-                { type: "button", onClick: () => onDefer?.(null) },
-                "continue-migration-review",
-              ),
-              children,
-            )
-          : children;
+    useSkillsMigrationPreflight: ({ enabled }: { enabled: boolean }) => {
+      migrationGateRenderMock({ enabled });
+      const data = migrationGateState.readOnly
+        ? {
+            status: "decision_needed",
+            observationToken: "migration-plan-v1",
+            pageMode: "read_only",
+            inventory: [],
+            plan: [],
+            backup: {
+              required: false,
+              ready: true,
+              recoveryAvailable: false,
+              contentPaths: [],
+            },
+          }
+        : {
+            status: "not_required",
+            observationToken: "post-migration",
+            pageMode: "writable",
+            inventory: [],
+            plan: [],
+            backup: {
+              required: false,
+              ready: true,
+              recoveryAvailable: false,
+              contentPaths: [],
+            },
+          };
+      return {
+        data,
+        isError: false,
+        isFetching: false,
+        isLoading: false,
+        refetch: vi.fn().mockResolvedValue({ data }),
+      };
     },
+    useSkillsMigrationReport: () => ({
+      data: migrationGateState.report,
+      isError: false,
+      isFetching: false,
+    }),
+    useAcknowledgeSkillsMigrationReport: idleMutation,
+    useApplySkillsMigration: idleMutation,
+    useRestoreSkillsMigrationBackup: idleMutation,
+    useResumeSkillsMigration: idleMutation,
+    useRevealSkillsMigrationFinding: idleMutation,
+    useRevealSkillsMigrationPlanItem: idleMutation,
   };
 });
 
@@ -190,11 +192,9 @@ vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
       (
         {
           onOpenDiscovery,
-          onOpenGlobal,
           focusLibrarySkillId,
         }: {
           onOpenDiscovery?: () => void;
-          onOpenGlobal?: () => void;
           focusLibrarySkillId?: string | null;
         },
         ref,
@@ -212,12 +212,6 @@ vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
             { "data-testid": "library-focus" },
             focusLibrarySkillId ?? "none",
           ),
-          onOpenGlobal &&
-            React.createElement(
-              "button",
-              { type: "button", onClick: onOpenGlobal },
-              "open-global-from-library",
-            ),
         );
       },
     ),
@@ -360,6 +354,7 @@ vi.mock("@/components/BrandIcons", () => ({
 describe("App Skills navigation", () => {
   beforeEach(() => {
     migrationGateState.readOnly = false;
+    migrationGateState.report = null;
     migrationGateRenderMock.mockClear();
     platformState.mac = true;
     localStorage.setItem("cc-switch-last-view", "skills");
@@ -375,27 +370,29 @@ describe("App Skills navigation", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "skills.migration.title" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "skills.library.acquireZip" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "defer-migration" }));
-    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
-      "migration-plan-v1",
+    await user.click(
+      screen.getByRole("button", { name: "skills.migration.defer" }),
     );
     expect(screen.getByTestId("library-view")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "continue-migration-review" }),
+      screen.getByRole("button", {
+        name: "skills.migration.continueReview",
+      }),
     ).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "skills.global.title" }),
     );
-    expect(screen.getByTestId("migration-gate-deferred")).toBeInTheDocument();
-    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
-      "migration-plan-v1",
-    );
+    expect(
+      document.querySelector('[data-skills-migration-readonly="true"]'),
+    ).not.toBeNull();
     expect(await screen.findByTestId("global-view")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
@@ -403,7 +400,9 @@ describe("App Skills navigation", () => {
     expect(
       screen.getByRole("heading", { name: "skills.library.discoveryTitle" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("migration-gate-deferred")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-skills-migration-readonly="true"]'),
+    ).not.toBeNull();
     expect(await screen.findByTestId("discovery-view")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
@@ -413,9 +412,9 @@ describe("App Skills navigation", () => {
     expect(
       screen.getByRole("heading", { name: "skills.projects.title" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
-      "migration-plan-v1",
-    );
+    expect(
+      document.querySelector('[data-skills-migration-readonly="true"]'),
+    ).not.toBeNull();
     expect(await screen.findByTestId("projects-view")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
@@ -425,9 +424,9 @@ describe("App Skills navigation", () => {
     expect(
       screen.getByRole("heading", { name: "skills.activity.title" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("migration-deferred-token")).toHaveTextContent(
-      "migration-plan-v1",
-    );
+    expect(
+      document.querySelector('[data-skills-migration-readonly="true"]'),
+    ).not.toBeNull();
     expect(await screen.findByTestId("activity-view")).toBeInTheDocument();
   });
 
@@ -451,7 +450,9 @@ describe("App Skills navigation", () => {
         <App />
       </QueryClientProvider>,
     );
-    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "skills.migration.title" }),
+    ).toBeInTheDocument();
 
     first.unmount();
     render(
@@ -459,8 +460,74 @@ describe("App Skills navigation", () => {
         <App />
       </QueryClientProvider>,
     );
-    expect(screen.getByTestId("migration-gate")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "skills.migration.title" }),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("shows a completed migration report only in Skills Activity", async () => {
+    migrationGateState.report = {
+      runId: "migration-run-v1",
+      state: "completed",
+      createdAt: 1,
+      completedAt: 2,
+      observationToken: "post-migration",
+      summary: { performed: 203, preserved: 8, open: 0 },
+      findings: [],
+    };
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    const reportVisibility = {
+      library: Boolean(screen.queryByTestId("skills-migration-report-banner")),
+      global: false,
+      projects: false,
+      discovery: false,
+      activity: false,
+    };
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.global.title" }),
+    );
+    await screen.findByTestId("global-view");
+    reportVisibility.global = Boolean(
+      screen.queryByTestId("skills-migration-report-banner"),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.title" }),
+    );
+    await screen.findByTestId("projects-view");
+    reportVisibility.projects = Boolean(
+      screen.queryByTestId("skills-migration-report-banner"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "skills.discover" }));
+    await screen.findByTestId("discovery-view");
+    reportVisibility.discovery = Boolean(
+      screen.queryByTestId("skills-migration-report-banner"),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.activity.title" }),
+    );
+    await screen.findByTestId("activity-view");
+    reportVisibility.activity = Boolean(
+      screen.queryByTestId("skills-migration-report-banner"),
+    );
+
+    expect(reportVisibility).toEqual({
+      library: false,
+      global: false,
+      projects: false,
+      discovery: false,
+      activity: true,
+    });
   });
 
   it("resets the shared Skills scroll root when switching all five views", async () => {

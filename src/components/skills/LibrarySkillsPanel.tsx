@@ -83,7 +83,6 @@ import {
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
   onOpenProjects?: () => void;
-  onOpenGlobal?: () => void;
   /** Stable Library identity supplied by Activity deep links. */
   focusLibrarySkillId?: string | null;
   onInteractionBlockedChange?: (blocked: boolean) => void;
@@ -159,7 +158,6 @@ export const LibrarySkillsPanel = forwardRef<
     {
       onOpenDiscovery,
       onOpenProjects,
-      onOpenGlobal,
       focusLibrarySkillId,
       onInteractionBlockedChange,
       onNavigationBlockedChange,
@@ -636,34 +634,6 @@ export const LibrarySkillsPanel = forwardRef<
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={navigationBlocked}
-            onClick={onOpenDiscovery}
-          >
-            {t("skills.discover")}
-          </Button>
-          {onOpenProjects && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={navigationBlocked}
-              onClick={onOpenProjects}
-            >
-              {t("skills.projects.title")}
-            </Button>
-          )}
-          {onOpenGlobal && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={navigationBlocked}
-              onClick={onOpenGlobal}
-            >
-              {t("skills.global.title")}
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"

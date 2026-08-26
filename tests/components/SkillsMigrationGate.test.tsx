@@ -13,6 +13,7 @@ const {
   acknowledgeReportState,
   applyState,
   preflightState,
+  reportQueryEnabledMock,
   reportState,
   restoreState,
   resumeState,
@@ -31,6 +32,7 @@ const {
     isError: false,
     refetch: vi.fn(),
   },
+  reportQueryEnabledMock: vi.fn(),
   applyState: { isPending: false, mutateAsync: vi.fn() },
   reportState: {
     data: null as any,
@@ -53,7 +55,10 @@ vi.mock("@/hooks/useSkills", () => ({
   useResumeSkillsMigration: () => resumeState,
   useRestoreSkillsMigrationBackup: () => restoreState,
   useRevealSkillsMigrationPlanItem: () => revealState,
-  useSkillsMigrationReport: () => reportState,
+  useSkillsMigrationReport: ({ enabled }: { enabled: boolean }) => {
+    reportQueryEnabledMock(enabled);
+    return reportState;
+  },
   useAcknowledgeSkillsMigrationReport: () => acknowledgeReportState,
   useRevealSkillsMigrationFinding: () => revealFindingState,
 }));
@@ -76,6 +81,7 @@ describe("SkillsMigrationGate", () => {
     preflightState.isFetching = false;
     preflightState.isError = false;
     preflightState.refetch.mockReset().mockResolvedValue(undefined);
+    reportQueryEnabledMock.mockReset();
     reportState.data = null;
     reportState.isError = false;
     reportState.isFetching = false;
@@ -267,6 +273,37 @@ describe("SkillsMigrationGate", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not fetch or render a report unless the writable view opts in", () => {
+    preflightState.data = {
+      status: "not_required",
+      observationToken: "post-migration",
+      pageMode: "writable",
+      inventory: [],
+      plan: [],
+      backup: {
+        required: false,
+        ready: true,
+        recoveryAvailable: false,
+        contentPaths: [],
+      },
+    };
+    reportState.data = {
+      runId: "migration-run-opaque",
+      state: "completed",
+      createdAt: 1_700_000_000_000,
+      observationToken: "post-migration",
+      summary: { performed: 4, preserved: 0, open: 0 },
+      findings: [],
+    };
+
+    render(<SkillsMigrationGate enabled />);
+
+    expect(reportQueryEnabledMock).toHaveBeenLastCalledWith(false);
+    expect(
+      screen.queryByTestId("skills-migration-report-banner"),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps a completed report entry after acknowledgement while collapsing the reminder", async () => {
     preflightState.data = {
       status: "not_required",
@@ -307,7 +344,7 @@ describe("SkillsMigrationGate", () => {
     revealFindingState.mutateAsync.mockResolvedValueOnce(true);
     const user = userEvent.setup();
     const view = render(
-      <SkillsMigrationGate enabled>
+      <SkillsMigrationGate enabled showReport>
         <button type="button">mutable-skills-action</button>
       </SkillsMigrationGate>,
     );
@@ -334,13 +371,14 @@ describe("SkillsMigrationGate", () => {
       acknowledgedAt: 1_700_000_000_200,
     };
     view.rerender(
-      <SkillsMigrationGate enabled>
+      <SkillsMigrationGate enabled showReport>
         <button type="button">mutable-skills-action</button>
       </SkillsMigrationGate>,
     );
     expect(
       screen.getByTestId("skills-migration-report-banner"),
     ).toBeInTheDocument();
+    expect(reportQueryEnabledMock).toHaveBeenLastCalledWith(true);
     expect(
       screen.queryByRole("button", {
         name: "skills.migration.report.acknowledge",
@@ -407,7 +445,7 @@ describe("SkillsMigrationGate", () => {
       },
     };
     const user = userEvent.setup();
-    render(<SkillsMigrationGate enabled />);
+    render(<SkillsMigrationGate enabled showReport />);
 
     expect(
       screen.getByTestId("skills-migration-report-open"),
@@ -455,7 +493,7 @@ describe("SkillsMigrationGate", () => {
     };
     restoreState.mutateAsync.mockResolvedValueOnce(execution("restored"));
     const user = userEvent.setup();
-    render(<SkillsMigrationGate enabled />);
+    render(<SkillsMigrationGate enabled showReport />);
 
     await user.click(
       screen.getByRole("button", { name: "skills.migration.report.details" }),

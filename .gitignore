@@ -10,6 +10,7 @@ release/
 CLAUDE.md
 GEMINI.md
 /.claude
+/.agents/skills/
 /.codex
 /.gemini
 /.cc-switch

@@ -1095,7 +1095,6 @@ function App() {
               ref={librarySkillsPanelRef}
               onOpenDiscovery={handleOpenSkillsDiscovery}
               onOpenProjects={() => handleOpenSkillsProjects()}
-              onOpenGlobal={handleOpenSkillsGlobal}
               focusLibrarySkillId={skillsLibraryFocusId}
               onInteractionBlockedChange={setSkillsManagementBusy}
               onNavigationBlockedChange={setSkillsNavigationBusy}
@@ -1275,6 +1274,7 @@ function App() {
         enabled
         onDefer={setSkillsMigrationDeferredToken}
         onReadOnlyChange={setSkillsMigrationReadOnly}
+        showReport={currentView === "skillsActivity"}
       >
         <SkillsAccessBoundary className="h-full min-h-0">
           {animatedContent}

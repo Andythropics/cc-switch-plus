@@ -1,5 +1,11 @@
 import { createRef } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -316,35 +322,26 @@ describe("LibrarySkillsPanel", () => {
     ).toBeDisabled();
   });
 
-  it("blocks local navigation while a batch dialog is open", async () => {
-    Element.prototype.scrollIntoView = vi.fn();
+  it("leaves Skills navigation to the shared header", () => {
     render(
-      <LibrarySkillsPanel
-        onOpenDiscovery={vi.fn()}
-        onOpenProjects={vi.fn()}
-        onOpenGlobal={vi.fn()}
-      />,
-    );
-    const user = userEvent.setup();
-    await user.click(
-      screen.getByRole("button", { name: "skills.batch.deploy" }),
+      <LibrarySkillsPanel onOpenDiscovery={vi.fn()} onOpenProjects={vi.fn()} />,
     );
 
     expect(
-      screen.getByRole("button", { name: "skills.discover", hidden: true }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "skills.discover" }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", {
-        name: "skills.projects.title",
-        hidden: true,
-      }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "skills.projects.title" }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", {
-        name: "skills.global.title",
-        hidden: true,
-      }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "skills.global.title" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.batch.deploy" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.refresh" }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces Project Workspace query failures alongside Library state", () => {
