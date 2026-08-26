@@ -2809,6 +2809,7 @@
       "deployments": "プロジェクトデプロイ",
       "addSkills": "Skill を追加",
       "noLibrarySkills": "デプロイする前にライブラリへスキルを取得してください。",
+      "noDeployedSkills": "このプロジェクトワークスペースには Skill がデプロイされていません。",
       "deploy": "デプロイ",
       "undeploy": "解除",
       "deploySuccess": "プロジェクトワークスペースへデプロイしました",

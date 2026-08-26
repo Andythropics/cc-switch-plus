@@ -2809,6 +2809,7 @@
       "deployments": "项目部署",
       "addSkills": "添加 Skills",
       "noLibrarySkills": "请先在技能库中获取技能。",
+      "noDeployedSkills": "此项目工作区尚未部署任何 Skills。",
       "deploy": "部署",
       "undeploy": "取消部署",
       "deploySuccess": "技能已部署到项目工作区",

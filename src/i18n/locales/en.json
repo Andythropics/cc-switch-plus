@@ -2812,6 +2812,7 @@
       "deployments": "Project deployments",
       "addSkills": "Add Skills",
       "noLibrarySkills": "Acquire a Skill in the Library before deploying it.",
+      "noDeployedSkills": "No Skills are deployed to this Project Workspace.",
       "deploy": "Deploy",
       "undeploy": "Undeploy",
       "deploySuccess": "Skill deployed to Project Workspace",

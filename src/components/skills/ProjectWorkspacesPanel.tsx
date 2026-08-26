@@ -125,9 +125,17 @@ function ProjectWorkspaceDeployments({
   const deploymentError = claudeError || codexError;
   const deploymentFetching = claudeFetching || codexFetching;
   const deploymentBusy = apply.isPending || batchDialogOpen || recoveryBusy;
+  const deployedSkillIds = new Set(
+    [...(claudeState?.items ?? []), ...(codexState?.items ?? [])]
+      .filter((item) => item.desired)
+      .map((item) => item.librarySkillId),
+  );
+  const deployedSkills = skills.filter((skill) =>
+    deployedSkillIds.has(skill.id),
+  );
   const progressiveSkills = useProgressiveSkillList(
-    skills,
-    `${workspace.id}:${skills.length}`,
+    deployedSkills,
+    `${workspace.id}:${deployedSkills.length}`,
   );
 
   useEffect(() => {
@@ -257,7 +265,7 @@ function ProjectWorkspaceDeployments({
               !["active", "archived"].includes(workspace.lifecycle) ||
               deploymentFetching ||
               apply.isPending ||
-              skills.length === 0
+              deployedSkills.length === 0
             }
             onClick={() => {
               setBatchAction("undeploy");
@@ -284,6 +292,10 @@ function ProjectWorkspaceDeployments({
       {skills.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {t("skills.projects.noLibrarySkills")}
+        </p>
+      ) : deployedSkills.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {t("skills.projects.noDeployedSkills")}
         </p>
       ) : (
         progressiveSkills.visibleItems.map((skill) => (

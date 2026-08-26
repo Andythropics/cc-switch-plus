@@ -79,6 +79,14 @@ const librarySkill: LibrarySkill = {
   updatedAt: 1,
 };
 
+const undeployedLibrarySkill: LibrarySkill = {
+  ...librarySkill,
+  id: "library-undeployed",
+  directory: "unused-skill",
+  displayName: "Unused skill",
+};
+const librarySkills = [librarySkill];
+
 vi.mock("@/hooks/useSkills", () => ({
   useProjectWorkspaces: () => ({
     data: workspaceRows.length ? workspaceRows : [workspace],
@@ -125,7 +133,7 @@ vi.mock("@/hooks/useSkills", () => ({
     isPending: false,
   }),
   useLibrarySkills: () => ({
-    data: [librarySkill],
+    data: librarySkills,
     isLoading: false,
     isError: queryState.libraryError,
     isFetching: queryState.projectFetching,
@@ -208,6 +216,8 @@ describe("ProjectWorkspacesPanel", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     workspaceRows.length = 0;
+    librarySkills.length = 0;
+    librarySkills.push(librarySkill);
     queryState.projectError = false;
     queryState.libraryError = false;
     queryState.projectFetching = false;
@@ -220,7 +230,41 @@ describe("ProjectWorkspacesPanel", () => {
     librarySkill.compatibility.codex = { compatible: true, issues: [] };
   });
 
+  it("shows only skills deployed to the selected project workspace", () => {
+    librarySkills.push(undeployedLibrarySkill);
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-1" },
+        observed: { state: "correct_link" },
+      },
+    ];
+
+    render(<ProjectWorkspacesPanel />);
+
+    expect(screen.getByText("Careful review")).toBeInTheDocument();
+    expect(screen.queryByText("Unused skill")).not.toBeInTheDocument();
+  });
+
   it("keeps Claude and Codex project actions independent at the apply seam", async () => {
+    librarySkills.push(undeployedLibrarySkill);
+    claudeState.items = [
+      {
+        librarySkillId: "library-undeployed",
+        status: "in_sync",
+        desired: { id: "desired-claude" },
+        observed: { state: "correct_link" },
+      },
+    ];
+    codexState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-codex" },
+        observed: { state: "correct_link" },
+      },
+    ];
     render(<ProjectWorkspacesPanel />);
     expect(screen.getByText("skills.recovery.title")).toBeInTheDocument();
     const user = userEvent.setup();
@@ -249,7 +293,7 @@ describe("ProjectWorkspacesPanel", () => {
       intents: [
         {
           action: "deploy",
-          librarySkillId: "library-1",
+          librarySkillId: "library-undeployed",
           target: {
             consumer: "codex",
             workspace: "project",
@@ -469,18 +513,29 @@ describe("ProjectWorkspacesPanel", () => {
     );
   });
 
-  it("disables only an incompatible consumer while leaving the other deployable", () => {
+  it("disables an incompatible undeployed consumer on a visible project skill", () => {
     librarySkill.compatibility.codex = {
       compatible: false,
       issues: ["Codex does not support this skill"],
     };
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-claude" },
+        observed: { state: "correct_link" },
+      },
+    ];
     render(<ProjectWorkspacesPanel />);
 
     const deployButtons = screen.getAllByRole("button", {
       name: "skills.projects.deploy",
     });
-    expect(deployButtons[0]).toBeEnabled();
-    expect(deployButtons[1]).toBeDisabled();
+    expect(deployButtons).toHaveLength(1);
+    expect(deployButtons[0]).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.projects.undeploy" }),
+    ).toBeEnabled();
     expect(
       screen.getByText("Codex does not support this skill"),
     ).toBeInTheDocument();
@@ -658,13 +713,28 @@ describe("ProjectWorkspacesPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("blocks Deploy and Repair while Archived or Unavailable inspection is pending", async () => {
+  it("keeps lifecycle-blocked actions restricted for visible Archived and Unavailable skills", async () => {
     workspaceRows.push(unavailableWorkspace);
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "drift",
+        desired: { id: "desired-lifecycle" },
+        observed: { state: "missing" },
+        observationToken: "lifecycle-token",
+      },
+    ];
     render(<ProjectWorkspacesPanel />);
 
-    screen
-      .getAllByRole("button", { name: "skills.projects.deploy" })
-      .forEach((button) => expect(button).toBeDisabled());
+    expect(
+      screen.getByRole("button", { name: "skills.projects.deploy" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.projects.undeploy" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.repair" }),
+    ).not.toBeInTheDocument();
 
     // Archived rows are hidden from the active list but remain discoverable.
     workspaceRows.length = 0;
@@ -679,9 +749,20 @@ describe("ProjectWorkspacesPanel", () => {
       })[0],
     );
     await user.click(screen.getByText("Archived workspace"));
-    screen
-      .getAllByRole("button", { name: "skills.projects.deploy" })
-      .forEach((button) => expect(button).toBeDisabled());
+    const deployButtons = screen.getAllByRole("button", {
+      name: "skills.projects.deploy",
+    });
+    expect(deployButtons).toHaveLength(2);
+    deployButtons.forEach((button) => expect(button).toBeDisabled());
+    const undeployButtons = screen.getAllByRole("button", {
+      name: "skills.projects.undeploy",
+    });
+    expect(undeployButtons).toHaveLength(2);
+    expect(undeployButtons[0]).toBeDisabled();
+    expect(undeployButtons[1]).toBeEnabled();
+    expect(
+      screen.queryAllByRole("button", { name: "skills.library.repair" }),
+    ).toHaveLength(0);
   });
 
   it("keeps Archived cleanup actions reachable even while filesystem actions are blocked", async () => {
