@@ -242,7 +242,6 @@ export function GlobalSkillsPanel({
         <DeploymentStatusBadge
           status={deployment?.status ?? "not_deployed"}
           observed={deployment?.observed}
-          desired={Boolean(deployment?.desired)}
         />
         <DeploymentResolutionActions
           skill={skill}

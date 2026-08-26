@@ -437,7 +437,6 @@ export function BatchDeploymentDialog({
                               <DeploymentStatusBadge
                                 status={inspection.status}
                                 observed={inspection.observed}
-                                desired={Boolean(inspection.desired)}
                               />
                             ) : null;
                           })()}

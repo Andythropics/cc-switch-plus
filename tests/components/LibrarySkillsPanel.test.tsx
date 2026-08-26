@@ -138,6 +138,22 @@ describe("LibrarySkillsPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("groups search and Library actions in one responsive toolbar", () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const toolbar = screen.getByRole("toolbar");
+
+    expect(toolbar).toContainElement(
+      screen.getByPlaceholderText("skills.searchPlaceholder"),
+    );
+    expect(toolbar).toContainElement(
+      screen.getByRole("button", { name: "skills.batch.deploy" }),
+    );
+    expect(toolbar).toContainElement(
+      screen.getByRole("button", { name: "skills.refresh" }),
+    );
+  });
+
   it("wraps long dynamic Skill metadata without widening the panel", () => {
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
@@ -404,8 +420,10 @@ describe("LibrarySkillsPanel", () => {
     view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
     expect(
-      await screen.findByText("skills.library.deploymentStatus.drift"),
-    ).toBeInTheDocument();
+      await screen.findAllByText(
+        "skills.library.deploymentStatus.not_deployed",
+      ),
+    ).not.toHaveLength(0);
     expect(
       screen.getByRole("checkbox", {
         name: "Careful review skills.library.consumerClaude",

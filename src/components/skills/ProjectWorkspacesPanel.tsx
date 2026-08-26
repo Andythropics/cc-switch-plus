@@ -204,7 +204,6 @@ function ProjectWorkspaceDeployments({
           <DeploymentStatusBadge
             status={status}
             observed={deployment?.observed}
-            desired={Boolean(deployment?.desired)}
           />
         </div>
         <DeploymentResolutionActions

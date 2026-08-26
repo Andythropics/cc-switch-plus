@@ -568,7 +568,6 @@ export const LibrarySkillsPanel = forwardRef<
           <DeploymentStatusBadge
             status={status}
             observed={deployment?.observed}
-            desired={Boolean(deployment?.desired)}
             className="flex-1"
           />
           <DeploymentResolutionActions
@@ -633,10 +632,25 @@ export const LibrarySkillsPanel = forwardRef<
 
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
+        <div
+          className="flex flex-wrap items-center gap-3 border-b px-5 py-3"
+          role="toolbar"
+        >
+          <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("skills.searchPlaceholder")}
+                className="pl-9"
+              />
+            </div>
+          </div>
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             disabled={blocked || isRefreshing || skills.length === 0}
             onClick={() => setBatchDialogOpen(true)}
           >
@@ -645,6 +659,7 @@ export const LibrarySkillsPanel = forwardRef<
           <Button
             variant="ghost"
             size="icon"
+            className="shrink-0"
             aria-label={t("skills.refresh")}
             title={t("skills.refresh")}
             disabled={blocked || isRefreshing}
@@ -670,18 +685,6 @@ export const LibrarySkillsPanel = forwardRef<
             {t("skills.global.loadError")}
           </p>
         )}
-
-        <div className="px-5 py-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("skills.searchPlaceholder")}
-              className="pl-9"
-            />
-          </div>
-        </div>
 
         <ScrollArea className="min-h-0 flex-1 px-5 pb-5">
           {isLoading ? (
