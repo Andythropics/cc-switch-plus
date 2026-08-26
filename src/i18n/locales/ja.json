@@ -2515,6 +2515,7 @@
       "resolutionCancel": "キャンセル",
       "incompatibleConsumer": "このスキルは{{consumer}}と互換性がありません",
       "deploymentStatus": {
+        "deployed": "デプロイ済み",
         "not_deployed": "未デプロイ",
         "in_sync": "同期済み",
         "drift": "ドリフト",

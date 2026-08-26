@@ -2516,6 +2516,7 @@
       "resolutionCancel": "取消",
       "incompatibleConsumer": "此技能與 {{consumer}} 不相容",
       "deploymentStatus": {
+        "deployed": "已部署",
         "not_deployed": "未部署",
         "in_sync": "已同步",
         "drift": "漂移",
