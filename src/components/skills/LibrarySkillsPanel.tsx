@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
   FileArchive,
+  FolderOpen,
   Library,
   Loader2,
   Pencil,
@@ -60,6 +61,8 @@ import type {
   DeploymentConsumer,
   DeploymentIntent,
   DeploymentItemResult,
+  DeploymentMutationOutcome,
+  DeploymentTarget,
   LibrarySkill,
   LibrarySkillDeletionInspection,
   LibrarySkillUpdateCheckResult,
@@ -233,6 +236,7 @@ export const LibrarySkillsPanel = forwardRef<
     const checkLibraryUpdate = useCheckLibrarySkillUpdate();
     const applyLibraryUpdate = useApplyLibrarySkillUpdate();
     const inspectLibraryDeletion = useInspectLibrarySkillDeletion();
+    const inspectDeployedProjects = useInspectLibrarySkillDeletion();
     const deleteLibrary = useDeleteLibrarySkill();
     const refreshDeployments = useRefreshSkillDeployments();
     const [query, setQuery] = useState("");
@@ -273,6 +277,16 @@ export const LibrarySkillsPanel = forwardRef<
       message?: string;
       items: DeploymentItemResult[];
     } | null>(null);
+    const [deployedProjectsDialog, setDeployedProjectsDialog] = useState<{
+      skill: LibrarySkill;
+      inspection: LibrarySkillDeletionInspection | null;
+      error: { kind: "load" | "action"; details: string } | null;
+      result: {
+        target: DeploymentTarget;
+        outcome: DeploymentMutationOutcome;
+        message?: string;
+      } | null;
+    } | null>(null);
     const [batchDialogOpen, setBatchDialogOpen] = useState(false);
     const editingDirty = Boolean(
       editing &&
@@ -290,12 +304,16 @@ export const LibrarySkillsPanel = forwardRef<
       checkLibraryUpdate.isPending ||
       applyLibraryUpdate.isPending ||
       inspectLibraryDeletion.isPending ||
+      inspectDeployedProjects.isPending ||
       deleteLibrary.isPending ||
       editing !== null ||
       zipCollision !== null ||
       updateConfirmation !== null;
     const navigationBlocked =
-      blocked || deletionInspection !== null || batchDialogOpen;
+      blocked ||
+      deletionInspection !== null ||
+      deployedProjectsDialog !== null ||
+      batchDialogOpen;
 
     useEffect(() => {
       onInteractionBlockedChange?.(navigationBlocked);
@@ -444,6 +462,34 @@ export const LibrarySkillsPanel = forwardRef<
       }
     };
 
+    const inspectDeployedProjectsForSkill = async (skill: LibrarySkill) => {
+      setDeployedProjectsDialog({
+        skill,
+        inspection: null,
+        error: null,
+        result: null,
+      });
+      try {
+        const inspection = await inspectDeployedProjects.mutateAsync(skill.id);
+        setDeployedProjectsDialog((current) =>
+          current?.skill.id === skill.id
+            ? { ...current, inspection, error: null }
+            : current,
+        );
+      } catch (error) {
+        setDeployedProjectsDialog((current) =>
+          current?.skill.id === skill.id
+            ? {
+                ...current,
+                inspection: null,
+                error: { kind: "load", details: String(error) },
+              }
+            : current,
+        );
+        toast.error(t("skills.library.deployedProjects.loadError"));
+      }
+    };
+
     const submitLibraryDeletion = async () => {
       if (!deletionInspection) return;
       try {
@@ -511,6 +557,68 @@ export const LibrarySkillsPanel = forwardRef<
         toast.success(t(successKey));
       } catch (error) {
         showSkillErrorToast(t, "skills.library.deploymentFailed", error);
+      }
+    };
+
+    const applyProjectDeployment = async (intent: DeploymentIntent) => {
+      try {
+        const result = await applyDeployments.mutateAsync({
+          intents: [intent],
+        });
+        const item = result.items[0];
+        if (!item) {
+          throw new Error(t("skills.library.deployedProjects.actionFailed"));
+        }
+        const label = t(deploymentOutcomeLabelKeys[item.outcome]);
+        setDeployedProjectsDialog((current) =>
+          current?.skill.id === intent.librarySkillId
+            ? {
+                ...current,
+                result: {
+                  target: intent.target,
+                  outcome: item.outcome,
+                  message: item.message,
+                },
+              }
+            : current,
+        );
+        if (!successfulDeploymentOutcomes.has(item.outcome)) {
+          toast.error(label, skillDiagnosticToastOptions(item.message));
+          return;
+        }
+        if (item.message) {
+          toast.success(label, skillDiagnosticToastOptions(item.message));
+        } else {
+          toast.success(label);
+        }
+
+        await Promise.all([
+          refreshDeployments(),
+          refetchLibrary(),
+          refetchProjects(),
+        ]);
+        const refreshed = await inspectDeployedProjects.mutateAsync(
+          intent.librarySkillId,
+        );
+        setDeployedProjectsDialog((current) =>
+          current?.skill.id === intent.librarySkillId
+            ? { ...current, inspection: refreshed, error: null }
+            : current,
+        );
+      } catch (error) {
+        setDeployedProjectsDialog((current) =>
+          current?.skill.id === intent.librarySkillId
+            ? {
+                ...current,
+                error: { kind: "action", details: String(error) },
+              }
+            : current,
+        );
+        showSkillErrorToast(
+          t,
+          "skills.library.deployedProjects.actionFailed",
+          error,
+        );
       }
     };
 
@@ -611,6 +719,10 @@ export const LibrarySkillsPanel = forwardRef<
       );
     }, [query, skills]);
     const progressiveSkills = useProgressiveSkillList(filtered, query);
+    const deployedProjectTargets =
+      deployedProjectsDialog?.inspection?.targets.filter(
+        ({ inspection }) => inspection.target.workspace === "project",
+      ) ?? [];
 
     useEffect(() => {
       if (!focusLibrarySkillId) {
@@ -767,6 +879,19 @@ export const LibrarySkillsPanel = forwardRef<
                         />
                       </div>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t("skills.library.deployedProjects.action")}
+                      title={t("skills.library.deployedProjects.action")}
+                      disabled={blocked}
+                      onClick={() =>
+                        void inspectDeployedProjectsForSkill(skill)
+                      }
+                    >
+                      <FolderOpen className="mr-1.5 h-4 w-4" />
+                      {t("skills.library.deployedProjects.action")}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -992,6 +1117,197 @@ export const LibrarySkillsPanel = forwardRef<
           isPending={applyDeployments.isPending || isRefreshing}
           onApply={applyBatch}
         />
+
+        <Dialog
+          open={deployedProjectsDialog !== null}
+          onOpenChange={(open) => {
+            if (
+              !open &&
+              !inspectDeployedProjects.isPending &&
+              !applyDeployments.isPending
+            ) {
+              setDeployedProjectsDialog(null);
+            }
+          }}
+        >
+          <SkillsDialogContent
+            closeBlocked={
+              inspectDeployedProjects.isPending || applyDeployments.isPending
+            }
+          >
+            <DialogHeader>
+              <DialogTitle>
+                {t("skills.library.deployedProjects.title")}
+              </DialogTitle>
+              <DialogDescription>
+                {t("skills.library.deployedProjects.description")}
+              </DialogDescription>
+            </DialogHeader>
+            {deployedProjectsDialog && (
+              <DialogBody className="space-y-3 text-sm">
+                <p className="break-words">
+                  {deployedProjectsDialog.skill.displayName} (
+                  <code className="break-all">
+                    {deployedProjectsDialog.skill.directory}
+                  </code>
+                  )
+                </p>
+                {inspectDeployedProjects.isPending &&
+                  !deployedProjectsDialog.inspection && (
+                    <p role="status" className="text-muted-foreground">
+                      {t("skills.library.deployedProjects.loading")}
+                    </p>
+                  )}
+                {deployedProjectsDialog.error && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive"
+                  >
+                    <p>
+                      {t(
+                        deployedProjectsDialog.error.kind === "load"
+                          ? "skills.library.deployedProjects.loadError"
+                          : "skills.library.deployedProjects.actionFailed",
+                      )}
+                    </p>
+                    <SkillTechnicalDetails
+                      details={deployedProjectsDialog.error.details}
+                    />
+                  </div>
+                )}
+                {deployedProjectsDialog.inspection &&
+                  deployedProjectsDialog.error?.kind !== "load" &&
+                  (deployedProjectTargets.length === 0 ? (
+                    <p className="text-muted-foreground">
+                      {t("skills.library.deployedProjects.empty")}
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {deployedProjectTargets.map(
+                        ({ inspection: deployment }, index) => {
+                          const workspace = projects.find(
+                            (project) =>
+                              project.id === deployment.target.workspaceId,
+                          );
+                          const workspaceId =
+                            deployment.target.workspaceId ?? "";
+                          const workspaceName =
+                            workspace?.displayName ??
+                            t(
+                              "skills.library.deployedProjects.unknownWorkspace",
+                              {
+                                workspaceId,
+                              },
+                            );
+                          const workspaceLifecycle =
+                            workspace?.lifecycle ?? "unavailable";
+                          const consumerLabel = t(
+                            deployment.target.consumer === "claude"
+                              ? "skills.library.consumerClaude"
+                              : "skills.library.consumerCodex",
+                          );
+                          return (
+                            <div
+                              key={`${deployment.target.consumer}-${deployment.target.workspaceId ?? "unknown"}-${index}`}
+                              className="space-y-2 rounded-md border p-3"
+                              data-testid={`deployed-project-row-${deployment.target.consumer}-${workspaceId}`}
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-medium">{workspaceName}</p>
+                                  <p className="break-all text-xs text-muted-foreground">
+                                    {workspace?.rootPath ?? workspaceId}
+                                  </p>
+                                </div>
+                                <Badge variant="outline">{consumerLabel}</Badge>
+                              </div>
+                              <DeploymentStatusBadge
+                                status={deployment.status}
+                                observed={deployment.observed}
+                                desired={Boolean(deployment.desired)}
+                              />
+                              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                <dt>{t("skills.library.targetPath")}</dt>
+                                <dd className="break-all font-mono">
+                                  {deployment.observed.targetPath}
+                                </dd>
+                                {deployment.observed.actualTarget && (
+                                  <>
+                                    <dt>{t("skills.library.actualTarget")}</dt>
+                                    <dd className="break-all font-mono">
+                                      {deployment.observed.actualTarget}
+                                    </dd>
+                                  </>
+                                )}
+                                {deployment.observed.expectedTarget && (
+                                  <>
+                                    <dt>
+                                      {t("skills.library.expectedTarget")}
+                                    </dt>
+                                    <dd className="break-all font-mono">
+                                      {deployment.observed.expectedTarget}
+                                    </dd>
+                                  </>
+                                )}
+                              </dl>
+                              <div className="flex flex-wrap justify-end gap-2 border-t pt-2">
+                                <DeploymentResolutionActions
+                                  skill={deployedProjectsDialog.skill}
+                                  target={deployment.target}
+                                  deployment={deployment}
+                                  compatible={
+                                    deployedProjectsDialog.skill.compatibility[
+                                      deployment.target.consumer
+                                    ].compatible
+                                  }
+                                  workspaceLifecycle={workspaceLifecycle}
+                                  disabled={blocked}
+                                  isPending={applyDeployments.isPending}
+                                  deployLabel={t("skills.projects.deploy")}
+                                  undeployLabel={t("skills.projects.undeploy")}
+                                  onApply={applyProjectDeployment}
+                                />
+                              </div>
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
+                  ))}
+                {deployedProjectsDialog.result && (
+                  <div
+                    className="rounded-md border bg-muted/40 p-3 text-xs"
+                    data-testid="deployed-project-action-result"
+                  >
+                    <p className="font-medium">
+                      {t("skills.library.deployedProjects.outcome")}:{" "}
+                      {t(
+                        deploymentOutcomeLabelKeys[
+                          deployedProjectsDialog.result.outcome
+                        ],
+                      )}
+                    </p>
+                    <SkillTechnicalDetails
+                      details={deployedProjectsDialog.result.message}
+                    />
+                  </div>
+                )}
+              </DialogBody>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                disabled={
+                  inspectDeployedProjects.isPending ||
+                  applyDeployments.isPending
+                }
+                onClick={() => setDeployedProjectsDialog(null)}
+              >
+                {t("common.close")}
+              </Button>
+            </DialogFooter>
+          </SkillsDialogContent>
+        </Dialog>
 
         <Dialog
           open={updateConfirmation !== null}
