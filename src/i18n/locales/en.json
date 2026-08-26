@@ -2544,6 +2544,17 @@
       "targetPath": "Target",
       "expectedTarget": "Expected",
       "actualTarget": "Observed target",
+      "deployedProjects": {
+        "action": "Deployed projects",
+        "title": "Deployed projects",
+        "description": "View and manage every recorded project workspace link for this skill.",
+        "loading": "Inspecting deployed projects...",
+        "loadError": "Could not inspect deployed projects",
+        "actionFailed": "Could not update this project deployment",
+        "empty": "This skill is not deployed to any project workspace.",
+        "unknownWorkspace": "Unknown project ({{workspaceId}})",
+        "outcome": "Result"
+      },
       "collisionTitle": "Directory already exists",
       "collisionDescription": "A skill with the directory \"{{directory}}\" is already in your library. Choose a different directory to acquire this skill.",
       "update": {

@@ -2544,6 +2544,17 @@
       "targetPath": "目标",
       "expectedTarget": "期望",
       "actualTarget": "观测目标",
+      "deployedProjects": {
+        "action": "已部署项目",
+        "title": "已部署项目",
+        "description": "查看并管理此技能在所有已记录项目工作区中的链接。",
+        "loading": "正在检查已部署项目...",
+        "loadError": "无法检查已部署项目",
+        "actionFailed": "无法更新此项目部署",
+        "empty": "此技能尚未部署到任何项目工作区。",
+        "unknownWorkspace": "未知项目（{{workspaceId}}）",
+        "outcome": "操作结果"
+      },
       "collisionTitle": "目录已存在",
       "collisionDescription": "技能库中已存在目录为“{{directory}}”的技能。请选择其他目录以获取此技能。",
       "update": {

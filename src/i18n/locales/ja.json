@@ -2544,6 +2544,17 @@
       "targetPath": "ターゲット",
       "expectedTarget": "期待値",
       "actualTarget": "観測ターゲット",
+      "deployedProjects": {
+        "action": "デプロイ済みプロジェクト",
+        "title": "デプロイ済みプロジェクト",
+        "description": "このスキルについて記録されているすべてのプロジェクトワークスペースのリンクを表示・管理します。",
+        "loading": "デプロイ済みプロジェクトを確認しています...",
+        "loadError": "デプロイ済みプロジェクトを確認できませんでした",
+        "actionFailed": "このプロジェクトのデプロイを更新できませんでした",
+        "empty": "このスキルはどのプロジェクトワークスペースにもデプロイされていません。",
+        "unknownWorkspace": "不明なプロジェクト（{{workspaceId}}）",
+        "outcome": "結果"
+      },
       "collisionTitle": "ディレクトリが既に存在します",
       "collisionDescription": "ディレクトリ「{{directory}}」のスキルは、既にライブラリにあります。別のディレクトリを選択して取得してください。",
       "update": {

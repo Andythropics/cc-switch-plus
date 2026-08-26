@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -351,6 +352,269 @@ describe("LibrarySkillsPanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "skills.global.loadError",
     );
+  });
+
+  it("opens the deployed projects dialog and lists every project consumer link", async () => {
+    projectRows.push(
+      {
+        id: "workspace-alpha",
+        displayName: "Alpha project",
+        rootPath: "/projects/alpha",
+        rootKind: "git_repository",
+        lifecycle: "active",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "workspace-beta",
+        displayName: "Beta project",
+        rootPath: "/projects/beta",
+        rootKind: "git_worktree",
+        lifecycle: "active",
+        createdAt: 2,
+        updatedAt: 2,
+      },
+    );
+    inspectLibraryDeletionMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      observationToken: "projects-observation",
+      blocked: false,
+      targets: [
+        {
+          actionRequired: "remove_expected_link",
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: { consumer: "claude", workspace: "global" },
+            desired: { id: "global-deployment" },
+            observed: {
+              state: "correct_link",
+              targetPath: "/global/.claude/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+              actualTarget: "/library/review-skill",
+            },
+            observationToken: "global-observation",
+            status: "in_sync",
+          },
+        },
+        {
+          actionRequired: "remove_expected_link",
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: {
+              consumer: "claude",
+              workspace: "project",
+              workspaceId: "workspace-alpha",
+            },
+            desired: { id: "alpha-claude-deployment" },
+            observed: {
+              state: "correct_link",
+              targetPath: "/projects/alpha/.claude/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+              actualTarget: "/library/review-skill-alpha",
+            },
+            observationToken: "alpha-observation",
+            status: "in_sync",
+          },
+        },
+        {
+          actionRequired: "remove_expected_link",
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: {
+              consumer: "codex",
+              workspace: "project",
+              workspaceId: "workspace-beta",
+            },
+            desired: { id: "beta-codex-deployment" },
+            observed: {
+              state: "correct_link",
+              targetPath: "/projects/beta/.agents/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+              actualTarget: "/library/review-skill-beta",
+            },
+            observationToken: "beta-observation",
+            status: "in_sync",
+          },
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.deployedProjects.action",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(inspectLibraryDeletionMock).toHaveBeenCalledWith("library-1"),
+    );
+    const alphaRow = await screen.findByTestId(
+      "deployed-project-row-claude-workspace-alpha",
+    );
+    const betaRow = screen.getByTestId(
+      "deployed-project-row-codex-workspace-beta",
+    );
+    expect(alphaRow).toHaveTextContent("Alpha project");
+    expect(alphaRow).toHaveTextContent("/projects/alpha");
+    expect(alphaRow).toHaveTextContent("skills.library.consumerClaude");
+    expect(alphaRow).toHaveTextContent(
+      "/projects/alpha/.claude/skills/review-skill",
+    );
+    expect(alphaRow).toHaveTextContent("/library/review-skill-alpha");
+    expect(betaRow).toHaveTextContent("Beta project");
+    expect(betaRow).toHaveTextContent("/projects/beta");
+    expect(betaRow).toHaveTextContent("skills.library.consumerCodex");
+    expect(betaRow).toHaveTextContent(
+      "/projects/beta/.agents/skills/review-skill",
+    );
+    expect(
+      screen.queryByText("/global/.claude/skills/review-skill"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("confirms an exact project target undeploy and refreshes the dialog", async () => {
+    projectRows.push({
+      id: "workspace-alpha",
+      displayName: "Alpha project",
+      rootPath: "/projects/alpha",
+      rootKind: "git_repository",
+      lifecycle: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    inspectLibraryDeletionMock
+      .mockResolvedValueOnce({
+        librarySkillId: "library-1",
+        observationToken: "projects-observation",
+        blocked: false,
+        targets: [
+          {
+            actionRequired: "remove_expected_link",
+            inspection: {
+              librarySkillId: "library-1",
+              libraryDirectory: "review-skill",
+              target: {
+                consumer: "codex",
+                workspace: "project",
+                workspaceId: "workspace-alpha",
+              },
+              desired: { id: "alpha-codex-deployment" },
+              observed: {
+                state: "correct_link",
+                targetPath: "/projects/alpha/.agents/skills/review-skill",
+                expectedTarget: "/library/review-skill",
+                actualTarget: "/library/review-skill",
+              },
+              observationToken: "alpha-observation",
+              status: "in_sync",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        librarySkillId: "library-1",
+        observationToken: "projects-refreshed",
+        blocked: false,
+        targets: [],
+      });
+    applyDeploymentsMock.mockResolvedValueOnce({
+      items: [
+        {
+          librarySkillId: "library-1",
+          target: {
+            consumer: "codex",
+            workspace: "project",
+            workspaceId: "workspace-alpha",
+          },
+          outcome: "removed",
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.deployedProjects.action",
+      }),
+    );
+    const row = await screen.findByTestId(
+      "deployed-project-row-codex-workspace-alpha",
+    );
+    await user.click(
+      within(row).getByRole("button", { name: "skills.projects.undeploy" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "skills.library.undeployConfirm",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "undeploy",
+            librarySkillId: "library-1",
+            target: {
+              consumer: "codex",
+              workspace: "project",
+              workspaceId: "workspace-alpha",
+            },
+          },
+        ],
+      }),
+    );
+    expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
+    expect(inspectLibraryDeletionMock).toHaveBeenCalledTimes(2);
+    expect(
+      await screen.findByText("skills.library.deployedProjects.empty"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an empty state when the skill has no project deployments", async () => {
+    inspectLibraryDeletionMock.mockResolvedValueOnce({
+      librarySkillId: "library-1",
+      observationToken: "global-only-observation",
+      blocked: false,
+      targets: [
+        {
+          actionRequired: "remove_expected_link",
+          inspection: {
+            librarySkillId: "library-1",
+            libraryDirectory: "review-skill",
+            target: { consumer: "claude", workspace: "global" },
+            desired: { id: "global-deployment" },
+            observed: {
+              state: "correct_link",
+              targetPath: "/global/.claude/skills/review-skill",
+              expectedTarget: "/library/review-skill",
+            },
+            observationToken: "global-observation",
+            status: "in_sync",
+          },
+        },
+      ],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    await userEvent.setup().click(
+      screen.getByRole("button", {
+        name: "skills.library.deployedProjects.action",
+      }),
+    );
+
+    expect(
+      await screen.findByText("skills.library.deployedProjects.empty"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(/deployed-project-row-/),
+    ).not.toBeInTheDocument();
   });
 
   it("refreshes batch target inspections so Project drift status and undeploy selection are visible", async () => {
