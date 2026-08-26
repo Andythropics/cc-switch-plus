@@ -463,6 +463,42 @@ impl SkillDeploymentService {
         self.apply_one(intent)
     }
 
+    pub(crate) fn expected_link_is_removable_for_composite(
+        &self,
+        desired: &DesiredDeployment,
+    ) -> Result<bool> {
+        let target_path = self.removal_target_path(desired)?;
+        let root = target_path
+            .parent()
+            .ok_or_else(|| anyhow!("deployment target has no parent"))?;
+        let root_metadata = match fs::symlink_metadata(root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+            return Ok(false);
+        }
+        let metadata = match fs::symlink_metadata(&target_path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.file_type().is_symlink() {
+            return Ok(false);
+        }
+        let actual = fs::read_link(&target_path)?;
+        let expected = self.library_path(&desired.library_directory)?;
+        Ok(actual.is_absolute() && actual == expected)
+    }
+
+    pub(crate) fn remove_expected_link_for_composite(
+        &self,
+        desired: &DesiredDeployment,
+    ) -> Result<DeploymentItemResult> {
+        self.undeploy_inner(&desired.library_skill_id, &desired.target, false)
+    }
+
     /// Migration may encounter a proven legacy link already occupying the
     /// official target. This adopts only an exact link to the expected Library
     /// Skill while the caller holds the Deployment lock; it never adopts a
@@ -543,10 +579,15 @@ impl SkillDeploymentService {
             }
         };
         let expected = self.library_path(&desired.library_directory)?;
-        if !expected.is_dir() {
-            return Err(anyhow!(
-                "Library source is missing during Deployment compensation"
-            ));
+        match fs::symlink_metadata(&expected) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => {
+                return Err(anyhow!(
+                    "Library source is not a real directory during Deployment compensation"
+                ));
+            }
+            Err(error) => return Err(error.into()),
         }
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent)?;
@@ -1671,6 +1712,15 @@ impl SkillDeploymentService {
         library_skill_id: &str,
         target: &DeploymentTarget,
     ) -> Result<DeploymentItemResult> {
+        self.undeploy_inner(library_skill_id, target, true)
+    }
+
+    fn undeploy_inner(
+        &self,
+        library_skill_id: &str,
+        target: &DeploymentTarget,
+        require_library_source: bool,
+    ) -> Result<DeploymentItemResult> {
         let library = self.db.get_library_skill_by_id(library_skill_id)?;
         let desired = self.db.get_skill_deployment(library_skill_id, target)?;
         let Some(desired) = desired else {
@@ -1755,7 +1805,10 @@ impl SkillDeploymentService {
             });
         }
         let actual = fs::read_link(&target_path)?;
-        if !actual.is_absolute() || actual != expected || !expected.exists() {
+        if !actual.is_absolute()
+            || actual != expected
+            || (require_library_source && !expected.exists())
+        {
             return Ok(DeploymentItemResult {
                 library_skill_id: library_skill_id.to_string(),
                 target: target.clone(),
@@ -2227,6 +2280,25 @@ impl SkillDeploymentService {
             }
         };
         Ok(root.join(directory))
+    }
+
+    fn removal_target_path(&self, desired: &DesiredDeployment) -> Result<PathBuf> {
+        #[cfg(target_os = "macos")]
+        if desired.target.workspace == WorkspaceKind::Project {
+            match project_workspace_lifecycle(&self.db, &desired.target.workspace_id)? {
+                WorkspaceLifecycle::Unavailable => {
+                    return Err(anyhow!("Project Workspace is unavailable"));
+                }
+                WorkspaceLifecycle::Active | WorkspaceLifecycle::Archived => {}
+            }
+            return Ok(project_removal_target_root(
+                &self.db,
+                &desired.target.workspace_id,
+                desired.target.consumer,
+            )?
+            .join(&desired.library_directory));
+        }
+        self.target_path(&desired.target, &desired.library_directory)
     }
 
     fn observation_target_path(

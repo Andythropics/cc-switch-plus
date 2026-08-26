@@ -167,6 +167,12 @@ struct StageManifest {
     compatibility: LibrarySkillCompatibility,
 }
 
+enum LibraryDeletionSnapshot {
+    Present(String),
+    Missing,
+    Unsafe,
+}
+
 /// Shared updater for private Library snapshots.
 pub struct LibrarySkillUpdateService;
 
@@ -835,21 +841,21 @@ impl LibrarySkillUpdateService {
         let skill = db
             .get_library_skill_by_id(library_skill_id)?
             .ok_or_else(|| anyhow!("Library Skill not found: {library_skill_id}"))?;
-        // A deletion may only move a validated real Library directory into a
-        // managed backup.  Treat a missing, redirected, occupied, or
-        // unreadable snapshot as a structured blocker rather than moving an
-        // arbitrary path and deleting the row.
-        let (live_hash, library_block_message) = match Self::live_hash(&skill) {
-            Ok(Some(hash)) => (Some(hash), None),
-            Ok(None) => (
-                None,
-                Some("Library snapshot is missing or not a real directory".to_string()),
-            ),
-            Err(error) => (
-                None,
-                Some(format!("Library snapshot is unreadable: {error}")),
-            ),
-        };
+        let (live_hash, snapshot_missing, library_block_message) =
+            match Self::deletion_snapshot(&skill) {
+                Ok(LibraryDeletionSnapshot::Present(hash)) => (Some(hash), false, None),
+                Ok(LibraryDeletionSnapshot::Missing) => (None, true, None),
+                Ok(LibraryDeletionSnapshot::Unsafe) => (
+                    None,
+                    false,
+                    Some("Library snapshot is not a real directory".to_string()),
+                ),
+                Err(error) => (
+                    None,
+                    false,
+                    Some(format!("Library snapshot is unreadable: {error}")),
+                ),
+            };
         let deployment_service = SkillDeploymentService::new(db.clone());
         let mut targets = Vec::new();
         for desired in db
@@ -865,10 +871,14 @@ impl LibrarySkillUpdateService {
                 .ok_or_else(|| {
                     anyhow!("Deployment inspection item not found: {library_skill_id}")
                 })?;
-            let action_required = if inspection.desired.is_some()
-                && inspection.observed.state
+            let exact_expected_link = inspection.desired.is_some()
+                && (inspection.observed.state
                     == crate::services::skill_deployment::ObservedDeploymentState::CorrectLink
-            {
+                    || (snapshot_missing
+                        && deployment_service
+                            .expected_link_is_removable_for_composite(&desired)
+                            .unwrap_or(false)));
+            let action_required = if exact_expected_link {
                 LibrarySkillDeletionAction::RemoveExpectedLink
             } else {
                 LibrarySkillDeletionAction::Forget
@@ -938,15 +948,16 @@ impl LibrarySkillUpdateService {
                 message: Some("deletion observation is stale; inspect again".to_string()),
             });
         }
-        let observed_live_hash = match Self::live_hash(&skill) {
-            Ok(Some(hash)) => hash,
-            Ok(None) => {
+        let observed_live_hash = match Self::deletion_snapshot(&skill) {
+            Ok(LibraryDeletionSnapshot::Present(hash)) => Some(hash),
+            Ok(LibraryDeletionSnapshot::Missing) => None,
+            Ok(LibraryDeletionSnapshot::Unsafe) => {
                 return Ok(LibrarySkillDeletionResult {
                     outcome: LibrarySkillDeletionOutcome::Blocked,
                     library_skill_id: skill.id,
                     items: Vec::new(),
                     backup_path: None,
-                    message: Some("Library snapshot disappeared; deletion is blocked".to_string()),
+                    message: Some("Library snapshot is not a real directory".to_string()),
                 });
             }
             Err(error) => {
@@ -960,7 +971,7 @@ impl LibrarySkillUpdateService {
             }
         };
         let fresh_deletion_token =
-            Self::deletion_observation_token(&skill, Some(&observed_live_hash), &plan.targets);
+            Self::deletion_observation_token(&skill, observed_live_hash.as_deref(), &plan.targets);
         if fresh_deletion_token != intent.observation_token {
             return Ok(LibrarySkillDeletionResult {
                 outcome: LibrarySkillDeletionOutcome::Stale,
@@ -976,11 +987,13 @@ impl LibrarySkillUpdateService {
         for target in plan.targets.iter().filter(|target| {
             target.action_required == LibrarySkillDeletionAction::RemoveExpectedLink
         }) {
-            let intent = crate::services::skill_deployment::DeploymentIntent::Undeploy {
-                library_skill_id: skill.id.clone(),
-                target: target.inspection.target.clone(),
-            };
-            let result = match deployment_service.apply_one_for_composite(&intent) {
+            let result = match target
+                .inspection
+                .desired
+                .as_ref()
+                .ok_or_else(|| anyhow!("deletion target has no desired Deployment"))
+                .and_then(|desired| deployment_service.remove_expected_link_for_composite(desired))
+            {
                 Ok(result) => result,
                 Err(error) => Self::error_deletion_item(&target.inspection, error.to_string()),
             };
@@ -1058,6 +1071,60 @@ impl LibrarySkillUpdateService {
             });
         }
 
+        if observed_live_hash.is_none() {
+            let deletion_result = db.delete_library_skill(&skill.id);
+            if matches!(&deletion_result, Ok(true)) {
+                return Ok(LibrarySkillDeletionResult {
+                    outcome: LibrarySkillDeletionOutcome::Deleted,
+                    library_skill_id: skill.id,
+                    items,
+                    backup_path: None,
+                    message: None,
+                });
+            }
+            let primary = match &deletion_result {
+                Ok(false) => "Library Skill disappeared during deletion".to_string(),
+                Err(error) => format!("Library row deletion failed: {error}"),
+                Ok(true) => unreachable!(),
+            };
+            let mut compensation = Vec::new();
+            if matches!(&deletion_result, Ok(false)) {
+                match db.get_library_skill_by_id(&skill.id) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        if let Err(error) = db.save_library_skill(&skill) {
+                            compensation
+                                .push(format!("restore disappeared Library row failed: {error}"));
+                        }
+                    }
+                    Err(error) => {
+                        compensation.push(format!("verify disappeared Library row failed: {error}"))
+                    }
+                }
+            }
+            compensation.extend(Self::restore_deployments(&deployment_service, &removed));
+            return Ok(if compensation.is_empty() {
+                LibrarySkillDeletionResult {
+                    outcome: LibrarySkillDeletionOutcome::RolledBack,
+                    library_skill_id: skill.id,
+                    items,
+                    backup_path: None,
+                    message: Some(primary),
+                }
+            } else {
+                LibrarySkillDeletionResult {
+                    outcome: LibrarySkillDeletionOutcome::RecoveryRequired,
+                    library_skill_id: skill.id,
+                    items,
+                    backup_path: None,
+                    message: Some(format!(
+                        "{primary}; compensation failed: {}",
+                        compensation.join("; ")
+                    )),
+                }
+            });
+        }
+
         let destination = Self::library_path(&skill)?;
         let backup_root = match crate::services::skill_import::create_backup_root() {
             Ok(path) => path,
@@ -1127,6 +1194,7 @@ impl LibrarySkillUpdateService {
         }
         let deleted_hash =
             LibrarySkillAcquisitionService::compute_library_hash(&deleted_staging).ok();
+        let observed_live_hash = observed_live_hash.expect("present snapshot has a live hash");
         if deleted_hash.as_deref() != Some(observed_live_hash.as_str()) {
             let mut compensation = Vec::new();
             let source_restored = match fs::rename(&deleted_staging, &destination) {
@@ -1622,6 +1690,22 @@ impl LibrarySkillUpdateService {
             )),
             Ok(_) => Ok(None),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn deletion_snapshot(skill: &LibrarySkill) -> Result<LibraryDeletionSnapshot> {
+        let path = Self::library_path(skill)?;
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                Ok(LibraryDeletionSnapshot::Present(
+                    LibrarySkillAcquisitionService::compute_library_hash(&path)?,
+                ))
+            }
+            Ok(_) => Ok(LibraryDeletionSnapshot::Unsafe),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(LibraryDeletionSnapshot::Missing)
+            }
             Err(error) => Err(error.into()),
         }
     }

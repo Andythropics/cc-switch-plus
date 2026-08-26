@@ -37,6 +37,30 @@ fn git_source() -> LibrarySkillSource {
     }
 }
 
+fn acquire_and_deploy(
+    state: &cc_switch_lib::AppState,
+    source_root: &Path,
+    directory: &str,
+    target: &DeploymentTarget,
+) -> cc_switch_lib::LibrarySkill {
+    let source = source_root.join(directory);
+    write_skill(&source, directory);
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source,
+        git_source(),
+        None,
+    )
+    .expect("admit Skill");
+    SkillDeploymentService::new(state.db.clone())
+        .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
+            library_skill_id: skill.id.clone(),
+            target: target.clone(),
+        }))
+        .expect("deploy Skill");
+    skill
+}
+
 #[test]
 fn update_inspection_reports_upstream_change_and_local_modification_without_writes() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
@@ -537,9 +561,9 @@ fn disappeared_library_row_during_delete_is_reinserted_before_rolled_back() {
 }
 
 #[test]
-fn deletion_blocks_when_library_root_is_missing_or_foreign() {
+fn deletion_blocks_when_library_root_is_not_a_real_directory() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
-    for replacement in ["missing", "file", "symlink"] {
+    for replacement in ["file", "symlink"] {
         reset_test_fs();
         let home = ensure_test_home();
         let fixture = tempfile::tempdir().expect("create source fixture");
@@ -555,7 +579,6 @@ fn deletion_blocks_when_library_root_is_missing_or_foreign() {
         .expect("admit Skill");
         let destination = home.join(".cc-switch/skills/delete-root-check");
         match replacement {
-            "missing" => fs::remove_dir_all(&destination).expect("remove Library root"),
             "file" => {
                 fs::remove_dir_all(&destination).expect("remove Library root");
                 fs::write(&destination, "foreign file").expect("create foreign file");
@@ -591,12 +614,265 @@ fn deletion_blocks_when_library_root_is_missing_or_foreign() {
             .get_library_skill_by_id(&skill.id)
             .unwrap()
             .is_some());
+        assert!(destination.symlink_metadata().is_ok());
+    }
+}
+
+#[test]
+fn deletion_removes_dangling_expected_link_when_library_snapshot_is_missing() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let fixture = tempfile::tempdir().expect("create fixture");
+    let state = create_test_state().expect("create test state");
+    let target = DeploymentTarget::global(DeploymentConsumer::Claude);
+    let skill = acquire_and_deploy(&state, fixture.path(), "delete-missing", &target);
+    let snapshot = home.join(".cc-switch/skills/delete-missing");
+    let link = home.join(".claude/skills/delete-missing");
+    fs::remove_dir_all(&snapshot).expect("remove Library snapshot");
+    assert_eq!(fs::read_link(&link).unwrap(), snapshot);
+    assert!(!link.exists(), "Deployment link must be dangling");
+
+    let plan = LibrarySkillUpdateService::inspect_deletion(&state.db, &skill.id).unwrap();
+    assert!(!plan.blocked);
+    assert_eq!(
+        plan.targets[0].action_required,
+        cc_switch_lib::LibrarySkillDeletionAction::RemoveExpectedLink
+    );
+    let result = LibrarySkillUpdateService::delete(
+        &state.db,
+        cc_switch_lib::LibrarySkillDeletionIntent {
+            library_skill_id: skill.id.clone(),
+            observation_token: plan.observation_token,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        result.outcome,
+        cc_switch_lib::LibrarySkillDeletionOutcome::Deleted
+    );
+    assert!(result.backup_path.is_none());
+    assert!(fs::symlink_metadata(&link).is_err());
+    assert!(state
+        .db
+        .get_skill_deployment(&skill.id, &target)
+        .unwrap()
+        .is_none());
+    assert!(state
+        .db
+        .get_library_skill_by_id(&skill.id)
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn missing_snapshot_deletion_preserves_unsafe_deployment_leaves() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    for replacement in ["file", "directory", "foreign_link"] {
+        reset_test_fs();
+        let home = ensure_test_home();
+        let fixture = tempfile::tempdir().expect("create fixture");
+        let state = create_test_state().expect("create test state");
+        let target = DeploymentTarget::global(DeploymentConsumer::Claude);
+        let skill = acquire_and_deploy(&state, fixture.path(), "delete-unsafe", &target);
+        let snapshot = home.join(".cc-switch/skills/delete-unsafe");
+        let leaf = home.join(".claude/skills/delete-unsafe");
+        fs::remove_dir_all(snapshot).expect("remove Library snapshot");
+        fs::remove_file(&leaf).expect("remove expected link");
         match replacement {
-            "missing" => assert!(!destination.exists()),
-            "file" | "symlink" => assert!(destination.symlink_metadata().is_ok()),
+            "file" => fs::write(&leaf, "unmanaged").expect("create unmanaged file"),
+            "directory" => fs::create_dir(&leaf).expect("create unmanaged directory"),
+            "foreign_link" => {
+                std::os::unix::fs::symlink(fixture.path().join("foreign"), &leaf)
+                    .expect("create foreign link");
+            }
             _ => unreachable!(),
         }
+
+        let plan = LibrarySkillUpdateService::inspect_deletion(&state.db, &skill.id).unwrap();
+        assert!(plan.blocked, "{replacement} must block deletion");
+        assert_eq!(
+            plan.targets[0].action_required,
+            cc_switch_lib::LibrarySkillDeletionAction::Forget
+        );
+        let result = LibrarySkillUpdateService::delete(
+            &state.db,
+            cc_switch_lib::LibrarySkillDeletionIntent {
+                library_skill_id: skill.id.clone(),
+                observation_token: plan.observation_token,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            result.outcome,
+            cc_switch_lib::LibrarySkillDeletionOutcome::Blocked
+        );
+        assert!(fs::symlink_metadata(&leaf).is_ok());
+        assert!(state
+            .db
+            .get_skill_deployment(&skill.id, &target)
+            .unwrap()
+            .is_some());
+        assert!(state
+            .db
+            .get_library_skill_by_id(&skill.id)
+            .unwrap()
+            .is_some());
     }
+}
+
+#[test]
+fn missing_snapshot_deletion_blocks_a_symlinked_target_root() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let fixture = tempfile::tempdir().expect("create fixture");
+    let state = create_test_state().expect("create test state");
+    let target = DeploymentTarget::global(DeploymentConsumer::Claude);
+    let skill = acquire_and_deploy(&state, fixture.path(), "delete-linked-root", &target);
+    let snapshot = home.join(".cc-switch/skills/delete-linked-root");
+    let root = home.join(".claude/skills");
+    let moved_root = fixture.path().join("consumer-root");
+    fs::remove_dir_all(snapshot).expect("remove Library snapshot");
+    fs::rename(&root, &moved_root).expect("move consumer root");
+    std::os::unix::fs::symlink(&moved_root, &root).expect("symlink consumer root");
+
+    let plan = LibrarySkillUpdateService::inspect_deletion(&state.db, &skill.id).unwrap();
+    assert!(plan.blocked);
+    let result = LibrarySkillUpdateService::delete(
+        &state.db,
+        cc_switch_lib::LibrarySkillDeletionIntent {
+            library_skill_id: skill.id.clone(),
+            observation_token: plan.observation_token,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result.outcome,
+        cc_switch_lib::LibrarySkillDeletionOutcome::Blocked
+    );
+    assert!(moved_root.join("delete-linked-root").is_symlink());
+}
+
+#[test]
+fn missing_snapshot_deletion_blocks_an_unavailable_project_workspace() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let fixture = tempfile::tempdir().expect("create fixture");
+    let workspace_root = fixture.path().join("workspace");
+    fs::create_dir(&workspace_root).expect("create workspace");
+    let state = create_test_state().expect("create test state");
+    let workspace = ProjectWorkspaceService::new(state.db.clone())
+        .register(&workspace_root, None)
+        .expect("register workspace")
+        .workspace;
+    let target = DeploymentTarget {
+        consumer: DeploymentConsumer::Claude,
+        workspace: WorkspaceKind::Project,
+        workspace_id: workspace.id,
+    };
+    let skill = acquire_and_deploy(&state, fixture.path(), "delete-unavailable", &target);
+    fs::remove_dir_all(home.join(".cc-switch/skills/delete-unavailable"))
+        .expect("remove Library snapshot");
+    let moved_workspace = fixture.path().join("workspace-gone");
+    fs::rename(&workspace_root, &moved_workspace).expect("make workspace unavailable");
+
+    let plan = LibrarySkillUpdateService::inspect_deletion(&state.db, &skill.id).unwrap();
+    assert!(plan.blocked);
+    let result = LibrarySkillUpdateService::delete(
+        &state.db,
+        cc_switch_lib::LibrarySkillDeletionIntent {
+            library_skill_id: skill.id.clone(),
+            observation_token: plan.observation_token,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result.outcome,
+        cc_switch_lib::LibrarySkillDeletionOutcome::Blocked
+    );
+    assert!(moved_workspace
+        .join(".claude/skills/delete-unavailable")
+        .is_symlink());
+}
+
+#[test]
+fn missing_snapshot_deletion_rejects_a_stale_link_observation() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let fixture = tempfile::tempdir().expect("create fixture");
+    let state = create_test_state().expect("create test state");
+    let target = DeploymentTarget::global(DeploymentConsumer::Claude);
+    let skill = acquire_and_deploy(&state, fixture.path(), "delete-stale", &target);
+    fs::remove_dir_all(home.join(".cc-switch/skills/delete-stale"))
+        .expect("remove Library snapshot");
+    let link = home.join(".claude/skills/delete-stale");
+    let plan = LibrarySkillUpdateService::inspect_deletion(&state.db, &skill.id).unwrap();
+    fs::remove_file(&link).expect("remove inspected link");
+    let foreign = fixture.path().join("foreign");
+    std::os::unix::fs::symlink(&foreign, &link).expect("replace inspected link");
+
+    let result = LibrarySkillUpdateService::delete(
+        &state.db,
+        cc_switch_lib::LibrarySkillDeletionIntent {
+            library_skill_id: skill.id.clone(),
+            observation_token: plan.observation_token,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result.outcome,
+        cc_switch_lib::LibrarySkillDeletionOutcome::Stale
+    );
+    assert_eq!(fs::read_link(link).unwrap(), foreign);
+}
+
+#[test]
+fn missing_snapshot_delete_db_error_restores_dangling_link_and_rows() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let fixture = tempfile::tempdir().expect("create fixture");
+    let state = create_test_state().expect("create test state");
+    let target = DeploymentTarget::global(DeploymentConsumer::Claude);
+    let skill = acquire_and_deploy(&state, fixture.path(), "delete-db-error", &target);
+    let snapshot = home.join(".cc-switch/skills/delete-db-error");
+    let link = home.join(".claude/skills/delete-db-error");
+    fs::remove_dir_all(&snapshot).expect("remove Library snapshot");
+    state
+        .db
+        .fail_library_skill_deletes_for_test()
+        .expect("install Library delete failpoint");
+
+    let plan = LibrarySkillUpdateService::inspect_deletion(&state.db, &skill.id).unwrap();
+    let result = LibrarySkillUpdateService::delete(
+        &state.db,
+        cc_switch_lib::LibrarySkillDeletionIntent {
+            library_skill_id: skill.id.clone(),
+            observation_token: plan.observation_token,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result.outcome,
+        cc_switch_lib::LibrarySkillDeletionOutcome::RolledBack
+    );
+    assert!(result.backup_path.is_none());
+    assert_eq!(fs::read_link(&link).unwrap(), snapshot);
+    assert!(!link.exists(), "restored link must remain dangling");
+    assert!(state
+        .db
+        .get_skill_deployment(&skill.id, &target)
+        .unwrap()
+        .is_some());
+    assert!(state
+        .db
+        .get_library_skill_by_id(&skill.id)
+        .unwrap()
+        .is_some());
 }
 
 #[test]
