@@ -17,6 +17,7 @@ mod misc;
 mod model_fetch;
 mod omo;
 mod openclaw;
+mod pi;
 mod plugin;
 mod profile;
 #[cfg(target_os = "macos")]
@@ -55,6 +56,7 @@ pub use misc::*;
 pub use model_fetch::*;
 pub use omo::*;
 pub use openclaw::*;
+pub(crate) use pi::*;
 pub use plugin::*;
 pub use profile::*;
 #[cfg(target_os = "macos")]

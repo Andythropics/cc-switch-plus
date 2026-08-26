@@ -15,6 +15,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 #[cfg(not(target_os = "macos"))]
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+#[cfg(not(target_os = "macos"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
 
@@ -33,6 +35,35 @@ use crate::services::activity::{
     ActivityActor, ActivityBatchContext, ActivityDetailCode, ActivityEventInput, ActivityOperation,
     ActivityOutcome, ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
 };
+
+// ========== Legacy Skills state coordination (non-macOS) ==========
+
+/// Coordinates the legacy database `skills` state with its filesystem SSOT.
+///
+/// macOS uses the redesigned Library and Deployment locks instead. Keeping this
+/// lock behind the platform boundary preserves the upstream rollback model on
+/// other platforms without reintroducing legacy SSOT mutations on macOS.
+#[cfg(not(target_os = "macos"))]
+fn skill_state_lock() -> &'static RwLock<()> {
+    static LOCK: OnceLock<RwLock<()>> = OnceLock::new();
+    LOCK.get_or_init(|| RwLock::new(()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn skill_state_read_guard() -> RwLockReadGuard<'static, ()> {
+    skill_state_lock().read().unwrap_or_else(|poisoned| {
+        log::warn!("Skills state read lock was poisoned; recovering the protected state");
+        poisoned.into_inner()
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn skill_state_write_guard() -> RwLockWriteGuard<'static, ()> {
+    skill_state_lock().write().unwrap_or_else(|poisoned| {
+        log::warn!("Skills state write lock was poisoned; recovering the protected state");
+        poisoned.into_inner()
+    })
+}
 
 // ========== 数据结构 ==========
 
@@ -645,6 +676,14 @@ impl SkillService {
                     return Ok(custom.join("skills"));
                 }
             }
+            AppType::Pi => {
+                #[cfg(target_os = "macos")]
+                return Err(anyhow!(
+                    "Pi is not yet a redesigned Skill consumer or Deployment target"
+                ));
+                #[cfg(not(target_os = "macos"))]
+                return Ok(crate::pi_config::get_pi_agent_dir()?.join("skills"));
+            }
         }
 
         // 默认路径：回退到用户主目录下的标准位置。
@@ -661,6 +700,14 @@ impl SkillService {
             AppType::OpenCode => home.join(".config").join("opencode").join("skills"),
             AppType::OpenClaw => home.join(".openclaw").join("skills"),
             AppType::Hermes => crate::hermes_config::get_hermes_dir().join("skills"),
+            AppType::Pi => {
+                #[cfg(target_os = "macos")]
+                return Err(anyhow!(
+                    "Pi is not yet a redesigned Skill consumer or Deployment target"
+                ));
+                #[cfg(not(target_os = "macos"))]
+                crate::pi_config::get_pi_agent_dir()?.join("skills")
+            }
         })
     }
 
@@ -5966,6 +6013,19 @@ mod tests {
             dir.starts_with(temp.path()),
             "skills dir must live under the overridden test home, got {}",
             dir.display()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pi_is_not_exposed_as_a_redesigned_skill_consumer() {
+        let error = SkillService::get_app_skills_dir(&AppType::Pi)
+            .expect_err("Pi must stay outside the redesigned Skill consumer boundary");
+        assert!(
+            error
+                .to_string()
+                .contains("not yet a redesigned Skill consumer"),
+            "unexpected boundary error: {error}"
         );
     }
 

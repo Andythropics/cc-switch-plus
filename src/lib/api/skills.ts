@@ -8,7 +8,8 @@ export type AppType =
   | "grokbuild"
   | "opencode"
   | "openclaw"
-  | "hermes";
+  | "hermes"
+  | "pi";
 
 export type LibrarySourceKind = "git" | "zip" | "marketplace" | "local_import";
 export type RemoteLibrarySourceKind = Exclude<
@@ -95,6 +96,19 @@ export interface SkillActivityTarget {
   deploymentId?: string;
   consumer?: DeploymentConsumer;
   workspaceKind?: WorkspaceKind;
+}
+
+/** Skill 应用启用状态 */
+export interface SkillApps {
+  claude: boolean;
+  "claude-desktop"?: boolean;
+  codex: boolean;
+  gemini: boolean;
+  grokbuild?: boolean;
+  opencode: boolean;
+  openclaw: boolean;
+  hermes: boolean;
+  pi: boolean;
 }
 
 export interface SkillActivityBatch {
@@ -283,6 +297,12 @@ export interface DeploymentTarget {
   consumer: DeploymentConsumer;
   workspace: WorkspaceKind;
   workspaceId?: string;
+}
+
+export interface SkillUninstallResult {
+  backupPath?: string;
+  preservedPiPath?: string;
+  piCleanupIncomplete?: boolean;
 }
 
 export interface DesiredDeployment {

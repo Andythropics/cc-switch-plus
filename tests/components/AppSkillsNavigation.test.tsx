@@ -349,7 +349,13 @@ vi.mock("@/components/openclaw/OpenClawHealthBanner", () => ({
   default: Empty,
 }));
 vi.mock("@/components/hermes/HermesMemoryPanel", () => ({ default: Empty }));
-vi.mock("@/components/BrandIcons", () => ({ McpIcon: Empty }));
+vi.mock("@/components/BrandIcons", () => ({
+  ClaudeIcon: Empty,
+  CodexIcon: Empty,
+  GeminiIcon: Empty,
+  McpIcon: Empty,
+  OpenClawIcon: Empty,
+}));
 
 describe("App Skills navigation", () => {
   beforeEach(() => {

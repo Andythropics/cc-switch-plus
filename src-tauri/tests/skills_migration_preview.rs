@@ -546,8 +546,10 @@ fn codex_link_to_unmanaged_alternate_root_is_preserved_for_cc_switch_storage() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
-    let mut settings = cc_switch_lib::AppSettings::default();
-    settings.skill_storage_location = cc_switch_lib::SkillStorageLocation::CcSwitch;
+    let settings = cc_switch_lib::AppSettings {
+        skill_storage_location: cc_switch_lib::SkillStorageLocation::CcSwitch,
+        ..Default::default()
+    };
     cc_switch_lib::update_settings(settings).expect("select CcSwitch legacy SSOT");
     write_skill(&home.join(".cc-switch/skills/foo"), "foo");
     write_skill(&home.join(".agents/skills/foo"), "foo");
@@ -595,8 +597,10 @@ fn configured_legacy_root_is_observed_without_mutation() {
         &override_root.join("skills/override-skill"),
         "override-skill",
     );
-    let mut settings = cc_switch_lib::AppSettings::default();
-    settings.claude_config_dir = Some(override_root.to_string_lossy().into_owned());
+    let settings = cc_switch_lib::AppSettings {
+        claude_config_dir: Some(override_root.to_string_lossy().into_owned()),
+        ..Default::default()
+    };
     cc_switch_lib::update_settings(settings).expect("set Claude override");
     let state = create_test_state().expect("create test state");
     state
@@ -653,8 +657,10 @@ fn current_legacy_ssot_honors_configured_storage_and_detects_other_root_conflict
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
-    let mut settings = cc_switch_lib::AppSettings::default();
-    settings.skill_storage_location = cc_switch_lib::SkillStorageLocation::Unified;
+    let settings = cc_switch_lib::AppSettings {
+        skill_storage_location: cc_switch_lib::SkillStorageLocation::Unified,
+        ..Default::default()
+    };
     cc_switch_lib::update_settings(settings).expect("select unified legacy SSOT");
     write_skill(&home.join(".agents/skills/current"), "unified-current");
     let state = create_test_state().expect("create test state");

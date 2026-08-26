@@ -304,6 +304,19 @@ mod deployment_intent_serde_tests {
     }
 
     #[test]
+    fn rejects_pi_as_a_deployment_consumer() {
+        let result = serde_json::from_value::<DeploymentTarget>(serde_json::json!({
+            "consumer": "pi",
+            "workspace": "global"
+        }));
+
+        assert!(
+            result.is_err(),
+            "Pi is intentionally not a Skill Deployment consumer yet"
+        );
+    }
+
+    #[test]
     fn deserializes_every_frontend_camel_case_intent_field() {
         let batch: DeploymentBatch = serde_json::from_value(serde_json::json!({
             "intents": [

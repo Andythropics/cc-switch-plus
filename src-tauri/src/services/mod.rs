@@ -14,6 +14,8 @@ pub mod mcp;
 pub mod model_fetch;
 pub mod model_pricing;
 pub mod omo;
+pub mod pi_prompt_files;
+pub(crate) mod pi_state;
 pub mod profile;
 #[cfg(target_os = "macos")]
 pub mod project_workspace;
@@ -28,6 +30,7 @@ pub mod session_usage_codex;
 pub mod session_usage_gemini;
 pub mod session_usage_grokbuild;
 pub mod session_usage_opencode;
+pub mod session_usage_pi;
 pub mod skill;
 pub mod skill_deployment;
 #[cfg(target_os = "macos")]

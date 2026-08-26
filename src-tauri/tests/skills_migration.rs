@@ -220,8 +220,10 @@ fn unified_official_codex_link_is_adopted_without_being_scheduled_for_cleanup() 
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
-    let mut settings = cc_switch_lib::AppSettings::default();
-    settings.skill_storage_location = cc_switch_lib::SkillStorageLocation::Unified;
+    let settings = cc_switch_lib::AppSettings {
+        skill_storage_location: cc_switch_lib::SkillStorageLocation::Unified,
+        ..Default::default()
+    };
     cc_switch_lib::update_settings(settings).expect("select unified legacy SSOT");
     let state = create_test_state().expect("create test state");
     let seed = home.join("seed/review");
@@ -1725,14 +1727,11 @@ fn resume_revalidates_completed_outputs_before_finalization() {
         .unwrap();
 
     assert_eq!(blocked.outcome, SkillsMigrationExecutionOutcome::Blocked);
-    assert_eq!(
-        state
-            .db
-            .get_setting("skills_ssot_migration_snapshot")
-            .unwrap()
-            .is_some(),
-        true
-    );
+    assert!(state
+        .db
+        .get_setting("skills_ssot_migration_snapshot")
+        .unwrap()
+        .is_some());
     assert!(blocked.backup.unwrap().restore_available);
     let completed = SkillsMigrationExecutionService::new(state.db.clone())
         .resume()
@@ -1778,12 +1777,9 @@ fn restore_preserves_occupied_legacy_cleanup_path() {
         })
         .expect_err("occupied legacy path must block restore");
 
-    assert_eq!(
-        fs::read_to_string(legacy.join("SKILL.md"))
-            .unwrap()
-            .contains("foreign"),
-        true
-    );
+    assert!(fs::read_to_string(legacy.join("SKILL.md"))
+        .unwrap()
+        .contains("foreign"));
     assert_eq!(
         SkillsMigrationPreviewService::new(state.db.clone())
             .inspect()
@@ -1801,8 +1797,10 @@ fn restore_preserves_occupied_retired_source_path() {
     reset_test_fs();
     let home = ensure_test_home();
     let custom = home.join("custom-claude");
-    let mut settings = cc_switch_lib::AppSettings::default();
-    settings.claude_config_dir = Some(custom.to_string_lossy().into_owned());
+    let settings = cc_switch_lib::AppSettings {
+        claude_config_dir: Some(custom.to_string_lossy().into_owned()),
+        ..Default::default()
+    };
     cc_switch_lib::update_settings(settings).unwrap();
     let state = create_test_state().expect("create test state");
     seed_snapshot(

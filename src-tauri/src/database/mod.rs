@@ -59,9 +59,9 @@ use std::sync::Mutex;
 /// 当前 Schema 版本号
 /// 每次修改表结构时递增，并在 schema.rs 中添加相应的迁移逻辑
 #[cfg(target_os = "macos")]
-pub(crate) const SCHEMA_VERSION: i32 = 25;
+pub(crate) const SCHEMA_VERSION: i32 = 26;
 #[cfg(not(target_os = "macos"))]
-pub(crate) const SCHEMA_VERSION: i32 = 16;
+pub(crate) const SCHEMA_VERSION: i32 = 17;
 
 /// 安全地序列化 JSON，避免 unwrap panic
 pub(crate) fn to_json_string<T: Serialize>(value: &T) -> Result<String, AppError> {
@@ -115,6 +115,10 @@ impl Database {
         }
 
         let conn = Connection::open(&db_path).map_err(|e| AppError::Database(e.to_string()))?;
+        // Detect the pre-canonical macOS Skills lineage before eager DDL can
+        // create Library tables and make an upstream v17 database ambiguous.
+        let original_version = Self::get_user_version(&conn)?;
+        let schema_lineage = Self::detect_schema_lineage(&conn)?;
 
         // 启用外键约束
         conn.execute("PRAGMA foreign_keys = ON;", [])
@@ -130,23 +134,20 @@ impl Database {
         let db = Self {
             conn: Mutex::new(conn),
         };
-        db.create_tables()?;
 
-        // Pre-migration backup: only when upgrading from an existing database
-        {
-            let conn = lock_conn!(db.conn);
-            let version = Self::get_user_version(&conn)?;
-            drop(conn);
-            if version > 0 && version < SCHEMA_VERSION {
-                log::info!(
-                    "Creating pre-migration database backup (v{version} → v{SCHEMA_VERSION})"
-                );
-                if let Err(e) = db.backup_database_file() {
-                    log::warn!("Pre-migration backup failed, continuing migration: {e}");
-                }
+        // Preserve the untouched database before eager table creation or
+        // legacy-lineage normalization changes any on-disk state.
+        if original_version > 0 && original_version < SCHEMA_VERSION {
+            log::info!(
+                "Creating pre-migration database backup (v{original_version} → v{SCHEMA_VERSION})"
+            );
+            if let Err(e) = db.backup_database_file() {
+                log::warn!("Pre-migration backup failed, continuing migration: {e}");
             }
         }
 
+        db.normalize_schema_lineage(schema_lineage)?;
+        db.create_tables()?;
         db.apply_schema_migrations()?;
         if let Err(e) = db.ensure_incremental_auto_vacuum() {
             log::warn!("Failed to ensure incremental auto-vacuum: {e}");

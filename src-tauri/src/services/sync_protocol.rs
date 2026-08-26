@@ -4,7 +4,9 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::future::Future;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -12,9 +14,10 @@ use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 
 use crate::error::AppError;
+#[cfg(not(target_os = "macos"))]
+use crate::services::skill::{skill_state_read_guard, skill_state_write_guard};
 
 // Re-export archive functions for use by transport layers.
-#[cfg(target_os = "macos")]
 pub(crate) use super::webdav_sync::archive::{backup_current_skills, restore_skills_from_backup};
 pub(crate) use super::webdav_sync::archive::{restore_skills_zip, zip_skills_ssot};
 
@@ -53,6 +56,48 @@ const SYNC_RECOVERY_LIBRARY: &str = "library";
 #[serde(rename_all = "camelCase")]
 struct SyncRecoveryMarker {
     library_existed: bool,
+}
+
+// ─── Sync operation lock ────────────────────────────────────
+
+/// Serialize every snapshot upload/download across all transports.
+///
+/// WebDAV and S3 used to own separate mutexes, which allowed two transports to
+/// restore the database and Skills SSOT concurrently. Keep the lock in this
+/// transport-agnostic layer so future transports automatically share it too.
+pub(crate) fn sync_mutex() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+pub(crate) async fn run_with_sync_lock<T, Fut>(operation: Fut) -> Result<T, AppError>
+where
+    Fut: Future<Output = Result<T, AppError>>,
+{
+    let _guard = sync_mutex().lock().await;
+    operation.await
+}
+
+/// Tables whose changes make the remote configuration snapshot stale.
+///
+/// Keep this transport-agnostic so WebDAV and S3 cannot silently drift apart.
+/// `model_pricing` is intentionally excluded while its local JSON sidecar is
+/// the user-owned SSOT.
+pub(crate) fn should_trigger_auto_sync_for_table(table: &str) -> bool {
+    let normalized = table.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "providers"
+            | "provider_endpoints"
+            | "mcp_servers"
+            | "prompts"
+            | "skills"
+            | "library_skills"
+            | "skill_repos"
+            | "profiles"
+            | "settings"
+            | "proxy_config"
+    )
 }
 
 // ─── Error helpers ───────────────────────────────────────────
@@ -134,6 +179,10 @@ pub(crate) fn build_local_snapshot(
     let _library_guard =
         crate::services::skill::LibrarySkillAcquisitionService::lock_for_composite()
             .map_err(|error| AppError::Lock(error.to_string()))?;
+    #[cfg(not(target_os = "macos"))]
+    // Keep the DB's skill rows and the filesystem SSOT at one logical point in
+    // time. Skill writers take the matching write guard around both mutations.
+    let _skill_state_guard = skill_state_read_guard();
 
     // Export database to SQL string
     let sql_string = db.export_sql_string_for_sync()?;
@@ -360,6 +409,10 @@ pub(crate) fn apply_snapshot(
             format!("SQL is not valid UTF-8: {e}"),
         )
     })?;
+    #[cfg(not(target_os = "macos"))]
+    // Exclude installs, uninstalls, updates, and local projection while Skills
+    // are backed up/replaced and the corresponding database snapshot is applied.
+    let _skill_state_guard = skill_state_write_guard();
 
     #[cfg(target_os = "macos")]
     {
@@ -379,8 +432,29 @@ pub(crate) fn apply_snapshot(
 
     #[cfg(not(target_os = "macos"))]
     {
+        let backup_dir = tempdir().map_err(|error| {
+            io_context_localized(
+                "sync.snapshot_tmpdir_failed",
+                "创建 Skills 回滚临时目录失败",
+                "Failed to create temporary directory for Skills rollback",
+                error,
+            )
+        })?;
+        let skills_existed = backup_current_skills(backup_dir.path())?;
         restore_skills_zip(skills_zip)?;
-        db.import_sql_string_for_sync(sql_str)
+        if let Err(db_error) = db.import_sql_string_for_sync(sql_str) {
+            if let Err(rollback_error) =
+                restore_skills_from_backup(backup_dir.path(), skills_existed)
+            {
+                return Err(localized(
+                    "sync.db_import_and_rollback_failed",
+                    format!("导入数据库失败: {db_error}; 同时回滚 Skills 失败: {rollback_error}"),
+                    format!("Database import failed: {db_error}; skills rollback also failed: {rollback_error}"),
+                ));
+            }
+            return Err(db_error);
+        }
+        Ok(())
     }
 }
 
@@ -714,10 +788,59 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn webdav_and_s3_operations_share_one_sync_mutex() {
+        let webdav_lock = crate::services::webdav_sync::sync_mutex();
+        let s3_lock = crate::services::s3_sync::sync_mutex();
+        assert!(
+            std::ptr::eq(webdav_lock, s3_lock),
+            "every transport must expose the same global sync lock"
+        );
+
+        let guard = webdav_lock.lock().await;
+        assert!(s3_lock.try_lock().is_err());
+        drop(guard);
+        assert!(s3_lock.try_lock().is_ok());
+    }
+
     fn artifact(sha256: &str, size: u64) -> ArtifactMeta {
         ArtifactMeta {
             sha256: sha256.to_string(),
             size,
+        }
+    }
+
+    #[test]
+    fn auto_sync_table_filter_covers_shared_configuration() {
+        for table in [
+            "providers",
+            "provider_endpoints",
+            "mcp_servers",
+            "prompts",
+            "skills",
+            "library_skills",
+            "skill_repos",
+            "profiles",
+            "settings",
+            "proxy_config",
+        ] {
+            assert!(
+                should_trigger_auto_sync_for_table(table),
+                "{table} should trigger an automatic snapshot upload"
+            );
+        }
+
+        assert!(should_trigger_auto_sync_for_table("  PROFILES  "));
+        for table in [
+            "proxy_request_logs",
+            "provider_health",
+            "session_log_sync",
+            "model_pricing",
+        ] {
+            assert!(
+                !should_trigger_auto_sync_for_table(table),
+                "{table} should not trigger automatic snapshot upload"
+            );
         }
     }
 
