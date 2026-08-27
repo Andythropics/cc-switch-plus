@@ -8,10 +8,12 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Check,
   CheckCircle2,
   FileArchive,
   FolderOpen,
   Library,
+  Link2,
   Loader2,
   Pencil,
   RefreshCw,
@@ -640,7 +642,7 @@ export const LibrarySkillsPanel = forwardRef<
       ]);
     };
 
-    const renderDeploymentControl = (
+    const renderGlobalDeploymentButton = (
       skill: LibrarySkill,
       consumer: DeploymentConsumer,
       state: typeof deploymentState,
@@ -649,52 +651,55 @@ export const LibrarySkillsPanel = forwardRef<
         (item) => item.librarySkillId === skill.id,
       );
       const compatibility = skill.compatibility[consumer];
-      const status = deployment?.status ?? "not_deployed";
-      const consumerLabel =
-        consumer === "claude"
-          ? t("skills.library.consumerClaude")
-          : t("skills.library.consumerCodex");
+      const hasDesired = Boolean(deployment?.desired);
+      const canDeploy =
+        !hasDesired &&
+        (deployment?.status ?? "not_deployed") === "not_deployed";
+      const isSelected =
+        deployment?.status === "in_sync" ||
+        deployment?.observed.state === "correct_link" ||
+        deployment?.observed.state === "unrecorded_link";
       const deployLabel =
         consumer === "claude"
           ? t("skills.library.deployClaude")
           : t("skills.library.deployCodex");
-      const undeployLabel =
+      const deployedLabel =
         consumer === "claude"
-          ? t("skills.library.undeployClaude")
-          : t("skills.library.undeployCodex");
-      const incompatibilityMessage =
-        compatibility.issues.join("; ") ||
-        t("skills.library.incompatibleConsumer", { consumer: consumerLabel });
+          ? t("skills.library.deployedClaude")
+          : t("skills.library.deployedCodex");
 
       return (
-        <div
+        <Button
           key={consumer}
+          type="button"
+          variant={isSelected ? "default" : "outline"}
+          size="sm"
+          className="w-full min-w-0"
+          aria-pressed={isSelected}
           id={`deployment-control-${skill.id}-${consumer}-global`}
-          className="flex min-w-[16rem] flex-1 flex-wrap items-center gap-2"
-          data-testid={`deployment-control-${consumer}`}
+          data-testid={`global-deploy-${skill.id}-${consumer}`}
+          disabled={
+            blocked ||
+            (!isSelected && (!canDeploy || !compatibility.compatible))
+          }
+          onClick={() => {
+            if (isSelected || !canDeploy || !compatibility.compatible) return;
+            void applyGlobalDeployment({
+              action: "deploy",
+              librarySkillId: skill.id,
+              target: { consumer, workspace: "global" },
+            });
+          }}
         >
-          <DeploymentStatusBadge
-            status={status}
-            observed={deployment?.observed}
-            className="flex-1"
-          />
-          <DeploymentResolutionActions
-            skill={skill}
-            target={{ consumer, workspace: "global" }}
-            deployment={deployment}
-            compatible={compatibility.compatible}
-            disabled={blocked}
-            isPending={applyDeployments.isPending}
-            deployLabel={deployLabel}
-            undeployLabel={undeployLabel}
-            onApply={applyGlobalDeployment}
-          />
-          {!compatibility.compatible && (
-            <span className="basis-full text-xs text-destructive">
-              {incompatibilityMessage}
-            </span>
+          {isSelected ? (
+            <Check className="mr-1.5 h-3.5 w-3.5" />
+          ) : (
+            <Link2 className="mr-1.5 h-3.5 w-3.5" />
           )}
-        </div>
+          <span className="truncate">
+            {isSelected ? deployedLabel : deployLabel}
+          </span>
+        </Button>
       );
     };
 
@@ -812,11 +817,11 @@ export const LibrarySkillsPanel = forwardRef<
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               {progressiveSkills.visibleItems.map((skill) => (
                 <article
                   key={skill.id}
-                  className={`rounded-xl border bg-card p-4 shadow-sm${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
+                  className={`flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-4 shadow-sm${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
                   data-testid={`library-skill-${skill.id}`}
                 >
                   <div className="flex items-start gap-4">
@@ -879,37 +884,6 @@ export const LibrarySkillsPanel = forwardRef<
                         />
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={t("skills.library.deployedProjects.action")}
-                      title={t("skills.library.deployedProjects.action")}
-                      disabled={blocked}
-                      onClick={() =>
-                        void inspectDeployedProjectsForSkill(skill)
-                      }
-                    >
-                      <FolderOpen className="mr-1.5 h-4 w-4" />
-                      {t("skills.library.deployedProjects.action")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("skills.library.edit")}
-                      onClick={() => beginEdit(skill)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("skills.library.delete.action")}
-                      title={t("skills.library.delete.action")}
-                      disabled={blocked}
-                      onClick={() => void inspectLibraryForDeletion(skill)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
                     <Button
@@ -953,6 +927,24 @@ export const LibrarySkillsPanel = forwardRef<
                         {t(updateOutcomeKey(updateChecks[skill.id].outcome))}
                       </Badge>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("skills.library.edit")}
+                      onClick={() => beginEdit(skill)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("skills.library.delete.action")}
+                      title={t("skills.library.delete.action")}
+                      disabled={blocked}
+                      onClick={() => void inspectLibraryForDeletion(skill)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                   {updateChecks[skill.id] && (
                     <div
@@ -1083,22 +1075,45 @@ export const LibrarySkillsPanel = forwardRef<
                       )}
                     </div>
                   )}
-                  <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
-                    {renderDeploymentControl(skill, "claude", deploymentState)}
-                    {renderDeploymentControl(
+                  <footer className="-mx-4 -mb-4 mt-auto grid grid-cols-1 gap-2 border-t bg-muted/20 p-3 sm:grid-cols-2">
+                    {renderGlobalDeploymentButton(
+                      skill,
+                      "claude",
+                      deploymentState,
+                    )}
+                    {renderGlobalDeploymentButton(
                       skill,
                       "codex",
                       codexDeploymentState,
                     )}
-                  </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full min-w-0 sm:col-span-2"
+                      aria-label={t("skills.library.deployedProjects.action")}
+                      title={t("skills.library.deployedProjects.action")}
+                      disabled={blocked}
+                      onClick={() =>
+                        void inspectDeployedProjectsForSkill(skill)
+                      }
+                    >
+                      <FolderOpen className="mr-1.5 h-4 w-4" />
+                      <span className="truncate">
+                        {t("skills.library.deployedProjects.action")}
+                      </span>
+                    </Button>
+                  </footer>
                 </article>
               ))}
-              <ProgressiveSkillListFooter
-                visibleCount={progressiveSkills.visibleCount}
-                totalCount={progressiveSkills.totalCount}
-                hasMore={progressiveSkills.hasMore}
-                onShowMore={progressiveSkills.showMore}
-              />
+              <div className="col-span-full">
+                <ProgressiveSkillListFooter
+                  visibleCount={progressiveSkills.visibleCount}
+                  totalCount={progressiveSkills.totalCount}
+                  hasMore={progressiveSkills.hasMore}
+                  onShowMore={progressiveSkills.showMore}
+                />
+              </div>
             </div>
           )}
         </ScrollArea>
