@@ -290,6 +290,18 @@ export const LibrarySkillsPanel = forwardRef<
       } | null;
     } | null>(null);
     const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+    const [manualRefreshPending, setManualRefreshPending] = useState(false);
+    const [pendingGlobalDeployments, setPendingGlobalDeployments] = useState(
+      new Set<string>(),
+    );
+    const [pendingUpdateChecks, setPendingUpdateChecks] = useState(
+      new Set<string>(),
+    );
+    const [pendingDeletionInspections, setPendingDeletionInspections] =
+      useState(new Set<string>());
+    const [pendingProjectInspections, setPendingProjectInspections] = useState(
+      new Set<string>(),
+    );
     const editingDirty = Boolean(
       editing &&
         (displayName !== editing.displayName ||
@@ -302,11 +314,7 @@ export const LibrarySkillsPanel = forwardRef<
     const blocked =
       updateMetadata.isPending ||
       acquireZip.isPending ||
-      applyDeployments.isPending ||
-      checkLibraryUpdate.isPending ||
       applyLibraryUpdate.isPending ||
-      inspectLibraryDeletion.isPending ||
-      inspectDeployedProjects.isPending ||
       deleteLibrary.isPending ||
       editing !== null ||
       zipCollision !== null ||
@@ -386,12 +394,19 @@ export const LibrarySkillsPanel = forwardRef<
     };
 
     const checkForLibraryUpdate = async (skill: LibrarySkill) => {
+      setPendingUpdateChecks((current) => new Set(current).add(skill.id));
       try {
         const result = await checkLibraryUpdate.mutateAsync(skill.id);
         setUpdateChecks((current) => ({ ...current, [skill.id]: result }));
         setUpdateResult(null);
       } catch {
         toast.error(t("skills.library.update.checkFailed"));
+      } finally {
+        setPendingUpdateChecks((current) => {
+          const next = new Set(current);
+          next.delete(skill.id);
+          return next;
+        });
       }
     };
 
@@ -455,16 +470,26 @@ export const LibrarySkillsPanel = forwardRef<
     };
 
     const inspectLibraryForDeletion = async (skill: LibrarySkill) => {
+      setPendingDeletionInspections((current) =>
+        new Set(current).add(skill.id),
+      );
       try {
         const inspection = await inspectLibraryDeletion.mutateAsync(skill.id);
         setDeletionResult(null);
         setDeletionInspection({ skill, inspection });
       } catch {
         toast.error(t("skills.library.delete.inspectFailed"));
+      } finally {
+        setPendingDeletionInspections((current) => {
+          const next = new Set(current);
+          next.delete(skill.id);
+          return next;
+        });
       }
     };
 
     const inspectDeployedProjectsForSkill = async (skill: LibrarySkill) => {
+      setPendingProjectInspections((current) => new Set(current).add(skill.id));
       setDeployedProjectsDialog({
         skill,
         inspection: null,
@@ -489,6 +514,12 @@ export const LibrarySkillsPanel = forwardRef<
             : current,
         );
         toast.error(t("skills.library.deployedProjects.loadError"));
+      } finally {
+        setPendingProjectInspections((current) => {
+          const next = new Set(current);
+          next.delete(skill.id);
+          return next;
+        });
       }
     };
 
@@ -523,6 +554,10 @@ export const LibrarySkillsPanel = forwardRef<
     };
 
     const applyGlobalDeployment = async (intent: DeploymentIntent) => {
+      const pendingKey = `${intent.librarySkillId}:${intent.target.consumer}`;
+      setPendingGlobalDeployments((current) =>
+        new Set(current).add(pendingKey),
+      );
       try {
         const result = await applyDeployments.mutateAsync({
           intents: [intent],
@@ -559,6 +594,12 @@ export const LibrarySkillsPanel = forwardRef<
         toast.success(t(successKey));
       } catch (error) {
         showSkillErrorToast(t, "skills.library.deploymentFailed", error);
+      } finally {
+        setPendingGlobalDeployments((current) => {
+          const next = new Set(current);
+          next.delete(pendingKey);
+          return next;
+        });
       }
     };
 
@@ -635,11 +676,16 @@ export const LibrarySkillsPanel = forwardRef<
     };
 
     const refreshAll = async () => {
-      await Promise.all([
-        refreshDeployments(),
-        refetchLibrary(),
-        refetchProjects(),
-      ]);
+      setManualRefreshPending(true);
+      try {
+        await Promise.all([
+          refreshDeployments(),
+          refetchLibrary(),
+          refetchProjects(),
+        ]);
+      } finally {
+        setManualRefreshPending(false);
+      }
     };
 
     const renderGlobalDeploymentButton = (
@@ -651,6 +697,7 @@ export const LibrarySkillsPanel = forwardRef<
         (item) => item.librarySkillId === skill.id,
       );
       const compatibility = skill.compatibility[consumer];
+      const isPending = pendingGlobalDeployments.has(`${skill.id}:${consumer}`);
       const hasDesired = Boolean(deployment?.desired);
       const canDeploy =
         !hasDesired &&
@@ -676,22 +723,30 @@ export const LibrarySkillsPanel = forwardRef<
           size="sm"
           className="w-full min-w-0"
           aria-pressed={isSelected}
+          aria-busy={isPending}
           id={`deployment-control-${skill.id}-${consumer}-global`}
           data-testid={`global-deploy-${skill.id}-${consumer}`}
           disabled={
             blocked ||
-            (!isSelected && (!canDeploy || !compatibility.compatible))
+            isPending ||
+            (isSelected ? !hasDesired : !canDeploy || !compatibility.compatible)
           }
           onClick={() => {
-            if (isSelected || !canDeploy || !compatibility.compatible) return;
+            if (
+              isSelected ? !hasDesired : !canDeploy || !compatibility.compatible
+            ) {
+              return;
+            }
             void applyGlobalDeployment({
-              action: "deploy",
+              action: isSelected ? "undeploy" : "deploy",
               librarySkillId: skill.id,
               target: { consumer, workspace: "global" },
             });
           }}
         >
-          {isSelected ? (
+          {isPending ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : isSelected ? (
             <Check className="mr-1.5 h-3.5 w-3.5" />
           ) : (
             <Link2 className="mr-1.5 h-3.5 w-3.5" />
@@ -768,7 +823,7 @@ export const LibrarySkillsPanel = forwardRef<
             variant="outline"
             size="sm"
             className="shrink-0"
-            disabled={blocked || isRefreshing || skills.length === 0}
+            disabled={blocked || skills.length === 0}
             onClick={() => setBatchDialogOpen(true)}
           >
             {t("skills.batch.deploy")}
@@ -778,21 +833,16 @@ export const LibrarySkillsPanel = forwardRef<
             size="icon"
             className="shrink-0"
             aria-label={t("skills.refresh")}
+            aria-busy={manualRefreshPending}
             title={t("skills.refresh")}
-            disabled={blocked || isRefreshing}
+            disabled={blocked || manualRefreshPending}
             onClick={() => void refreshAll()}
           >
             <RefreshCw
-              className={`h-4 w-4${isRefreshing ? " animate-spin" : ""}`}
+              className={`h-4 w-4${manualRefreshPending ? " animate-spin" : ""}`}
             />
           </Button>
         </div>
-
-        {isRefreshing && (
-          <p role="status" className="px-5 pt-2 text-xs text-muted-foreground">
-            {t("skills.refreshing")}
-          </p>
-        )}
 
         {(libraryError || projectQuery.isError || deploymentError) && (
           <p
@@ -889,10 +939,13 @@ export const LibrarySkillsPanel = forwardRef<
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={blocked}
+                      aria-busy={pendingUpdateChecks.has(skill.id)}
+                      disabled={blocked || pendingUpdateChecks.has(skill.id)}
                       onClick={() => void checkForLibraryUpdate(skill)}
                     >
-                      <RefreshCw className="mr-2 h-4 w-4" />
+                      <RefreshCw
+                        className={`mr-2 h-4 w-4${pendingUpdateChecks.has(skill.id) ? " animate-spin" : ""}`}
+                      />
                       {t("skills.library.update.check")}
                     </Button>
                     {updateChecks[skill.id]?.outcome === "update_available" &&
@@ -939,8 +992,11 @@ export const LibrarySkillsPanel = forwardRef<
                       variant="ghost"
                       size="icon"
                       aria-label={t("skills.library.delete.action")}
+                      aria-busy={pendingDeletionInspections.has(skill.id)}
                       title={t("skills.library.delete.action")}
-                      disabled={blocked}
+                      disabled={
+                        blocked || pendingDeletionInspections.has(skill.id)
+                      }
                       onClick={() => void inspectLibraryForDeletion(skill)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -1092,8 +1148,11 @@ export const LibrarySkillsPanel = forwardRef<
                       size="sm"
                       className="w-full min-w-0 sm:col-span-2"
                       aria-label={t("skills.library.deployedProjects.action")}
+                      aria-busy={pendingProjectInspections.has(skill.id)}
                       title={t("skills.library.deployedProjects.action")}
-                      disabled={blocked}
+                      disabled={
+                        blocked || pendingProjectInspections.has(skill.id)
+                      }
                       onClick={() =>
                         void inspectDeployedProjectsForSkill(skill)
                       }

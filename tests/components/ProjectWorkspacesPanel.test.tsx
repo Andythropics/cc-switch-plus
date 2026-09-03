@@ -1,4 +1,4 @@
-import { screen, render, waitFor } from "@testing-library/react";
+import { act, screen, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -304,6 +304,51 @@ describe("ProjectWorkspacesPanel", () => {
     });
   });
 
+  it("limits pending feedback to the clicked project deployment target", async () => {
+    let resolveApply: (() => void) | undefined;
+    applyDeploymentsMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApply = () => resolve({ items: [{ outcome: "applied" }] });
+        }),
+    );
+    codexState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-codex" },
+        observed: { state: "correct_link" },
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    const skillCard = screen
+      .getByText("Careful review")
+      .closest("div.rounded-lg");
+    expect(skillCard).not.toBeNull();
+    const clickedButton = within(skillCard as HTMLElement).getByRole("button", {
+      name: "skills.projects.deploy",
+    });
+
+    await user.click(clickedButton);
+
+    expect(clickedButton).toBeDisabled();
+    expect(
+      within(skillCard as HTMLElement).getByRole("button", {
+        name: "skills.projects.undeploy",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.projects.addSkills" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.projects.register" }),
+    ).toBeEnabled();
+
+    await act(async () => resolveApply?.());
+    await waitFor(() => expect(clickedButton).toBeEnabled());
+  });
+
   it("blocks Workspace management while recovery confirmation is open", async () => {
     queryState.recoveryFindings = [
       {
@@ -393,27 +438,61 @@ describe("ProjectWorkspacesPanel", () => {
     ).not.toHaveProperty("path");
   });
 
-  it("reconciles active deployment observations from the manual refresh control", async () => {
+  it("limits manual refresh feedback to the refresh control", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    refreshDeploymentsMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
     render(<ProjectWorkspacesPanel />);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "skills.refresh" }));
 
     expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows a visible refresh state and disables project batch actions while deployment reconciliation runs", () => {
-    queryState.projectFetching = true;
-    queryState.deploymentFetching = true;
-    render(<ProjectWorkspacesPanel />);
-
-    expect(screen.getByRole("status")).toHaveTextContent("skills.refreshing");
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
     expect(
       screen.getByRole("button", { name: "skills.projects.addSkills" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
+
+    await act(async () => resolveRefresh?.());
+    await waitFor(() =>
+      expect(refreshButton).toHaveAttribute("aria-busy", "false"),
+    );
+  });
+
+  it("keeps background reconciliation from shifting the Projects view", () => {
+    queryState.projectFetching = true;
+    queryState.deploymentFetching = true;
+    codexState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-codex" },
+        observed: { state: "correct_link" },
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(refreshButton).toBeEnabled();
+    expect(refreshButton.querySelector("svg")).not.toHaveClass("animate-spin");
+    expect(
+      screen.getByRole("button", { name: "skills.projects.addSkills" }),
+    ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "skills.batch.undeploy" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 
   it("includes Library query failures in the project load alert", () => {

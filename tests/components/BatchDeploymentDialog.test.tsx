@@ -107,8 +107,8 @@ describe("BatchDeploymentDialog", () => {
     const scrollRegion = selection.parentElement;
     const footer = screen.getByTestId("batch-apply").parentElement;
 
-    expect(dialog).toHaveClass("z-[60]", "max-h-[90vh]");
-    expect(overlay).toHaveClass("z-[60]");
+    expect(dialog).toHaveClass("z-[80]", "max-h-[90vh]");
+    expect(overlay).toHaveClass("z-[80]");
     expect(scrollRegion).toHaveClass("min-h-0", "overflow-auto");
     expect(footer).toHaveClass("flex-shrink-0");
     expect(scrollRegion).not.toContainElement(

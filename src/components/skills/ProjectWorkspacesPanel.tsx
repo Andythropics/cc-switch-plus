@@ -121,10 +121,14 @@ function ProjectWorkspaceDeployments({
   const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
     "deploy",
   );
+  const [pendingDeployments, setPendingDeployments] = useState(
+    new Set<string>(),
+  );
+  const [batchPending, setBatchPending] = useState(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const deploymentError = claudeError || codexError;
   const deploymentFetching = claudeFetching || codexFetching;
-  const deploymentBusy = apply.isPending || batchDialogOpen || recoveryBusy;
+  const deploymentBusy = batchDialogOpen || recoveryBusy;
   const deployedSkillIds = new Set(
     [...(claudeState?.items ?? []), ...(codexState?.items ?? [])]
       .filter((item) => item.desired)
@@ -144,6 +148,8 @@ function ProjectWorkspaceDeployments({
   }, [deploymentBusy, onBusyChange, workspace.id]);
 
   const applyDeployment = async (intent: DeploymentIntent) => {
+    const pendingKey = `${intent.librarySkillId}:${intent.target.consumer}`;
+    setPendingDeployments((current) => new Set(current).add(pendingKey));
     try {
       const result = await apply.mutateAsync({ intents: [intent] });
       const item = result.items[0];
@@ -172,13 +178,24 @@ function ProjectWorkspaceDeployments({
       );
     } catch (error) {
       showSkillErrorToast(t, "skills.projects.deploymentFailed", error);
+    } finally {
+      setPendingDeployments((current) => {
+        const next = new Set(current);
+        next.delete(pendingKey);
+        return next;
+      });
     }
   };
 
   const applyBatch = async (batch: DeploymentBatch) => {
-    const result = await apply.mutateAsync(batch);
-    await Promise.all([refreshDeployments(), refetchLibrary()]);
-    return result;
+    setBatchPending(true);
+    try {
+      const result = await apply.mutateAsync(batch);
+      await Promise.all([refreshDeployments(), refetchLibrary()]);
+      return result;
+    } finally {
+      setBatchPending(false);
+    }
   };
 
   const renderControl = (skill: LibrarySkill, consumer: DeploymentConsumer) => {
@@ -188,6 +205,7 @@ function ProjectWorkspaceDeployments({
     );
     const status = deployment?.status ?? "not_deployed";
     const compatible = skill.compatibility[consumer].compatible;
+    const isPending = pendingDeployments.has(`${skill.id}:${consumer}`);
     const label =
       consumer === "claude"
         ? t("skills.library.consumerClaude")
@@ -216,7 +234,7 @@ function ProjectWorkspaceDeployments({
           deployment={deployment}
           compatible={compatible}
           workspaceLifecycle={workspace.lifecycle}
-          isPending={apply.isPending}
+          isPending={isPending}
           deployLabel={t("skills.projects.deploy")}
           undeployLabel={t("skills.projects.undeploy")}
           onApply={applyDeployment}
@@ -244,12 +262,7 @@ function ProjectWorkspaceDeployments({
           <Button
             variant="outline"
             size="sm"
-            disabled={
-              workspace.lifecycle !== "active" ||
-              deploymentFetching ||
-              apply.isPending ||
-              skills.length === 0
-            }
+            disabled={workspace.lifecycle !== "active" || skills.length === 0}
             onClick={() => {
               setBatchAction("deploy");
               setBatchDialogOpen(true);
@@ -262,8 +275,6 @@ function ProjectWorkspaceDeployments({
             size="sm"
             disabled={
               !["active", "archived"].includes(workspace.lifecycle) ||
-              deploymentFetching ||
-              apply.isPending ||
               deployedSkills.length === 0
             }
             onClick={() => {
@@ -281,11 +292,6 @@ function ProjectWorkspaceDeployments({
           className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {t("skills.projects.deploymentLoadError")}
-        </p>
-      )}
-      {deploymentFetching && (
-        <p className="text-xs text-muted-foreground">
-          {t("skills.refreshing")}
         </p>
       )}
       {skills.length === 0 ? (
@@ -332,7 +338,7 @@ function ProjectWorkspaceDeployments({
           ...(claudeState?.items ?? []),
           ...(codexState?.items ?? []),
         ]}
-        isPending={apply.isPending || deploymentFetching}
+        isPending={batchPending || deploymentFetching}
         onApply={applyBatch}
       />
     </div>
@@ -356,7 +362,6 @@ export const ProjectWorkspacesPanel = forwardRef<
   const projectQuery = useProjectWorkspaces();
   const workspaces = projectQuery.data ?? [];
   const isLoading = projectQuery.isLoading;
-  const isFetching = projectQuery.isFetching;
   const refetchWorkspaces =
     projectQuery.refetch ?? (async () => ({ data: workspaces }));
   const libraryQuery = useLibrarySkills();
@@ -390,6 +395,7 @@ export const ProjectWorkspacesPanel = forwardRef<
   const [childDeploymentBusyIds, setChildDeploymentBusyIds] = useState<
     Set<string>
   >(new Set());
+  const [manualRefreshPending, setManualRefreshPending] = useState(false);
 
   const filteredWorkspaces = workspaces.filter((workspace) => {
     const needle = query.trim().toLocaleLowerCase();
@@ -459,11 +465,16 @@ export const ProjectWorkspacesPanel = forwardRef<
     (showArchived ? archivedWorkspaces[0] : undefined);
 
   const refreshAll = async () => {
-    await Promise.all([
-      refetchWorkspaces(),
-      refetchLibrary(),
-      refreshDeployments(),
-    ]);
+    setManualRefreshPending(true);
+    try {
+      await Promise.all([
+        refetchWorkspaces(),
+        refetchLibrary(),
+        refreshDeployments(),
+      ]);
+    } finally {
+      setManualRefreshPending(false);
+    }
   };
 
   const registerDirectory = async () => {
@@ -706,20 +717,16 @@ export const ProjectWorkspacesPanel = forwardRef<
           variant="ghost"
           size="icon"
           aria-label={t("skills.refresh")}
+          aria-busy={manualRefreshPending}
           title={t("skills.refresh")}
-          disabled={managementBusy || isFetching}
+          disabled={managementBusy || manualRefreshPending}
           onClick={() => void refreshAll()}
         >
           <RefreshCw
-            className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+            className={`h-4 w-4 ${manualRefreshPending ? "animate-spin" : ""}`}
           />
         </Button>
       </div>
-      {isFetching && (
-        <p role="status" className="px-5 pt-2 text-xs text-muted-foreground">
-          {t("skills.refreshing")}
-        </p>
-      )}
       {(projectQuery.isError || libraryQuery.isError) && (
         <p
           role="alert"

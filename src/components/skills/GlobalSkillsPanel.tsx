@@ -114,6 +114,11 @@ export function GlobalSkillsPanel({
   const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
     "deploy",
   );
+  const [pendingDeployments, setPendingDeployments] = useState(
+    new Set<string>(),
+  );
+  const [batchPending, setBatchPending] = useState(false);
+  const [manualRefreshPending, setManualRefreshPending] = useState(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [globalImportBusy, setGlobalImportBusy] = useState(false);
 
@@ -131,12 +136,7 @@ export function GlobalSkillsPanel({
     claudeQuery.isFetching ||
     codexQuery.isFetching ||
     globalImportsQuery.isFetching;
-  const navigationBlocked =
-    apply.isPending ||
-    batchOpen ||
-    recoveryBusy ||
-    globalImportBusy ||
-    globalImportsQuery.isFetching;
+  const navigationBlocked = batchOpen || recoveryBusy || globalImportBusy;
 
   useEffect(() => {
     onInteractionBlockedChange?.(navigationBlocked);
@@ -184,6 +184,8 @@ export function GlobalSkillsPanel({
   );
 
   const applyDeployment = async (intent: DeploymentIntent) => {
+    const pendingKey = `${intent.librarySkillId}:${intent.target.consumer}`;
+    setPendingDeployments((current) => new Set(current).add(pendingKey));
     try {
       const result = await apply.mutateAsync({ intents: [intent] });
       const item = result.items[0];
@@ -196,27 +198,43 @@ export function GlobalSkillsPanel({
       }
     } catch (error) {
       showSkillErrorToast(t, "skills.library.deploymentFailed", error);
+    } finally {
+      setPendingDeployments((current) => {
+        const next = new Set(current);
+        next.delete(pendingKey);
+        return next;
+      });
     }
   };
 
   const applyBatch = async (batch: DeploymentBatch) => {
-    const result = await apply.mutateAsync(batch);
-    await Promise.all([
-      refreshDeployments(),
-      refetchLibrary(),
-      refetchProjects(),
-      globalImportsQuery.refetch(),
-    ]);
-    return result;
+    setBatchPending(true);
+    try {
+      const result = await apply.mutateAsync(batch);
+      await Promise.all([
+        refreshDeployments(),
+        refetchLibrary(),
+        refetchProjects(),
+        globalImportsQuery.refetch(),
+      ]);
+      return result;
+    } finally {
+      setBatchPending(false);
+    }
   };
 
   const refresh = async () => {
-    await Promise.all([
-      refreshDeployments(),
-      refetchLibrary(),
-      refetchProjects(),
-      globalImportsQuery.refetch(),
-    ]);
+    setManualRefreshPending(true);
+    try {
+      await Promise.all([
+        refreshDeployments(),
+        refetchLibrary(),
+        refetchProjects(),
+        globalImportsQuery.refetch(),
+      ]);
+    } finally {
+      setManualRefreshPending(false);
+    }
   };
 
   const renderConsumer = (
@@ -228,6 +246,7 @@ export function GlobalSkillsPanel({
       (item) => item.librarySkillId === skill.id,
     );
     const compatible = skill.compatibility[consumer];
+    const isPending = pendingDeployments.has(`${skill.id}:${consumer}`);
     return (
       <div
         key={consumer}
@@ -249,7 +268,7 @@ export function GlobalSkillsPanel({
           deployment={deployment}
           compatible={compatible.compatible}
           workspaceLifecycle="active"
-          isPending={apply.isPending}
+          isPending={isPending}
           deployLabel={
             consumer === "claude"
               ? t("skills.library.deployClaude")
@@ -298,7 +317,7 @@ export function GlobalSkillsPanel({
         <Button
           variant="outline"
           size="sm"
-          disabled={apply.isPending || isRefreshing || skills.length === 0}
+          disabled={skills.length === 0}
           onClick={() => {
             setBatchAction("deploy");
             setBatchOpen(true);
@@ -309,7 +328,7 @@ export function GlobalSkillsPanel({
         <Button
           variant="ghost"
           size="sm"
-          disabled={apply.isPending || isRefreshing || skills.length === 0}
+          disabled={skills.length === 0}
           onClick={() => {
             setBatchAction("undeploy");
             setBatchOpen(true);
@@ -321,21 +340,16 @@ export function GlobalSkillsPanel({
           variant="ghost"
           size="icon"
           aria-label={t("skills.refresh")}
+          aria-busy={manualRefreshPending}
           title={t("skills.refresh")}
-          disabled={isRefreshing || apply.isPending}
+          disabled={manualRefreshPending}
           onClick={() => void refresh()}
         >
           <RefreshCw
-            className={`h-4 w-4${isRefreshing ? " animate-spin" : ""}`}
+            className={`h-4 w-4${manualRefreshPending ? " animate-spin" : ""}`}
           />
         </Button>
       </div>
-
-      {isRefreshing && (
-        <p role="status" className="px-5 pt-2 text-xs text-muted-foreground">
-          {t("skills.refreshing")}
-        </p>
-      )}
 
       {(libraryError ||
         projectError ||
@@ -491,7 +505,7 @@ export function GlobalSkillsPanel({
         targetLocked
         defaultAction={batchAction}
         inspections={allInspections}
-        isPending={apply.isPending || isRefreshing}
+        isPending={batchPending || isRefreshing}
         onApply={applyBatch}
       />
     </div>

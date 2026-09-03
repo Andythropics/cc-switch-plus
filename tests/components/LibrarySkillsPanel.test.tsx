@@ -31,6 +31,7 @@ const {
   projectDeploymentStateMock,
   projectRows,
   refreshState,
+  readPendingState,
   queryErrorState,
 } = vi.hoisted(() => ({
   updateMetadataMock: vi.fn(),
@@ -47,6 +48,7 @@ const {
   projectDeploymentStateMock: { items: [] as unknown[] },
   projectRows: [] as unknown[],
   refreshState: { isFetching: false },
+  readPendingState: { checkUpdate: false, inspect: false },
   queryErrorState: { project: false },
 }));
 
@@ -110,7 +112,7 @@ vi.mock("@/hooks/useSkills", () => ({
   }),
   useCheckLibrarySkillUpdate: () => ({
     mutateAsync: checkLibraryUpdateMock,
-    isPending: false,
+    isPending: readPendingState.checkUpdate,
   }),
   useApplyLibrarySkillUpdate: () => ({
     mutateAsync: applyLibraryUpdateMock,
@@ -118,7 +120,7 @@ vi.mock("@/hooks/useSkills", () => ({
   }),
   useInspectLibrarySkillDeletion: () => ({
     mutateAsync: inspectLibraryDeletionMock,
-    isPending: false,
+    isPending: readPendingState.inspect,
   }),
   useDeleteLibrarySkill: () => ({
     mutateAsync: deleteLibraryMock,
@@ -201,6 +203,8 @@ describe("LibrarySkillsPanel", () => {
     projectDeploymentStateMock.items = [];
     projectRows.length = 0;
     refreshState.isFetching = false;
+    readPendingState.checkUpdate = false;
+    readPendingState.inspect = false;
     queryErrorState.project = false;
     librarySkill.source = {
       kind: "marketplace",
@@ -322,26 +326,50 @@ describe("LibrarySkillsPanel", () => {
     );
   });
 
-  it("reconciles active deployment observations from the manual refresh control", async () => {
+  it("limits manual refresh feedback to the refresh control", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    refreshDeploymentsMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "skills.refresh" }));
 
     expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
+    expect(
+      screen.getByRole("button", { name: "skills.batch.deploy" }),
+    ).toBeEnabled();
+
+    await act(async () => resolveRefresh?.());
+    await waitFor(() =>
+      expect(refreshButton).toHaveAttribute("aria-busy", "false"),
+    );
   });
 
-  it("shows and locks the refresh control while reconciliation is pending", () => {
+  it("keeps background reconciliation from shifting the Library", () => {
     refreshState.isFetching = true;
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("skills.refreshing");
-    expect(
-      screen.getByRole("button", { name: "skills.refresh" }),
-    ).toBeDisabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(refreshButton).toHaveAttribute("aria-busy", "false");
+    expect(refreshButton).toBeEnabled();
+    expect(refreshButton.querySelector("svg")).not.toHaveClass("animate-spin");
     expect(
       screen.getByRole("button", { name: "skills.batch.deploy" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 
   it("leaves Skills navigation to the shared header", () => {
@@ -700,7 +728,7 @@ describe("LibrarySkillsPanel", () => {
     ).toBeChecked();
   });
 
-  it("deploys an acquired Library Skill to Codex Global through the apply seam", async () => {
+  it("toggles an acquired Library Skill in Codex Global through the apply seam", async () => {
     const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
     const user = userEvent.setup();
@@ -733,6 +761,61 @@ describe("LibrarySkillsPanel", () => {
     expect(
       screen.getByRole("button", { name: "skills.library.deployedCodex" }),
     ).toHaveAttribute("aria-pressed", "true");
+
+    applyDeploymentsMock.mockClear();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.deployedCodex" }),
+    );
+    expect(applyDeploymentsMock).toHaveBeenCalledWith({
+      intents: [
+        {
+          action: "undeploy",
+          librarySkillId: "library-1",
+          target: { consumer: "codex", workspace: "global" },
+        },
+      ],
+    });
+  });
+
+  it("limits pending feedback to the clicked global deployment button", async () => {
+    let resolveApply: (() => void) | undefined;
+    applyDeploymentsMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApply = () => resolve({ items: [{ outcome: "applied" }] });
+        }),
+    );
+    codexDeploymentStateMock.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-1" },
+        observed: { state: "correct_link" },
+        observationToken: "observation-1",
+      },
+    ];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.deployedCodex" }),
+    );
+    const clickedButton = screen.getByRole("button", {
+      name: "skills.library.deployedCodex",
+    });
+    expect(clickedButton).toHaveAttribute("aria-busy", "true");
+    expect(clickedButton).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.deployClaude" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.refresh" }),
+    ).toBeEnabled();
+
+    await act(async () => resolveApply?.());
+    await waitFor(() =>
+      expect(clickedButton).toHaveAttribute("aria-busy", "false"),
+    );
   });
 
   it("renders responsive cards with upper actions and three footer actions", () => {
@@ -790,6 +873,151 @@ describe("LibrarySkillsPanel", () => {
     expect(
       screen.getByRole("button", { name: "skills.library.deployClaude" }),
     ).toBeEnabled();
+  });
+
+  it("limits update-check pending feedback to the clicked button", async () => {
+    let resolveCheck:
+      | ((result: {
+          librarySkillId: string;
+          outcome: "up_to_date";
+          observationToken: string;
+          recordedContentHash: string;
+          localModified: boolean;
+          affectedDeployments: never[];
+        }) => void)
+      | undefined;
+    checkLibraryUpdateMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCheck = resolve;
+        }),
+    );
+    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.check" }),
+    );
+    readPendingState.checkUpdate = true;
+    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const checkButton = screen.getByRole("button", {
+      name: "skills.library.update.check",
+    });
+    expect(checkButton).toHaveAttribute("aria-busy", "true");
+    expect(checkButton).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.deployClaude" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.delete.action" }),
+    ).toBeEnabled();
+
+    readPendingState.checkUpdate = false;
+    await act(async () =>
+      resolveCheck?.({
+        librarySkillId: "library-1",
+        outcome: "up_to_date",
+        observationToken: "update-observation",
+        recordedContentHash: "abc",
+        localModified: false,
+        affectedDeployments: [],
+      }),
+    );
+  });
+
+  it("limits deletion-inspection pending feedback to the clicked button", async () => {
+    let resolveInspection:
+      | ((result: {
+          librarySkillId: string;
+          observationToken: string;
+          targets: never[];
+          blocked: boolean;
+        }) => void)
+      | undefined;
+    inspectLibraryDeletionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveInspection = resolve;
+        }),
+    );
+    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.delete.action" }),
+    );
+    readPendingState.inspect = true;
+    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    const deleteButton = screen.getByRole("button", {
+      name: "skills.library.delete.action",
+    });
+    expect(deleteButton).toHaveAttribute("aria-busy", "true");
+    expect(deleteButton).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.update.check" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.library.deployClaude" }),
+    ).toBeEnabled();
+
+    readPendingState.inspect = false;
+    await act(async () =>
+      resolveInspection?.({
+        librarySkillId: "library-1",
+        observationToken: "delete-observation",
+        targets: [],
+        blocked: false,
+      }),
+    );
+  });
+
+  it("limits deployed-project inspection feedback to the clicked button", async () => {
+    let resolveInspection:
+      | ((result: {
+          librarySkillId: string;
+          observationToken: string;
+          targets: never[];
+          blocked: boolean;
+        }) => void)
+      | undefined;
+    inspectLibraryDeletionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveInspection = resolve;
+        }),
+    );
+    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const user = userEvent.setup();
+    const deployedProjectsButton = screen.getByRole("button", {
+      name: "skills.library.deployedProjects.action",
+    });
+    const checkButton = screen.getByRole("button", {
+      name: "skills.library.update.check",
+    });
+    const deployButton = screen.getByRole("button", {
+      name: "skills.library.deployClaude",
+    });
+
+    await user.click(deployedProjectsButton);
+    readPendingState.inspect = true;
+    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+
+    expect(deployedProjectsButton).toHaveAttribute("aria-busy", "true");
+    expect(deployedProjectsButton).toBeDisabled();
+    expect(checkButton).toBeEnabled();
+    expect(deployButton).toBeEnabled();
+
+    readPendingState.inspect = false;
+    await act(async () =>
+      resolveInspection?.({
+        librarySkillId: "library-1",
+        observationToken: "projects-observation",
+        targets: [],
+        blocked: false,
+      }),
+    );
   });
 
   it("requires explicit confirmation before applying a staged update over local edits", async () => {

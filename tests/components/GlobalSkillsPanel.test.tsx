@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -165,17 +165,82 @@ describe("GlobalSkillsPanel", () => {
     );
   });
 
-  it("shows and locks the refresh control while reconciliation is pending", () => {
+  it("limits pending feedback to the clicked global deployment target", async () => {
+    let resolveApply: (() => void) | undefined;
+    applyMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApply = () => resolve({ items: [{ outcome: "applied" }] });
+        }),
+    );
+    render(<GlobalSkillsPanel />);
+    const user = userEvent.setup();
+    const clickedButton = within(
+      screen.getByTestId("global-deployment-skill-a-claude"),
+    ).getByRole("button", { name: "skills.library.deployClaude" });
+
+    await user.click(clickedButton);
+
+    expect(clickedButton).toBeDisabled();
+    expect(
+      within(screen.getByTestId("global-deployment-skill-a-codex")).getByRole(
+        "button",
+        { name: "skills.library.deployCodex" },
+      ),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "skills.refresh" }),
+    ).toBeEnabled();
+
+    await act(async () => resolveApply?.());
+    await waitFor(() => expect(clickedButton).toBeEnabled());
+  });
+
+  it("keeps background reconciliation from shifting the Global view", () => {
     state.refreshing = true;
     render(<GlobalSkillsPanel />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("skills.refreshing");
-    expect(
-      screen.getByRole("button", { name: "skills.refresh" }),
-    ).toBeDisabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(refreshButton).toBeEnabled();
+    expect(refreshButton.querySelector("svg")).not.toHaveClass("animate-spin");
     expect(
       screen.getByRole("button", { name: "skills.global.batchDeploy" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
+  });
+
+  it("limits manual refresh feedback to the refresh control", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    refreshMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    render(<GlobalSkillsPanel />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
+    expect(
+      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
+    ).toBeEnabled();
+
+    await act(async () => resolveRefresh?.());
+    await waitFor(() =>
+      expect(refreshButton).toHaveAttribute("aria-busy", "false"),
+    );
   });
 
   it("reports navigation busy while its batch dialog is open", async () => {
