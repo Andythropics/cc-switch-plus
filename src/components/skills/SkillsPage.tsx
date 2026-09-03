@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ManagementListSearch } from "@/components/common/ManagementListSearch";
 import {
   Dialog,
   DialogDescription,
@@ -457,14 +458,14 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
               {effectiveSource === "repos" ? (
                 <>
                   {/* 仓库模式搜索框 */}
-                  <div className="relative flex-1 min-w-0">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      placeholder={t("skills.searchPlaceholder")}
+                  <div className="min-w-0 flex-1">
+                    <ManagementListSearch
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 pr-3"
+                      onValueChange={setSearchQuery}
+                      placeholder={t("skills.searchPlaceholder")}
+                      ariaLabel={t("skills.searchPlaceholder")}
+                      clearLabel={t("common.clear")}
+                      className="mb-0"
                     />
                   </div>
                   {/* 仓库筛选 */}
@@ -609,7 +610,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     {progressiveRepoSkills.visibleItems.map((skill) => (
                       <SkillCard
                         key={skill.key}
@@ -653,7 +654,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                       {progressiveSkillsShResults.visibleItems.map((skill) => {
                         const acquired = isSkillsShAcquired(skill);
                         return (

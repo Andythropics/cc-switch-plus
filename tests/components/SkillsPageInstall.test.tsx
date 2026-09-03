@@ -302,6 +302,26 @@ describe("SkillsPage - skills.sh acquisition (regression)", () => {
     ).toBeVisible();
   });
 
+  it("keeps discovery cards fixed and clamps long descriptions", () => {
+    const description = "A long skill description ".repeat(20);
+    discoverableSkillsMock = [makeDiscoverableSkill({ description })];
+    skillReposMock = [makeSkillRepo()];
+
+    render(<SkillsPage />);
+
+    const card = screen.getByText("Repo Skill").closest("div.glass-card");
+    expect(card).toHaveClass("h-80");
+    expect(card?.parentElement).toHaveClass("lg:grid-cols-2");
+    expect(
+      screen
+        .getByPlaceholderText("skills.searchPlaceholder")
+        .closest('[role="search"]'),
+    ).not.toBeNull();
+    const descriptionElement = card?.querySelector("p.line-clamp-4");
+    expect(descriptionElement).not.toBeNull();
+    expect(descriptionElement).toHaveAttribute("title", description);
+  });
+
   it("can switch back to repository results after discoverable skills refresh", async () => {
     const onSourceChange = vi.fn();
     const user = userEvent.setup();

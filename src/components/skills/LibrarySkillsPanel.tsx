@@ -17,7 +17,6 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
-  Search,
   Trash2,
   Upload,
   XCircle,
@@ -26,6 +25,8 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { ManagementListSearch } from "@/components/common/ManagementListSearch";
 import {
   Dialog,
   DialogBody,
@@ -147,7 +148,7 @@ function CompatibilityBadge({
     <Badge
       variant={result.compatible ? "secondary" : "destructive"}
       title={result.issues.join("\n") || undefined}
-      className="gap-1"
+      className="h-6 shrink-0 gap-1 px-2 py-0 text-[11px]"
     >
       <Icon className="h-3 w-3" />
       {consumer}
@@ -805,19 +806,18 @@ export const LibrarySkillsPanel = forwardRef<
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div
-          className="flex flex-wrap items-center gap-3 border-b px-5 py-3"
+          className="flex flex-wrap items-center gap-3 px-5 py-3"
           role="toolbar"
         >
           <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("skills.searchPlaceholder")}
-                className="pl-9"
-              />
-            </div>
+            <ManagementListSearch
+              value={query}
+              onValueChange={setQuery}
+              placeholder={t("skills.searchPlaceholder")}
+              ariaLabel={t("skills.searchPlaceholder")}
+              clearLabel={t("common.clear")}
+              className="mb-0"
+            />
           </div>
           <Button
             variant="outline"
@@ -853,7 +853,7 @@ export const LibrarySkillsPanel = forwardRef<
           </p>
         )}
 
-        <ScrollArea className="min-h-0 flex-1 px-5 pb-5">
+        <ScrollArea className="min-h-0 flex-1 px-5 pb-5 pt-3">
           {isLoading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -867,33 +867,287 @@ export const LibrarySkillsPanel = forwardRef<
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {progressiveSkills.visibleItems.map((skill) => (
-                <article
+                <Card
                   key={skill.id}
-                  className={`flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-4 shadow-sm${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
+                  role="article"
+                  className={`glass-card group relative flex h-80 min-w-0 flex-col overflow-hidden transition-all duration-300 hover:shadow-lg${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
                   data-testid={`library-skill-${skill.id}`}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="min-w-0 break-words font-semibold">
-                          {skill.displayName}
-                        </h3>
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+                  <CardContent className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto p-4 pt-4">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <h3
+                            className="min-w-0 truncate font-semibold"
+                            title={skill.displayName}
+                          >
+                            {skill.displayName}
+                          </h3>
+                          <Badge
+                            variant="outline"
+                            className="h-5 min-w-0 max-w-[60%] shrink border-border-default px-2 py-0 text-left font-mono text-[11px]"
+                            title={skill.directory}
+                          >
+                            <span className="truncate">{skill.directory}</span>
+                          </Badge>
+                        </div>
+                        {(sourceSummary(skill) ||
+                          skill.source.marketplace ||
+                          skill.source.repoBranch ||
+                          skill.source.skillPath) && (
+                          <div className="mt-1.5 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground">
+                            {sourceSummary(skill) && (
+                              <span
+                                className="min-w-0 truncate"
+                                title={sourceSummary(skill)}
+                              >
+                                {sourceSummary(skill)}
+                              </span>
+                            )}
+                            {skill.source.marketplace && (
+                              <span
+                                className="min-w-0 truncate"
+                                title={skill.source.marketplace}
+                              >
+                                {skill.source.marketplace}
+                              </span>
+                            )}
+                            {skill.source.repoBranch && (
+                              <span
+                                className="min-w-0 truncate font-mono"
+                                title={`@${skill.source.repoBranch}`}
+                              >
+                                @{skill.source.repoBranch}
+                              </span>
+                            )}
+                            {skill.source.skillPath && (
+                              <span
+                                className="min-w-0 truncate font-mono"
+                                title={skill.source.skillPath}
+                              >
+                                {skill.source.skillPath}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {skill.description && (
+                          <p
+                            className="mt-2 line-clamp-4 text-sm leading-relaxed text-muted-foreground/90"
+                            title={skill.description}
+                          >
+                            {skill.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("skills.library.edit")}
+                          onClick={() => beginEdit(skill)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("skills.library.delete.action")}
+                          aria-busy={pendingDeletionInspections.has(skill.id)}
+                          title={t("skills.library.delete.action")}
+                          disabled={
+                            blocked || pendingDeletionInspections.has(skill.id)
+                          }
+                          onClick={() => void inspectLibraryForDeletion(skill)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {updateChecks[skill.id] && (
+                      <div
+                        className="mt-2 space-y-2 rounded-md border bg-muted/40 p-3 text-xs"
+                        data-testid={`library-update-details-${skill.id}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant={
+                              updateChecks[skill.id].outcome ===
+                              "update_available"
+                                ? "default"
+                                : updateChecks[skill.id].outcome ===
+                                    "up_to_date"
+                                  ? "secondary"
+                                  : "destructive"
+                            }
+                            data-testid={`library-update-status-${skill.id}`}
+                          >
+                            {t(
+                              updateOutcomeKey(updateChecks[skill.id].outcome),
+                            )}
+                          </Badge>
+                          {updateChecks[skill.id].outcome ===
+                            "update_available" &&
+                            updateChecks[skill.id].stageToken && (
+                              <Button
+                                size="sm"
+                                disabled={
+                                  blocked ||
+                                  updateChecks[
+                                    skill.id
+                                  ].affectedDeployments.some(
+                                    (item) => !item.stagedCompatible,
+                                  )
+                                }
+                                onClick={() =>
+                                  beginLibraryUpdate(
+                                    skill,
+                                    updateChecks[skill.id],
+                                  )
+                                }
+                              >
+                                <Upload className="mr-2 h-4 w-4" />
+                                {t("skills.library.update.apply")}
+                              </Button>
+                            )}
+                        </div>
+                        {updateChecks[skill.id].localModified && (
+                          <p className="font-medium text-destructive">
+                            {t("skills.library.update.localModified")}
+                          </p>
+                        )}
+                        <SkillTechnicalDetails
+                          details={updateChecks[skill.id].message}
+                        >
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            <span>
+                              {t("skills.library.update.recordedHash")}:{" "}
+                              <code className="break-all">
+                                {updateChecks[skill.id].recordedContentHash}
+                              </code>
+                            </span>
+                            {updateChecks[skill.id].stagedContentHash && (
+                              <span>
+                                {t("skills.library.update.stagedHash")}:{" "}
+                                <code className="break-all">
+                                  {updateChecks[skill.id].stagedContentHash}
+                                </code>
+                              </span>
+                            )}
+                          </div>
+                        </SkillTechnicalDetails>
+                        {updateChecks[skill.id].affectedDeployments.length >
+                          0 && (
+                          <div className="space-y-1">
+                            <p className="font-medium">
+                              {t("skills.library.update.affectedDeployments")}
+                            </p>
+                            {updateChecks[skill.id].affectedDeployments.map(
+                              (affected) => {
+                                const { inspection } = affected;
+                                const target = inspection.target;
+                                const lifecycle =
+                                  inspection.status === "archived"
+                                    ? t("skills.library.update.archived")
+                                    : t("skills.library.update.active");
+                                return (
+                                  <div
+                                    key={`${target.consumer}-${target.workspace}-${target.workspaceId ?? "global"}`}
+                                    className="flex flex-wrap items-center gap-2"
+                                  >
+                                    {target.workspace === "global" ? (
+                                      <a
+                                        className="min-w-0 break-all underline underline-offset-2"
+                                        href={targetAnchor(
+                                          inspection.librarySkillId,
+                                          target.consumer,
+                                        )}
+                                      >
+                                        {target.consumer} / {target.workspace}
+                                      </a>
+                                    ) : onOpenProjects ? (
+                                      <button
+                                        type="button"
+                                        className="min-w-0 break-all underline underline-offset-2"
+                                        disabled={navigationBlocked}
+                                        onClick={() => {
+                                          setUpdateConfirmation(null);
+                                          setDeletionInspection(null);
+                                          onOpenProjects();
+                                        }}
+                                      >
+                                        {target.consumer} / {target.workspace}
+                                        {target.workspaceId
+                                          ? ` (${target.workspaceId})`
+                                          : ""}
+                                      </button>
+                                    ) : (
+                                      <span className="min-w-0 break-all">
+                                        {target.consumer} / {target.workspace}
+                                        {target.workspaceId
+                                          ? ` (${target.workspaceId})`
+                                          : ""}
+                                      </span>
+                                    )}
+                                    <Badge variant="outline">{lifecycle}</Badge>
+                                    {!affected.stagedCompatible && (
+                                      <span className="text-destructive">
+                                        {t(
+                                          "skills.library.update.compatibilityRegression",
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              },
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {updateResult?.skillId === skill.id && (
+                      <div
+                        className={
+                          updateResult.outcome === "recovery_required"
+                            ? "mt-2 rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive"
+                            : "mt-2 rounded-md border bg-muted/40 p-3 text-xs"
+                        }
+                        data-testid={`library-update-result-${skill.id}`}
+                      >
+                        <p className="font-medium">
+                          {t(
+                            updateApplyOutcomeKey(
+                              updateResult.outcome as never,
+                            ),
+                          )}
+                        </p>
+                        {updateResult.reason && (
+                          <p>
+                            {t(updateReasonKey(updateResult.reason as never))}
+                          </p>
+                        )}
+                        <SkillTechnicalDetails details={updateResult.message} />
+                        {updateResult.backupPath && (
+                          <p>
+                            {t("skills.library.update.backupPath")}:{" "}
+                            <code className="break-all">
+                              {updateResult.backupPath}
+                            </code>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <div
+                      className="mt-auto flex min-w-0 flex-nowrap items-center gap-2 pt-3 text-xs text-muted-foreground"
+                      data-testid={`library-skill-summary-${skill.id}`}
+                    >
+                      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                         <Badge
                           variant="outline"
-                          className="max-w-full whitespace-normal break-all text-left font-mono text-xs"
+                          className="h-6 shrink-0 px-2 py-0 text-[11px]"
                         >
-                          {skill.directory}
-                        </Badge>
-                      </div>
-                      {skill.description && (
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {skill.description}
-                        </p>
-                      )}
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="outline">
                           {t(
                             skill.source.kind === "git"
                               ? "skills.library.sourceGit"
@@ -904,26 +1158,6 @@ export const LibrarySkillsPanel = forwardRef<
                                   : "skills.library.sourceLocalImport",
                           )}
                         </Badge>
-                        {sourceSummary(skill) && (
-                          <span className="min-w-0 break-all">
-                            {sourceSummary(skill)}
-                          </span>
-                        )}
-                        {skill.source.marketplace && (
-                          <span className="min-w-0 break-words">
-                            {skill.source.marketplace}
-                          </span>
-                        )}
-                        {skill.source.repoBranch && (
-                          <span className="min-w-0 break-all font-mono">
-                            @{skill.source.repoBranch}
-                          </span>
-                        )}
-                        {skill.source.skillPath && (
-                          <span className="min-w-0 break-all font-mono">
-                            {skill.source.skillPath}
-                          </span>
-                        )}
                         <CompatibilityBadge
                           consumer={t("skills.library.consumerClaude")}
                           result={skill.compatibility.claude}
@@ -933,205 +1167,25 @@ export const LibrarySkillsPanel = forwardRef<
                           result={skill.compatibility.codex}
                         />
                       </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-busy={pendingUpdateChecks.has(skill.id)}
-                      disabled={blocked || pendingUpdateChecks.has(skill.id)}
-                      onClick={() => void checkForLibraryUpdate(skill)}
-                    >
-                      <RefreshCw
-                        className={`mr-2 h-4 w-4${pendingUpdateChecks.has(skill.id) ? " animate-spin" : ""}`}
-                      />
-                      {t("skills.library.update.check")}
-                    </Button>
-                    {updateChecks[skill.id]?.outcome === "update_available" &&
-                      updateChecks[skill.id]?.stageToken && (
-                        <Button
-                          size="sm"
-                          disabled={
-                            blocked ||
-                            updateChecks[skill.id].affectedDeployments.some(
-                              (item) => !item.stagedCompatible,
-                            )
-                          }
-                          onClick={() =>
-                            beginLibraryUpdate(skill, updateChecks[skill.id])
-                          }
-                        >
-                          <Upload className="mr-2 h-4 w-4" />
-                          {t("skills.library.update.apply")}
-                        </Button>
-                      )}
-                    {updateChecks[skill.id] && (
-                      <Badge
-                        variant={
-                          updateChecks[skill.id].outcome === "update_available"
-                            ? "default"
-                            : updateChecks[skill.id].outcome === "up_to_date"
-                              ? "secondary"
-                              : "destructive"
-                        }
-                        data-testid={`library-update-status-${skill.id}`}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto h-7 shrink-0 gap-1 px-2 text-[11px]"
+                        aria-busy={pendingUpdateChecks.has(skill.id)}
+                        disabled={blocked || pendingUpdateChecks.has(skill.id)}
+                        onClick={() => void checkForLibraryUpdate(skill)}
                       >
-                        {t(updateOutcomeKey(updateChecks[skill.id].outcome))}
-                      </Badge>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("skills.library.edit")}
-                      onClick={() => beginEdit(skill)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("skills.library.delete.action")}
-                      aria-busy={pendingDeletionInspections.has(skill.id)}
-                      title={t("skills.library.delete.action")}
-                      disabled={
-                        blocked || pendingDeletionInspections.has(skill.id)
-                      }
-                      onClick={() => void inspectLibraryForDeletion(skill)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {updateChecks[skill.id] && (
-                    <div
-                      className="mt-2 space-y-2 rounded-md border bg-muted/40 p-3 text-xs"
-                      data-testid={`library-update-details-${skill.id}`}
-                    >
-                      {updateChecks[skill.id].localModified && (
-                        <p className="font-medium text-destructive">
-                          {t("skills.library.update.localModified")}
-                        </p>
-                      )}
-                      <SkillTechnicalDetails
-                        details={updateChecks[skill.id].message}
-                      >
-                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                          <span>
-                            {t("skills.library.update.recordedHash")}:{" "}
-                            <code className="break-all">
-                              {updateChecks[skill.id].recordedContentHash}
-                            </code>
-                          </span>
-                          {updateChecks[skill.id].stagedContentHash && (
-                            <span>
-                              {t("skills.library.update.stagedHash")}:{" "}
-                              <code className="break-all">
-                                {updateChecks[skill.id].stagedContentHash}
-                              </code>
-                            </span>
-                          )}
-                        </div>
-                      </SkillTechnicalDetails>
-                      {updateChecks[skill.id].affectedDeployments.length >
-                        0 && (
-                        <div className="space-y-1">
-                          <p className="font-medium">
-                            {t("skills.library.update.affectedDeployments")}
-                          </p>
-                          {updateChecks[skill.id].affectedDeployments.map(
-                            (affected) => {
-                              const { inspection } = affected;
-                              const target = inspection.target;
-                              const lifecycle =
-                                inspection.status === "archived"
-                                  ? t("skills.library.update.archived")
-                                  : t("skills.library.update.active");
-                              return (
-                                <div
-                                  key={`${target.consumer}-${target.workspace}-${target.workspaceId ?? "global"}`}
-                                  className="flex flex-wrap items-center gap-2"
-                                >
-                                  {target.workspace === "global" ? (
-                                    <a
-                                      className="min-w-0 break-all underline underline-offset-2"
-                                      href={targetAnchor(
-                                        inspection.librarySkillId,
-                                        target.consumer,
-                                      )}
-                                    >
-                                      {target.consumer} / {target.workspace}
-                                    </a>
-                                  ) : onOpenProjects ? (
-                                    <button
-                                      type="button"
-                                      className="min-w-0 break-all underline underline-offset-2"
-                                      disabled={navigationBlocked}
-                                      onClick={() => {
-                                        setUpdateConfirmation(null);
-                                        setDeletionInspection(null);
-                                        onOpenProjects();
-                                      }}
-                                    >
-                                      {target.consumer} / {target.workspace}
-                                      {target.workspaceId
-                                        ? ` (${target.workspaceId})`
-                                        : ""}
-                                    </button>
-                                  ) : (
-                                    <span className="min-w-0 break-all">
-                                      {target.consumer} / {target.workspace}
-                                      {target.workspaceId
-                                        ? ` (${target.workspaceId})`
-                                        : ""}
-                                    </span>
-                                  )}
-                                  <Badge variant="outline">{lifecycle}</Badge>
-                                  {!affected.stagedCompatible && (
-                                    <span className="text-destructive">
-                                      {t(
-                                        "skills.library.update.compatibilityRegression",
-                                      )}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            },
-                          )}
-                        </div>
-                      )}
+                        <RefreshCw
+                          className={`h-3.5 w-3.5${pendingUpdateChecks.has(skill.id) ? " animate-spin" : ""}`}
+                        />
+                        {t("skills.library.update.check")}
+                      </Button>
                     </div>
-                  )}
-                  {updateResult?.skillId === skill.id && (
-                    <div
-                      className={
-                        updateResult.outcome === "recovery_required"
-                          ? "mt-2 rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive"
-                          : "mt-2 rounded-md border bg-muted/40 p-3 text-xs"
-                      }
-                      data-testid={`library-update-result-${skill.id}`}
-                    >
-                      <p className="font-medium">
-                        {t(
-                          updateApplyOutcomeKey(updateResult.outcome as never),
-                        )}
-                      </p>
-                      {updateResult.reason && (
-                        <p>
-                          {t(updateReasonKey(updateResult.reason as never))}
-                        </p>
-                      )}
-                      <SkillTechnicalDetails details={updateResult.message} />
-                      {updateResult.backupPath && (
-                        <p>
-                          {t("skills.library.update.backupPath")}:{" "}
-                          <code className="break-all">
-                            {updateResult.backupPath}
-                          </code>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <footer className="-mx-4 -mb-4 mt-auto grid grid-cols-1 gap-2 border-t bg-muted/20 p-3 sm:grid-cols-2">
+                  </CardContent>
+                  <CardFooter
+                    className="relative z-10 grid grid-cols-1 gap-2 border-t border-border/50 bg-muted/20 p-3 pt-3 sm:grid-cols-2"
+                    data-testid={`library-skill-footer-${skill.id}`}
+                  >
                     {renderGlobalDeploymentButton(
                       skill,
                       "claude",
@@ -1162,8 +1216,8 @@ export const LibrarySkillsPanel = forwardRef<
                         {t("skills.library.deployedProjects.action")}
                       </span>
                     </Button>
-                  </footer>
-                </article>
+                  </CardFooter>
+                </Card>
               ))}
               <div className="col-span-full">
                 <ProgressiveSkillListFooter

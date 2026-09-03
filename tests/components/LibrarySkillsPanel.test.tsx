@@ -154,23 +154,34 @@ describe("LibrarySkillsPanel", () => {
     expect(toolbar).toContainElement(
       screen.getByPlaceholderText("skills.searchPlaceholder"),
     );
+    expect(within(toolbar).getByRole("search")).toBeInTheDocument();
     expect(toolbar).toContainElement(
       screen.getByRole("button", { name: "skills.batch.deploy" }),
     );
     expect(toolbar).toContainElement(
       screen.getByRole("button", { name: "skills.refresh" }),
     );
+    expect(toolbar).not.toHaveClass("border-b");
+    expect(toolbar.nextElementSibling).toHaveClass("pt-3");
   });
 
-  it("wraps long dynamic Skill metadata without widening the panel", () => {
+  it("truncates long card content without changing the card size", () => {
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
-    expect(screen.getByText(librarySkill.displayName)).toHaveClass(
-      "break-words",
+    const card = screen.getByTestId("library-skill-library-1");
+    expect(card).toHaveClass("h-80", "glass-card");
+    expect(card).toHaveAttribute("role", "article");
+    expect(screen.getByText(librarySkill.displayName)).toHaveClass("truncate");
+    expect(screen.getByText(librarySkill.directory)).toHaveClass("truncate");
+    expect(screen.getByText("owner/repo")).toHaveClass("truncate");
+    expect(screen.getByText("skills/review")).toHaveClass("truncate");
+    expect(screen.getByText(librarySkill.description!)).toHaveClass(
+      "line-clamp-4",
     );
-    expect(screen.getByText(librarySkill.directory)).toHaveClass("break-all");
-    expect(screen.getByText("owner/repo")).toHaveClass("break-all");
-    expect(screen.getByText("skills/review")).toHaveClass("break-all");
+    expect(screen.getByText(librarySkill.description!)).toHaveAttribute(
+      "title",
+      librarySkill.description,
+    );
   });
 
   beforeEach(() => {
@@ -206,6 +217,9 @@ describe("LibrarySkillsPanel", () => {
     readPendingState.checkUpdate = false;
     readPendingState.inspect = false;
     queryErrorState.project = false;
+    librarySkill.directory = "review-skill";
+    librarySkill.displayName = "Careful review";
+    librarySkill.description = "Review changes carefully";
     librarySkill.source = {
       kind: "marketplace",
       repoOwner: "owner",
@@ -818,46 +832,49 @@ describe("LibrarySkillsPanel", () => {
     );
   });
 
-  it("renders responsive cards with upper actions and three footer actions", () => {
+  it("renders one card content section above the deployment footer", () => {
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
     const card = screen.getByTestId("library-skill-library-1");
-    expect(card.parentElement).toHaveClass(
-      "grid-cols-1",
-      "md:grid-cols-2",
-      "lg:grid-cols-3",
-    );
-    const footer = card.querySelector("footer");
-    expect(footer).not.toBeNull();
-    expect(within(footer as HTMLElement).getAllByRole("button")).toHaveLength(
-      3,
-    );
+    expect(card.parentElement).toHaveClass("grid-cols-1", "lg:grid-cols-2");
+    const footer = screen.getByTestId("library-skill-footer-library-1");
+    expect(within(footer).getAllByRole("button")).toHaveLength(3);
+    const editButton = within(card).getByRole("button", {
+      name: "skills.library.edit",
+    });
+    const deleteButton = within(card).getByRole("button", {
+      name: "skills.library.delete.action",
+    });
+    expect(editButton.parentElement).toBe(deleteButton.parentElement);
+    expect(editButton.parentElement).toHaveClass("ml-auto", "shrink-0");
+    const checkButton = within(card).getByRole("button", {
+      name: "skills.library.update.check",
+    });
+    const summary = screen.getByTestId("library-skill-summary-library-1");
+    expect(summary).toContainElement(checkButton);
+    expect(summary).toHaveClass("mt-auto", "flex-nowrap");
+    expect(checkButton).toHaveClass("h-7", "shrink-0", "whitespace-nowrap");
+    expect(checkButton).toHaveClass("ml-auto");
+    expect(summary.lastElementChild).toBe(checkButton);
+    expect(card.querySelectorAll(".border-t")).toHaveLength(1);
     expect(
-      within(footer as HTMLElement).getByRole("button", {
+      within(footer).getByRole("button", {
         name: "skills.library.deployClaude",
       }),
     ).toHaveAttribute("aria-pressed", "false");
     expect(
-      within(footer as HTMLElement).getByRole("button", {
+      within(footer).getByRole("button", {
         name: "skills.library.deployCodex",
       }),
     ).toHaveAttribute("aria-pressed", "false");
     expect(
-      within(footer as HTMLElement).getByRole("button", {
+      within(footer).getByRole("button", {
         name: "skills.library.deployedProjects.action",
       }),
     ).toBeEnabled();
-    expect(footer).not.toContainElement(
-      within(card).getByRole("button", { name: "skills.library.update.check" }),
-    );
-    expect(footer).not.toContainElement(
-      within(card).getByRole("button", { name: "skills.library.edit" }),
-    );
-    expect(footer).not.toContainElement(
-      within(card).getByRole("button", {
-        name: "skills.library.delete.action",
-      }),
-    );
+    expect(footer).not.toContainElement(checkButton);
+    expect(footer).not.toContainElement(editButton);
+    expect(footer).not.toContainElement(deleteButton);
   });
 
   it("disables an incompatible consumer while leaving Claude usable", () => {
@@ -1047,9 +1064,16 @@ describe("LibrarySkillsPanel", () => {
     );
     expect(checkLibraryUpdateMock).toHaveBeenCalledWith("library-1");
 
-    await user.click(
-      screen.getByRole("button", { name: "skills.library.update.apply" }),
+    const applyButton = screen.getByRole("button", {
+      name: "skills.library.update.apply",
+    });
+    const checkButton = screen.getByRole("button", {
+      name: "skills.library.update.check",
+    });
+    expect(applyButton.compareDocumentPosition(checkButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    await user.click(applyButton);
     expect(applyLibraryUpdateMock).not.toHaveBeenCalled();
     expect(
       screen.getByRole("checkbox", {
