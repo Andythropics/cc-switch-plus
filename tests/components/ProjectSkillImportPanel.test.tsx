@@ -92,6 +92,16 @@ describe("ProjectSkillImportPanel", () => {
     });
   });
 
+  it("hides the unmanaged import section after an empty scan", () => {
+    setInspection([]);
+
+    const { container } = render(
+      <ProjectSkillImportPanel workspaceId="workspace-1" />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("shows selectable root findings and nested scopes as unsupported", () => {
     setInspection([rootFinding, nestedFinding]);
     render(<ProjectSkillImportPanel workspaceId="workspace-1" />);

@@ -234,6 +234,10 @@ export function ProjectSkillImportPanel({
     void executeImport();
   };
 
+  if (!inspectionQuery.isError && findings.length === 0) {
+    return null;
+  }
+
   return (
     <section
       className="space-y-3 border-t pt-3"
@@ -249,13 +253,9 @@ export function ProjectSkillImportPanel({
         {t("skills.projects.import.description")}
       </p>
 
-      {inspectionQuery.isLoading || inspectionQuery.isFetching ? (
-        <p className="text-sm text-muted-foreground">
-          {t("skills.projects.import.scanning")}
-        </p>
-      ) : findings.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t("skills.projects.import.empty")}
+      {inspectionQuery.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {t("skills.projects.loadError")}
         </p>
       ) : (
         <div className="space-y-2">

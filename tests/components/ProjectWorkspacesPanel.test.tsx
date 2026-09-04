@@ -268,6 +268,18 @@ describe("ProjectWorkspacesPanel", () => {
     expect(screen.queryByText("Unused skill")).not.toBeInTheDocument();
   });
 
+  it("hides empty import and recovery maintenance sections", () => {
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.queryByText("skills.projects.import.title"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("project-recovery-trigger-workspace-1"),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps Claude and Codex project actions independent at the apply seam", async () => {
     librarySkills.push(undeployedLibrarySkill);
     claudeState.items = [
@@ -287,7 +299,7 @@ describe("ProjectWorkspacesPanel", () => {
       },
     ];
     render(<ProjectWorkspacesPanel />);
-    expect(screen.getByText("skills.recovery.title")).toBeInTheDocument();
+    expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
     const user = userEvent.setup();
     const deployButtons = screen.getAllByRole("button", {
       name: "skills.projects.deploy",
@@ -386,6 +398,14 @@ describe("ProjectWorkspacesPanel", () => {
     const user = userEvent.setup();
     render(<ProjectWorkspacesPanel />);
 
+    const recoveryTrigger = screen.getByTestId(
+      "project-recovery-trigger-workspace-1",
+    );
+    await user.hover(recoveryTrigger);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "skills.recovery.navTooltip",
+    );
+    await user.click(recoveryTrigger);
     await user.click(
       screen.getByRole("checkbox", { name: "skills.recovery.select" }),
     );
@@ -401,6 +421,32 @@ describe("ProjectWorkspacesPanel", () => {
         hidden: true,
       }),
     ).toBeDisabled();
+  });
+
+  it("does not surface recovery UI for already-recorded deployments", () => {
+    queryState.recoveryFindings = [
+      {
+        disposition: "desired_exists",
+        target: {
+          consumer: "codex",
+          workspace: "project",
+          workspaceId: "workspace-1",
+        },
+        entryName: "review-skill",
+        librarySkillId: "library-1",
+        libraryDirectory: "review-skill",
+      },
+    ];
+
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.queryByTestId("project-recovery-trigger-workspace-1"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("skills.recovery.rejectedTitle"),
+    ).not.toBeInTheDocument();
   });
 
   it("Add Skills batches both consumers to the selected stable workspaceId", async () => {

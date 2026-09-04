@@ -15,6 +15,7 @@ import {
   Pencil,
   Search,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,8 +32,15 @@ import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   useArchiveProjectWorkspace,
   useApplySkillDeployments,
+  useDeploymentRecovery,
   useForgetProjectWorkspace,
   useLibrarySkills,
   useProjectWorkspaces,
@@ -45,7 +53,10 @@ import {
 } from "@/hooks/useSkills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
-import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryPanel";
+import {
+  DeploymentRecoveryPanel,
+  isActionableDeploymentRecoveryFinding,
+} from "@/components/skills/DeploymentRecoveryPanel";
 import { ProjectSkillImportPanel } from "@/components/skills/ProjectSkillImportPanel";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import {
@@ -123,10 +134,9 @@ function ProjectWorkspaceDeployments({
     new Set<string>(),
   );
   const [batchPending, setBatchPending] = useState(false);
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const deploymentError = claudeError || codexError;
   const deploymentFetching = claudeFetching || codexFetching;
-  const deploymentBusy = batchDialogOpen || recoveryBusy;
+  const deploymentBusy = batchDialogOpen;
   const deployedSkillIds = new Set(
     [...(claudeState?.items ?? []), ...(codexState?.items ?? [])]
       .filter((item) => item.desired)
@@ -248,10 +258,6 @@ function ProjectWorkspaceDeployments({
 
   return (
     <div className="space-y-2 border-t pt-3">
-      <DeploymentRecoveryPanel
-        query={{ workspace: "project", workspaceId: workspace.id }}
-        onBusyChange={setRecoveryBusy}
-      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">
           {t("skills.projects.deployments")}
@@ -352,6 +358,9 @@ export const ProjectWorkspacesPanel = forwardRef<
 ) {
   const { t } = useTranslation();
   const projectQuery = useProjectWorkspaces();
+  const projectRecoveryQuery = useDeploymentRecovery({
+    workspace: "project",
+  });
   const workspaces = projectQuery.data ?? [];
   const isLoading = projectQuery.isLoading;
   const refetchWorkspaces =
@@ -384,9 +393,24 @@ export const ProjectWorkspacesPanel = forwardRef<
   const [forgetTarget, setForgetTarget] = useState<ProjectWorkspace | null>(
     null,
   );
+  const [recoveryWorkspaceId, setRecoveryWorkspaceId] = useState<string | null>(
+    null,
+  );
+  const [projectRecoveryBusy, setProjectRecoveryBusy] = useState(false);
   const [childDeploymentBusyIds, setChildDeploymentBusyIds] = useState<
     Set<string>
   >(new Set());
+
+  const actionableRecoveryWorkspaceIds = new Set(
+    (projectRecoveryQuery.data?.findings ?? [])
+      .filter(
+        (finding) =>
+          finding.target.workspace === "project" &&
+          Boolean(finding.target.workspaceId) &&
+          isActionableDeploymentRecoveryFinding(finding),
+      )
+      .map((finding) => finding.target.workspaceId!),
+  );
 
   const filteredWorkspaces = workspaces.filter((workspace) => {
     const needle = query.trim().toLocaleLowerCase();
@@ -423,7 +447,8 @@ export const ProjectWorkspacesPanel = forwardRef<
     restore.isPending ||
     relocate.isPending ||
     forget.isPending;
-  const managementBusy = lifecycleBusy || childDeploymentBusyIds.size > 0;
+  const managementBusy =
+    lifecycleBusy || projectRecoveryBusy || childDeploymentBusyIds.size > 0;
 
   const onChildBusyChange = useCallback(
     (workspaceId: string, busy: boolean) => {
@@ -601,6 +626,29 @@ export const ProjectWorkspacesPanel = forwardRef<
             </p>
           </button>
           <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+            {actionableRecoveryWorkspaceIds.has(workspace.id) && (
+              <TooltipProvider delayDuration={250}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      data-testid={`project-recovery-trigger-${workspace.id}`}
+                      aria-label={t("skills.recovery.open")}
+                      disabled={managementBusy}
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setRecoveryWorkspaceId(workspace.id)}
+                    >
+                      <Wrench className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t("skills.recovery.navTooltip")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -750,6 +798,35 @@ export const ProjectWorkspacesPanel = forwardRef<
           </div>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(recoveryWorkspaceId)}
+        onOpenChange={(open) => {
+          if (!open && projectRecoveryBusy) return;
+          if (!open) setRecoveryWorkspaceId(null);
+        }}
+      >
+        <SkillsDialogContent
+          closeBlocked={projectRecoveryBusy}
+          className="max-h-[90vh] max-w-2xl overflow-y-auto p-0"
+        >
+          <DialogTitle className="sr-only">
+            {t("skills.recovery.title")}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("skills.recovery.description")}
+          </DialogDescription>
+          {recoveryWorkspaceId && (
+            <DeploymentRecoveryPanel
+              query={{
+                workspace: "project",
+                workspaceId: recoveryWorkspaceId,
+              }}
+              onBusyChange={setProjectRecoveryBusy}
+            />
+          )}
+        </SkillsDialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(renameTarget)}
