@@ -91,12 +91,23 @@ pub fn inspectSkillsMigrationPreflight(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectLatestSkillsMigrationReport(
+pub async fn inspectLatestSkillsMigrationReport(
     app_state: State<'_, AppState>,
 ) -> Result<Option<SkillsMigrationReport>, String> {
-    SkillsMigrationExecutionService::new(app_state.db.clone())
-        .inspect_latest_report()
-        .map_err(|error| error.to_string())
+    inspect_latest_skills_migration_report(app_state.db.clone()).await
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) async fn inspect_latest_skills_migration_report(
+    db: Arc<crate::database::Database>,
+) -> Result<Option<SkillsMigrationReport>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        SkillsMigrationExecutionService::new(db)
+            .inspect_latest_report()
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Skills migration report task failed: {error}"))?
 }
 
 #[cfg(target_os = "macos")]

@@ -98,6 +98,10 @@ vi.mock("@/hooks/useSkills", () => ({
     isError: queryState.projectError,
     isFetching: queryState.projectFetching,
   }),
+  useProjectWorkspaceInspectionSession: () => ({
+    inspectionSessionId: 1,
+    refresh: refreshDeploymentsMock,
+  }),
   useRegisterProjectWorkspace: () => ({
     mutateAsync: registerWorkspaceMock,
     isPending: false,

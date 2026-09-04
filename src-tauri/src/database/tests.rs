@@ -1210,3 +1210,36 @@ fn ensure_incremental_auto_vacuum_rebuilds_existing_file_db() {
         "file db should persist INCREMENTAL auto_vacuum after VACUUM rebuild"
     );
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn migration_report_inspection_does_not_starve_other_skills_work() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    let db = Arc::new(Database::memory().expect("create memory database"));
+    let activity_progressed = Arc::new(AtomicBool::new(false));
+    let (locked_tx, locked_rx) = mpsc::channel();
+    let holder_db = db.clone();
+    let holder_progress = activity_progressed.clone();
+    let holder = std::thread::spawn(move || {
+        let _guard = holder_db.conn.lock().expect("hold database lock");
+        locked_tx.send(()).expect("signal held database lock");
+        std::thread::sleep(Duration::from_millis(250));
+        holder_progress.load(Ordering::SeqCst)
+    });
+    locked_rx.recv().expect("wait for held database lock");
+
+    let report = crate::commands::skill::inspect_latest_skills_migration_report(db);
+    let independent_skills_work = async {
+        tokio::task::yield_now().await;
+        activity_progressed.store(true, Ordering::SeqCst);
+    };
+    let (report, ()) = tokio::join!(report, independent_skills_work);
+
+    assert!(report.expect("inspect empty migration report").is_none());
+    assert!(
+        holder.join().expect("join database lock holder"),
+        "migration report inspection starved independent Skills work"
+    );
+}

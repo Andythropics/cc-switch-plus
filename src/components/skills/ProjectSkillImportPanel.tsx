@@ -45,6 +45,7 @@ import type {
 
 interface ProjectSkillImportPanelProps {
   workspaceId: string;
+  inspectionSessionId?: number;
 }
 
 type ResolutionKind = ProjectSkillImportResolution["kind"];
@@ -83,9 +84,13 @@ function defaultDirectory(finding: ProjectSkillImportFinding) {
 
 export function ProjectSkillImportPanel({
   workspaceId,
+  inspectionSessionId,
 }: ProjectSkillImportPanelProps) {
   const { t } = useTranslation();
-  const inspectionQuery = useInspectProjectSkillImports(workspaceId);
+  const inspectionQuery = useInspectProjectSkillImports(
+    workspaceId,
+    inspectionSessionId,
+  );
   const applyImport = useApplyProjectSkillImport();
   const findings = inspectionQuery.data?.findings ?? [];
   const progressiveFindings = useProgressiveSkillList(

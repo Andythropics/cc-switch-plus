@@ -278,6 +278,100 @@ fn library_only_state_does_not_offer_legacy_migration() {
 }
 
 #[test]
+fn not_required_preflight_does_not_observe_nested_library_content() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source = home.join("source/library-only");
+    write_skill(&source, "library-only");
+    let state = create_test_state().expect("create test state");
+    cc_switch_lib::LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source,
+        LibrarySkillSource {
+            kind: LibrarySourceKind::LocalImport,
+            url: None,
+            repo_owner: None,
+            repo_name: None,
+            repo_branch: None,
+            skill_path: None,
+            marketplace: None,
+        },
+        Some("library-only"),
+    )
+    .expect("seed redesigned Library only");
+    let nested = home.join(".cc-switch/skills/library-only/references/nested.txt");
+    fs::create_dir_all(nested.parent().expect("nested file parent"))
+        .expect("create nested directory");
+    fs::write(&nested, "alpha").expect("write nested Library content");
+
+    let service = SkillsMigrationPreviewService::new(state.db.clone());
+    let first = service.inspect().expect("inspect initial Library content");
+    fs::write(&nested, "bravo").expect("change nested Library content");
+    let changed = service.inspect().expect("inspect changed Library content");
+
+    assert_eq!(first.status, SkillsMigrationStatus::NotRequired);
+    assert_eq!(changed.status, SkillsMigrationStatus::NotRequired);
+    assert_eq!(first.observation_token, changed.observation_token);
+}
+
+#[test]
+fn not_required_preflight_observes_new_direct_legacy_entry() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    let service = SkillsMigrationPreviewService::new(state.db.clone());
+    let first = service.inspect().expect("inspect empty legacy roots");
+
+    write_skill(&home.join(".codex/skills/appeared"), "appeared");
+    let changed = service.inspect().expect("inspect new legacy entry");
+
+    assert_eq!(first.status, SkillsMigrationStatus::NotRequired);
+    assert_eq!(changed.status, SkillsMigrationStatus::NotRequired);
+    assert_ne!(first.observation_token, changed.observation_token);
+}
+
+#[test]
+fn active_migration_run_keeps_deep_content_observation() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source = home.join("source/library-only");
+    write_skill(&source, "library-only");
+    let state = create_test_state().expect("create test state");
+    cc_switch_lib::LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source,
+        library_skill("library-only", String::new()).source,
+        Some("library-only"),
+    )
+    .expect("seed redesigned Library only");
+    let nested = home.join(".cc-switch/skills/library-only/references/nested.txt");
+    fs::create_dir_all(nested.parent().expect("nested file parent"))
+        .expect("create nested directory");
+    fs::write(&nested, "alpha").expect("write nested Library content");
+    rusqlite::Connection::open(home.join(".cc-switch/cc-switch.db"))
+        .expect("open test database")
+        .execute(
+            "INSERT INTO skills_migration_runs (
+                id, accepted_observation_token, resume_token, state, plan_hash, created_at, updated_at
+             ) VALUES ('active-run', 'accepted-token', 'resume-token', 'prepared', 'plan-hash', 1, 1)",
+            [],
+        )
+        .expect("seed active migration run");
+
+    let service = SkillsMigrationPreviewService::new(state.db.clone());
+    let first = service.inspect().expect("inspect active migration run");
+    fs::write(&nested, "bravo").expect("change nested Library content");
+    let changed = service.inspect().expect("reinspect active migration run");
+
+    assert_eq!(first.status, SkillsMigrationStatus::NotRequired);
+    assert!(first.execution.is_some());
+    assert_ne!(first.observation_token, changed.observation_token);
+}
+
+#[test]
 fn legacy_installed_skill_without_pending_still_requires_decision() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

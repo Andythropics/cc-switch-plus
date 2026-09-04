@@ -205,26 +205,25 @@ impl SkillsMigrationPreviewService {
     }
 
     pub fn inspect(&self) -> Result<SkillsMigrationPreflight> {
-        let execution = self
-            .db
-            .get_active_skills_migration_run()?
-            .and_then(|run| {
-                let outcome = match run.state.as_str() {
-                    "prepared" | "running" => {
-                        crate::services::skills_migration::SkillsMigrationExecutionOutcome::Resumable
-                    }
-                    "blocked" => {
-                        crate::services::skills_migration::SkillsMigrationExecutionOutcome::Blocked
-                    }
-                    "recovery_required" => crate::services::skills_migration::SkillsMigrationExecutionOutcome::RecoveryRequired,
-                    _ => return None,
-                };
-                crate::services::skills_migration::SkillsMigrationExecutionService::new(
-                    self.db.clone(),
-                )
-                .inspect_run(&run, outcome)
-                .ok()
-            });
+        let active_run = self.db.get_active_skills_migration_run()?;
+        let has_active_run = active_run.is_some();
+        let execution = active_run.and_then(|run| {
+            let outcome = match run.state.as_str() {
+                "prepared" | "running" => {
+                    crate::services::skills_migration::SkillsMigrationExecutionOutcome::Resumable
+                }
+                "blocked" => {
+                    crate::services::skills_migration::SkillsMigrationExecutionOutcome::Blocked
+                }
+                "recovery_required" => crate::services::skills_migration::SkillsMigrationExecutionOutcome::RecoveryRequired,
+                _ => return None,
+            };
+            crate::services::skills_migration::SkillsMigrationExecutionService::new(
+                self.db.clone(),
+            )
+            .inspect_run(&run, outcome)
+            .ok()
+        });
         let pending = self.db.get_setting("skills_ssot_migration_pending")?;
         let snapshot_raw = self.db.get_setting("skills_ssot_migration_snapshot")?;
         let legacy_skills = self.db.get_all_installed_skills()?;
@@ -266,6 +265,14 @@ impl SkillsMigrationPreviewService {
                 database_path: database_path.exists().then(|| display_path(&database_path)),
                 content_paths: Vec::new(),
             };
+            // A NotRequired result cannot authorize migration mutation, so a
+            // shallow root inventory is sufficient unless a durable run is
+            // already in flight. Active runs keep content-grade stale checks.
+            let observations = if has_active_run {
+                root_observations(&roots)
+            } else {
+                shallow_root_observations(&roots)
+            };
             let token = observation_token(
                 pending.as_deref(),
                 snapshot_raw.as_deref(),
@@ -274,7 +281,7 @@ impl SkillsMigrationPreviewService {
                 &inventory,
                 &plan,
                 &backup,
-                &root_observations(&roots),
+                &observations,
             )?;
             return Ok(SkillsMigrationPreflight {
                 status: SkillsMigrationStatus::NotRequired,
@@ -1378,14 +1385,7 @@ fn recovery_exists() -> bool {
 }
 
 fn root_observations(roots: &FixedRoots) -> Vec<Observation> {
-    let mut paths = roots
-        .scan_roots
-        .iter()
-        .map(|(path, _)| path.clone())
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths.dedup();
-    paths
+    observation_paths(roots)
         .into_iter()
         .map(|path| Observation {
             location: display_path(&path),
@@ -1394,10 +1394,106 @@ fn root_observations(roots: &FixedRoots) -> Vec<Observation> {
         .collect()
 }
 
+fn shallow_root_observations(roots: &FixedRoots) -> Vec<Observation> {
+    observation_paths(roots)
+        .into_iter()
+        .map(|path| Observation {
+            location: display_path(&path),
+            fingerprint: shallow_root_fingerprint(&path),
+        })
+        .collect()
+}
+
+fn observation_paths(roots: &FixedRoots) -> Vec<PathBuf> {
+    let mut paths = roots
+        .scan_roots
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
 fn root_fingerprint(path: &Path) -> String {
     let mut hasher = Sha256::new();
     fingerprint_into(path, &mut hasher, true);
     format!("{:x}", hasher.finalize())
+}
+
+fn shallow_root_fingerprint(path: &Path) -> String {
+    let mut hasher = Sha256::new();
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            hasher.update(format!("error:{:?}", error.kind()));
+            return format!("{:x}", hasher.finalize());
+        }
+    };
+    hasher.update(metadata.dev().to_le_bytes());
+    hasher.update(metadata.ino().to_le_bytes());
+    if metadata.file_type().is_symlink() {
+        hash_shallow_entry(path, &metadata, &mut hasher);
+    } else if metadata.file_type().is_file() {
+        hash_shallow_entry(path, &metadata, &mut hasher);
+    } else if metadata.file_type().is_dir() {
+        hasher.update(b"dir:");
+        let mut entries = match fs::read_dir(path) {
+            Ok(entries) => {
+                let mut observed = Vec::new();
+                for entry in entries {
+                    match entry {
+                        Ok(entry) => observed.push(entry),
+                        Err(error) => {
+                            hasher.update(b"entry-error:");
+                            hasher.update(format!("{:?}", error.kind()));
+                        }
+                    }
+                }
+                observed
+            }
+            Err(error) => {
+                hasher.update(format!("error:{:?}", error.kind()));
+                return format!("{:x}", hasher.finalize());
+            }
+        };
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            if is_ignored_root_metadata(&path) {
+                continue;
+            }
+            hasher.update(entry.file_name().to_string_lossy().as_bytes());
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) => hash_shallow_entry(&path, &metadata, &mut hasher),
+                Err(error) => hasher.update(format!("error:{:?}", error.kind())),
+            }
+        }
+    } else {
+        hasher.update(b"other");
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn hash_shallow_entry(path: &Path, metadata: &fs::Metadata, hasher: &mut Sha256) {
+    hasher.update(metadata.dev().to_le_bytes());
+    hasher.update(metadata.ino().to_le_bytes());
+    hasher.update(metadata.len().to_le_bytes());
+    hasher.update(metadata.mtime().to_le_bytes());
+    hasher.update(metadata.mtime_nsec().to_le_bytes());
+    if metadata.file_type().is_symlink() {
+        hasher.update(b"link:");
+        match fs::read_link(path) {
+            Ok(target) => hasher.update(target.as_os_str().to_string_lossy().as_bytes()),
+            Err(error) => hasher.update(format!("error:{:?}", error.kind())),
+        }
+    } else if metadata.file_type().is_file() {
+        hasher.update(b"file:");
+    } else if metadata.file_type().is_dir() {
+        hasher.update(b"dir:");
+    } else {
+        hasher.update(b"other");
+    }
 }
 
 fn fingerprint_into(path: &Path, hasher: &mut Sha256, ignore_root_metadata: bool) {

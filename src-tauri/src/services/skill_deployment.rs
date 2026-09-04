@@ -140,6 +140,10 @@ enum ReconciliationLifecycle {
     Unavailable,
 }
 
+struct DeploymentInspectionTargetContext {
+    lifecycle: Option<ReconciliationLifecycle>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeploymentInspection {
@@ -701,6 +705,7 @@ impl SkillDeploymentService {
         let desired = self.db.list_skill_deployments()?;
         let requested = query.library_skill_ids.as_ref();
         let mut items = Vec::new();
+        let mut target_context = None;
 
         for skill in library_skills {
             if requested.is_some_and(|ids| !ids.iter().any(|id| id == &skill.id)) {
@@ -709,7 +714,8 @@ impl SkillDeploymentService {
             let desired_item = desired
                 .iter()
                 .find(|item| item.library_skill_id == skill.id && item.target == target);
-            items.push(self.inspect_skill(&skill, desired_item.cloned(), &target)?);
+            let lifecycle = self.inspection_lifecycle(&target, &mut target_context)?;
+            items.push(self.inspect_skill(&skill, desired_item.cloned(), &target, lifecycle)?);
         }
 
         // Keep an orphaned desired row visible even when its Library row was
@@ -722,7 +728,8 @@ impl SkillDeploymentService {
                 .iter()
                 .any(|item| item.library_skill_id == row.library_skill_id)
             {
-                items.push(self.inspect_missing_library(row, &target)?);
+                let lifecycle = self.inspection_lifecycle(&target, &mut target_context)?;
+                items.push(self.inspect_missing_library(row, &target, lifecycle)?);
             }
         }
         items.sort_by(|left, right| {
@@ -2039,27 +2046,16 @@ impl SkillDeploymentService {
         skill: &LibrarySkill,
         desired: Option<DesiredDeployment>,
         target: &DeploymentTarget,
+        lifecycle: Option<&ReconciliationLifecycle>,
     ) -> Result<DeploymentInspection> {
         let mut observed = self.observe(skill, target)?;
         if desired.is_none() && observed.state == ObservedDeploymentState::CorrectLink {
             observed.state = ObservedDeploymentState::UnrecordedLink;
         }
-        #[cfg(target_os = "macos")]
-        let lifecycle = if target.workspace == WorkspaceKind::Project {
-            match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
-                WorkspaceLifecycle::Active => None,
-                WorkspaceLifecycle::Archived => Some(ReconciliationLifecycle::Archived),
-                WorkspaceLifecycle::Unavailable => Some(ReconciliationLifecycle::Unavailable),
-            }
-        } else {
-            None
-        };
-        #[cfg(not(target_os = "macos"))]
-        let lifecycle: Option<ReconciliationLifecycle> = None;
         let status = Self::status_for(
             desired.is_some(),
             &observed.state,
-            lifecycle.as_ref(),
+            lifecycle,
             Self::is_compatible(skill, target.consumer),
         );
         let observation_token = Self::observation_token(&skill.id, target, &observed);
@@ -2078,21 +2074,10 @@ impl SkillDeploymentService {
         &self,
         desired: &DesiredDeployment,
         target: &DeploymentTarget,
+        lifecycle: Option<&ReconciliationLifecycle>,
     ) -> Result<DeploymentInspection> {
         let target_path = self.observation_target_path(target, &desired.library_directory)?;
         let expected = self.library_path(&desired.library_directory)?;
-        #[cfg(target_os = "macos")]
-        let lifecycle = if target.workspace == WorkspaceKind::Project {
-            match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
-                WorkspaceLifecycle::Active => None,
-                WorkspaceLifecycle::Archived => Some(ReconciliationLifecycle::Archived),
-                WorkspaceLifecycle::Unavailable => Some(ReconciliationLifecycle::Unavailable),
-            }
-        } else {
-            None
-        };
-        #[cfg(not(target_os = "macos"))]
-        let lifecycle: Option<ReconciliationLifecycle> = None;
         let observed = ObservedDeployment {
             state: ObservedDeploymentState::LibraryMissing,
             target_path: target_path.display().to_string(),
@@ -2111,10 +2096,43 @@ impl SkillDeploymentService {
             status: Self::status_for(
                 true,
                 &ObservedDeploymentState::LibraryMissing,
-                lifecycle.as_ref(),
+                lifecycle,
                 true,
             ),
         })
+    }
+
+    fn inspection_lifecycle<'a>(
+        &self,
+        target: &DeploymentTarget,
+        context: &'a mut Option<DeploymentInspectionTargetContext>,
+    ) -> Result<Option<&'a ReconciliationLifecycle>> {
+        if context.is_none() {
+            *context = Some(self.resolve_inspection_target_context(target)?);
+        }
+        Ok(context
+            .as_ref()
+            .and_then(|context| context.lifecycle.as_ref()))
+    }
+
+    fn resolve_inspection_target_context(
+        &self,
+        target: &DeploymentTarget,
+    ) -> Result<DeploymentInspectionTargetContext> {
+        #[cfg(target_os = "macos")]
+        let lifecycle = if target.workspace == WorkspaceKind::Project {
+            match project_workspace_lifecycle(&self.db, &target.workspace_id)? {
+                WorkspaceLifecycle::Active => None,
+                WorkspaceLifecycle::Archived => Some(ReconciliationLifecycle::Archived),
+                WorkspaceLifecycle::Unavailable => Some(ReconciliationLifecycle::Unavailable),
+            }
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "macos"))]
+        let lifecycle = None;
+
+        Ok(DeploymentInspectionTargetContext { lifecycle })
     }
 
     fn observe(

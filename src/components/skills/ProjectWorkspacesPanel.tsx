@@ -44,6 +44,7 @@ import {
   useForgetProjectWorkspace,
   useLibrarySkills,
   useProjectWorkspaces,
+  useProjectWorkspaceInspectionSession,
   useRegisterProjectWorkspace,
   useRelocateProjectWorkspace,
   useRenameProjectWorkspace,
@@ -95,10 +96,12 @@ export interface ProjectWorkspacesPanelHandle {
 function ProjectWorkspaceDeployments({
   workspace,
   projects,
+  inspectionSessionId,
   onBusyChange,
 }: {
   workspace: ProjectWorkspace;
   projects: ProjectWorkspace[];
+  inspectionSessionId: number;
   onBusyChange?: (workspaceId: string, busy: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -110,20 +113,26 @@ function ProjectWorkspaceDeployments({
     data: claudeState,
     isError: claudeError,
     isFetching: claudeFetching,
-  } = useSkillDeployments({
-    consumer: "claude",
-    workspace: "project",
-    workspaceId: workspace.id,
-  });
+  } = useSkillDeployments(
+    {
+      consumer: "claude",
+      workspace: "project",
+      workspaceId: workspace.id,
+    },
+    inspectionSessionId,
+  );
   const {
     data: codexState,
     isError: codexError,
     isFetching: codexFetching,
-  } = useSkillDeployments({
-    consumer: "codex",
-    workspace: "project",
-    workspaceId: workspace.id,
-  });
+  } = useSkillDeployments(
+    {
+      consumer: "codex",
+      workspace: "project",
+      workspaceId: workspace.id,
+    },
+    inspectionSessionId,
+  );
   const apply = useApplySkillDeployments();
   const refreshDeployments = useRefreshSkillDeployments();
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
@@ -358,6 +367,7 @@ export const ProjectWorkspacesPanel = forwardRef<
 ) {
   const { t } = useTranslation();
   const projectQuery = useProjectWorkspaces();
+  const projectInspectionSession = useProjectWorkspaceInspectionSession();
   const projectRecoveryQuery = useDeploymentRecovery({
     workspace: "project",
   });
@@ -374,7 +384,6 @@ export const ProjectWorkspacesPanel = forwardRef<
   const restore = useRestoreProjectWorkspace();
   const relocate = useRelocateProjectWorkspace();
   const forget = useForgetProjectWorkspace();
-  const refreshDeployments = useRefreshSkillDeployments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const focusedWorkspaceRequest = useRef<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -484,7 +493,7 @@ export const ProjectWorkspacesPanel = forwardRef<
     await Promise.all([
       refetchWorkspaces(),
       refetchLibrary(),
-      refreshDeployments(),
+      projectInspectionSession.refresh(),
     ]);
   };
 
@@ -708,11 +717,17 @@ export const ProjectWorkspacesPanel = forwardRef<
         {selectedWorkspace && (
           <>
             {workspace.lifecycle === "active" && (
-              <ProjectSkillImportPanel workspaceId={workspace.id} />
+              <ProjectSkillImportPanel
+                workspaceId={workspace.id}
+                inspectionSessionId={
+                  projectInspectionSession.inspectionSessionId
+                }
+              />
             )}
             <ProjectWorkspaceDeployments
               workspace={workspace}
               projects={workspaces}
+              inspectionSessionId={projectInspectionSession.inspectionSessionId}
               onBusyChange={onChildBusyChange}
             />
           </>

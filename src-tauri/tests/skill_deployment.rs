@@ -1738,3 +1738,75 @@ fn inspect_reports_broken_library_missing_unrecorded_and_lifecycle_states() {
         cc_switch_lib::ObservedDeploymentState::CorrectLink
     );
 }
+
+#[test]
+fn one_unavailable_project_lifecycle_applies_to_all_library_and_missing_rows() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let state = create_test_state().expect("create test state");
+    let source_root = tempfile::tempdir().expect("create source root");
+
+    for index in 0..2 {
+        let directory = format!("lifecycle-{index}");
+        let source_dir = source_root.path().join(&directory);
+        write_skill(&source_dir);
+        fs::OpenOptions::new()
+            .append(true)
+            .open(source_dir.join("SKILL.md"))
+            .expect("open distinct manifest")
+            .write_all(format!("\nFixture {index}.\n").as_bytes())
+            .expect("differentiate fixture");
+        LibrarySkillAcquisitionService::acquire_from_directory(
+            &state.db,
+            &source_dir,
+            source(),
+            Some(&directory),
+        )
+        .expect("acquire distinct Library Skill");
+    }
+
+    let unavailable_root = tempfile::tempdir().expect("create project root");
+    let workspace = ProjectWorkspaceService::new(state.db.clone())
+        .register(unavailable_root.path(), None)
+        .expect("register project")
+        .workspace;
+    let target = DeploymentTarget {
+        consumer: DeploymentConsumer::Claude,
+        workspace: WorkspaceKind::Project,
+        workspace_id: workspace.id,
+    };
+    state
+        .db
+        .save_skill_deployment(&DesiredDeployment {
+            id: uuid::Uuid::new_v4().to_string(),
+            library_skill_id: "missing-library-id".to_string(),
+            library_directory: "missing-library".to_string(),
+            target: target.clone(),
+            created_at: 1,
+            updated_at: 1,
+        })
+        .expect("save missing-Library desired row");
+    drop(unavailable_root);
+
+    let inspected = SkillDeploymentService::new(state.db.clone())
+        .inspect(DeploymentQuery::for_target(target))
+        .expect("inspect unavailable project target");
+
+    assert_eq!(inspected.items.len(), 3);
+    assert!(
+        inspected
+            .items
+            .iter()
+            .all(|item| item.status == DeploymentStatus::Blocked),
+        "one unavailable lifecycle result must apply consistently to every row"
+    );
+    let missing = inspected
+        .items
+        .iter()
+        .find(|item| item.library_skill_id == "missing-library-id")
+        .expect("missing-Library row");
+    assert_eq!(
+        missing.observed.state,
+        cc_switch_lib::ObservedDeploymentState::LibraryMissing
+    );
+}

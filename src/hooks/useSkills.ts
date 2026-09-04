@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useMutation,
   useInfiniteQuery,
@@ -60,12 +60,98 @@ export function useLibrarySkills() {
   });
 }
 
+let nextProjectInspectionSessionId = 0;
+
+const isProjectInspectionSessionQuery = (
+  queryKey: readonly unknown[],
+  family: "deployments" | "projectSkillImports",
+  inspectionSessionId: number,
+) =>
+  queryKey[0] === "skills" &&
+  queryKey[1] === family &&
+  queryKey[3] === inspectionSessionId;
+
+/**
+ * One Projects-page inspection cycle. Workspace observations are reused while
+ * this page instance remains mounted, explicitly invalidated on Refresh, and
+ * discarded on exit so re-entering starts from a fresh filesystem view.
+ */
+export function useProjectWorkspaceInspectionSession() {
+  const queryClient = useQueryClient();
+  const [inspectionSessionId] = useState(
+    () => ++nextProjectInspectionSessionId,
+  );
+  const cleanupTimeout = useRef<number | null>(null);
+
+  const refresh = useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "projectSkillImports"],
+          predicate: (query) =>
+            isProjectInspectionSessionQuery(
+              query.queryKey,
+              "projectSkillImports",
+              inspectionSessionId,
+            ),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["skills", "deployments"],
+          predicate: (query) =>
+            isProjectInspectionSessionQuery(
+              query.queryKey,
+              "deployments",
+              inspectionSessionId,
+            ),
+        }),
+      ]).then(() => undefined),
+    [inspectionSessionId, queryClient],
+  );
+
+  useEffect(() => {
+    if (cleanupTimeout.current !== null) {
+      window.clearTimeout(cleanupTimeout.current);
+      cleanupTimeout.current = null;
+    }
+    return () => {
+      // React StrictMode immediately replays Effects in development. Defer
+      // removal so that replay can cancel it, while a genuine unmount still
+      // releases this session's otherwise-infinite cache entries promptly.
+      cleanupTimeout.current = window.setTimeout(() => {
+        for (const family of ["projectSkillImports", "deployments"] as const) {
+          queryClient.removeQueries({
+            queryKey: ["skills", family],
+            predicate: (query) =>
+              isProjectInspectionSessionQuery(
+                query.queryKey,
+                family,
+                inspectionSessionId,
+              ),
+          });
+        }
+      }, 0);
+    };
+  }, [inspectionSessionId, queryClient]);
+
+  return { inspectionSessionId, refresh };
+}
+
 /** Desired + observed deployment state for the selected global target. */
-export function useSkillDeployments(query?: DeploymentQuery) {
+export function useSkillDeployments(
+  query?: DeploymentQuery,
+  projectInspectionSessionId?: number,
+) {
   const deploymentQuery = useQuery<DeploymentInspectionResult>({
-    queryKey: ["skills", "deployments", query ?? {}],
+    queryKey: [
+      "skills",
+      "deployments",
+      query ?? {},
+      ...(projectInspectionSessionId === undefined
+        ? []
+        : [projectInspectionSessionId]),
+    ],
     queryFn: () => skillsApi.inspectDeployments(query),
-    staleTime: 0,
+    staleTime: projectInspectionSessionId === undefined ? 0 : Infinity,
     // The Tauri window focus event is not always surfaced through React
     // Query's browser focus manager. Reconcile explicitly below so desktop
     // focus regain has the same semantics as browser focus.
@@ -288,12 +374,22 @@ export function useProjectWorkspaces() {
   });
 }
 
-export function useInspectProjectSkillImports(workspaceId?: string | null) {
+export function useInspectProjectSkillImports(
+  workspaceId?: string | null,
+  projectInspectionSessionId?: number,
+) {
   return useQuery<ProjectSkillImportInspection>({
-    queryKey: ["skills", "projectSkillImports", workspaceId],
+    queryKey: [
+      "skills",
+      "projectSkillImports",
+      workspaceId,
+      ...(projectInspectionSessionId === undefined
+        ? []
+        : [projectInspectionSessionId]),
+    ],
     queryFn: () => projectWorkspacesApi.inspectSkillImports(workspaceId!),
     enabled: Boolean(workspaceId),
-    staleTime: 0,
+    staleTime: projectInspectionSessionId === undefined ? 0 : Infinity,
     placeholderData: keepPreviousData,
   });
 }
