@@ -2638,8 +2638,8 @@
       "allStatuses": "全部狀態",
       "libraryId": "Library ID：{{id}}",
       "loadError": "無法載入 Library 或全域部署狀態，請重新整理後再試。",
-      "empty": "沒有 Library Skill",
-      "emptyDescription": "請先將 Skill 收入 Library，再部署到全域目標。",
+      "empty": "沒有已部署到全域的 Library Skill",
+      "emptyDescription": "將 Library Skill 部署到 Claude 或 Codex 全域目標後，它會顯示在這裡。",
       "import": {
         "title": "匯入未受管理的全域 Skill",
         "description": "檢查由 CC Switch 以外工具安裝的真實 Skill 目錄。掃描不會變更檔案，也不會自動接管。",
@@ -2705,6 +2705,8 @@
     "recovery": {
       "title": "復原未記錄的部署",
       "description": "檢視磁碟上已存在、但沒有期望部署記錄的連結。掃描不會變更資料庫或檔案系統。",
+      "open": "開啟部署復原",
+      "navTooltip": "發現可復原的部署記錄。點擊以檢視詳情。",
       "refresh": "重新整理復原掃描",
       "loading": "正在掃描部署目標...",
       "loadError": "無法檢查部署復原候選項目。",

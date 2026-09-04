@@ -55,6 +55,8 @@ export interface BatchDeploymentDialogProps {
   defaultTarget?: BatchDeploymentTarget;
   /** Lock target selection when opened from Global or a specific Project. */
   targetLocked?: boolean;
+  /** Lock the action selection when opened for a single operation. */
+  actionLocked?: boolean;
   defaultAction?: BatchDeploymentAction;
   inspections?: DeploymentInspection[];
   isPending?: boolean;
@@ -137,6 +139,7 @@ export function BatchDeploymentDialog({
   projects = [],
   defaultTarget = GLOBAL_BATCH_TARGET,
   targetLocked = false,
+  actionLocked = false,
   defaultAction = "deploy",
   inspections = EMPTY_INSPECTIONS,
   isPending = false,
@@ -285,6 +288,7 @@ export function BatchDeploymentDialog({
               <span className="font-medium">{t("skills.batch.action")}</span>
               <Select
                 value={action}
+                disabled={actionLocked}
                 onValueChange={(value: BatchDeploymentAction) => {
                   selectionTouched.current = false;
                   setAction(value);

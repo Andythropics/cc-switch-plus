@@ -2637,8 +2637,8 @@
       "allStatuses": "全部状态",
       "libraryId": "Library ID：{{id}}",
       "loadError": "无法加载 Library 或全局部署状态，请刷新后重试。",
-      "empty": "暂无 Library Skill",
-      "emptyDescription": "请先将 Skill 收入 Library，再部署到全局目标。",
+      "empty": "暂无已全局部署的 Library Skill",
+      "emptyDescription": "将 Library Skill 部署到 Claude 或 Codex 全局目标后，它会显示在这里。",
       "import": {
         "title": "导入未托管的全局 Skill",
         "description": "检查由 CC Switch 之外的工具安装的真实 Skill 目录。扫描不会改动文件，也不会自动接管。",
@@ -2704,6 +2704,8 @@
     "recovery": {
       "title": "恢复未记录的部署",
       "description": "审阅磁盘上已存在、但没有期望部署记录的链接。扫描不会更改数据库或文件系统。",
+      "open": "打开部署恢复",
+      "navTooltip": "发现可恢复的部署记录。点击查看详情。",
       "refresh": "刷新恢复扫描",
       "loading": "正在扫描部署目标...",
       "loadError": "无法检查部署恢复候选项。",

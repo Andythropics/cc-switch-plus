@@ -13,7 +13,6 @@ import {
   Loader2,
   MapPin,
   Pencil,
-  RefreshCw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -71,8 +70,6 @@ import type {
 import type { ProjectWorkspace } from "@/lib/api/projectWorkspaces";
 
 interface ProjectWorkspacesPanelProps {
-  onOpenLibrary?: () => void;
-  onOpenGlobal?: () => void;
   /** Stable Workspace identity supplied by Activity deep links. */
   focusWorkspaceId?: string | null;
   onInteractionBlockedChange?: (blocked: boolean) => void;
@@ -81,6 +78,7 @@ interface ProjectWorkspacesPanelProps {
 
 export interface ProjectWorkspacesPanelHandle {
   refresh: () => Promise<void>;
+  registerProject: () => Promise<void>;
 }
 
 function ProjectWorkspaceDeployments({
@@ -349,13 +347,7 @@ export const ProjectWorkspacesPanel = forwardRef<
   ProjectWorkspacesPanelHandle,
   ProjectWorkspacesPanelProps
 >(function ProjectWorkspacesPanel(
-  {
-    onOpenLibrary,
-    onOpenGlobal,
-    focusWorkspaceId,
-    onInteractionBlockedChange,
-    onNavigationBlockedChange,
-  },
+  { focusWorkspaceId, onInteractionBlockedChange, onNavigationBlockedChange },
   ref,
 ) {
   const { t } = useTranslation();
@@ -395,7 +387,6 @@ export const ProjectWorkspacesPanel = forwardRef<
   const [childDeploymentBusyIds, setChildDeploymentBusyIds] = useState<
     Set<string>
   >(new Set());
-  const [manualRefreshPending, setManualRefreshPending] = useState(false);
 
   const filteredWorkspaces = workspaces.filter((workspace) => {
     const needle = query.trim().toLocaleLowerCase();
@@ -465,16 +456,11 @@ export const ProjectWorkspacesPanel = forwardRef<
     (showArchived ? archivedWorkspaces[0] : undefined);
 
   const refreshAll = async () => {
-    setManualRefreshPending(true);
-    try {
-      await Promise.all([
-        refetchWorkspaces(),
-        refetchLibrary(),
-        refreshDeployments(),
-      ]);
-    } finally {
-      setManualRefreshPending(false);
-    }
+    await Promise.all([
+      refetchWorkspaces(),
+      refetchLibrary(),
+      refreshDeployments(),
+    ]);
   };
 
   const registerDirectory = async () => {
@@ -571,7 +557,14 @@ export const ProjectWorkspacesPanel = forwardRef<
     }
   };
 
-  useImperativeHandle(ref, () => ({ refresh: refreshAll }), [refreshAll]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      refresh: refreshAll,
+      registerProject: registerDirectory,
+    }),
+    [refreshAll, registerDirectory],
+  );
 
   const renderWorkspace = (workspace: ProjectWorkspace) => {
     const selectedWorkspace = selected?.id === workspace.id;
@@ -682,51 +675,6 @@ export const ProjectWorkspacesPanel = forwardRef<
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
-        {onOpenLibrary && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={managementBusy}
-            onClick={onOpenLibrary}
-          >
-            {t("skills.projects.library")}
-          </Button>
-        )}
-        {onOpenGlobal && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={managementBusy}
-            onClick={onOpenGlobal}
-          >
-            {t("skills.global.title")}
-          </Button>
-        )}
-        <Button
-          size="sm"
-          onClick={() => void registerDirectory()}
-          disabled={managementBusy}
-        >
-          {register.isPending && (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          )}
-          {t("skills.projects.register")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("skills.refresh")}
-          aria-busy={manualRefreshPending}
-          title={t("skills.refresh")}
-          disabled={managementBusy || manualRefreshPending}
-          onClick={() => void refreshAll()}
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${manualRefreshPending ? "animate-spin" : ""}`}
-          />
-        </Button>
-      </div>
       {(projectQuery.isError || libraryQuery.isError) && (
         <p
           role="alert"

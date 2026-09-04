@@ -1,10 +1,36 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpen, Globe2, History, Library, Search } from "lucide-react";
+import {
+  FolderOpen,
+  Globe2,
+  History,
+  Library,
+  Search,
+  Wrench,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { SkillsAccessProvider } from "@/components/skills/SkillsAccessContext";
+import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
+import {
+  isActionableDeploymentRecoveryFinding,
+  DeploymentRecoveryPanel,
+} from "@/components/skills/DeploymentRecoveryPanel";
+import { useDeploymentRecovery } from "@/hooks/useSkills";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export type SkillsView =
   | "skills"
@@ -19,6 +45,8 @@ interface SkillsShellProps {
   children: ReactNode;
   readOnly?: boolean;
   navigationDisabled?: boolean;
+  onInteractionBlockedChange?: (blocked: boolean) => void;
+  onNavigationBlockedChange?: (blocked: boolean) => void;
 }
 
 const NAV_ITEMS = [
@@ -60,9 +88,34 @@ export function SkillsShell({
   children,
   readOnly = false,
   navigationDisabled = false,
+  onInteractionBlockedChange,
+  onNavigationBlockedChange,
 }: SkillsShellProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const globalRecoveryQuery = useDeploymentRecovery({ workspace: "global" });
+  const [globalRecoveryOpen, setGlobalRecoveryOpen] = useState(false);
+  const [globalRecoveryBusy, setGlobalRecoveryBusy] = useState(false);
+  const hasActionableGlobalRecovery = (
+    globalRecoveryQuery.data?.findings ?? []
+  ).some(
+    (finding) =>
+      finding.target.workspace === "global" &&
+      isActionableDeploymentRecoveryFinding(finding),
+  );
+
+  useEffect(() => {
+    onInteractionBlockedChange?.(globalRecoveryBusy);
+    onNavigationBlockedChange?.(globalRecoveryBusy);
+    return () => {
+      onInteractionBlockedChange?.(false);
+      onNavigationBlockedChange?.(false);
+    };
+  }, [
+    globalRecoveryBusy,
+    onInteractionBlockedChange,
+    onNavigationBlockedChange,
+  ]);
 
   useLayoutEffect(() => {
     const scrollNode = scrollRef.current;
@@ -109,6 +162,33 @@ export function SkillsShell({
               </Button>
             );
           })}
+          {hasActionableGlobalRecovery && (
+            <div className="ml-auto">
+              <TooltipProvider delayDuration={250}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      data-testid="global-recovery-trigger"
+                      aria-label={t("skills.recovery.open")}
+                      disabled={
+                        readOnly || navigationDisabled || globalRecoveryBusy
+                      }
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setGlobalRecoveryOpen(true)}
+                    >
+                      <Wrench className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t("skills.recovery.navTooltip")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          )}
         </nav>
         <div
           ref={scrollRef}
@@ -118,6 +198,29 @@ export function SkillsShell({
           {children}
         </div>
       </div>
+      <Dialog
+        open={globalRecoveryOpen}
+        onOpenChange={(open) => {
+          if (!open && globalRecoveryBusy) return;
+          setGlobalRecoveryOpen(open);
+        }}
+      >
+        <SkillsDialogContent
+          closeBlocked={globalRecoveryBusy}
+          className="max-h-[90vh] max-w-2xl overflow-y-auto p-0"
+        >
+          <DialogTitle className="sr-only">
+            {t("skills.recovery.title")}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("skills.recovery.description")}
+          </DialogDescription>
+          <DeploymentRecoveryPanel
+            query={{ workspace: "global" }}
+            onBusyChange={setGlobalRecoveryBusy}
+          />
+        </SkillsDialogContent>
+      </Dialog>
     </SkillsAccessProvider>
   );
 }

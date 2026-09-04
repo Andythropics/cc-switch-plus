@@ -43,7 +43,7 @@ const findingKey = (finding: DeploymentRecoveryFinding, index: number) =>
     index,
   ].join(":");
 
-const isRecoverable = (
+export const isActionableDeploymentRecoveryFinding = (
   finding: DeploymentRecoveryFinding,
 ): finding is DeploymentRecoveryFinding & {
   librarySkillId: string;
@@ -73,10 +73,10 @@ export function DeploymentRecoveryPanel({
     [findings],
   );
   const recoverableFindings = indexedFindings.filter(({ finding }) =>
-    isRecoverable(finding),
+    isActionableDeploymentRecoveryFinding(finding),
   );
   const rejectedFindings = indexedFindings.filter(
-    ({ finding }) => !isRecoverable(finding),
+    ({ finding }) => !isActionableDeploymentRecoveryFinding(finding),
   );
   const rejectedGroups = rejectedFindings.reduce<
     Record<string, typeof rejectedFindings>

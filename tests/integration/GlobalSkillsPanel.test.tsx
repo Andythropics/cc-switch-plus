@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
+import type { GlobalSkillsPanelHandle } from "@/components/skills/GlobalSkillsPanel";
 import type { LibrarySkill } from "@/lib/api/skills";
 
 const { invokeMock } = vi.hoisted(() => ({
@@ -47,6 +49,30 @@ const skills: LibrarySkill[] = [
   },
 ];
 
+const globalDeployment = (
+  skill: LibrarySkill,
+  consumer: "claude" | "codex",
+) => ({
+  librarySkillId: skill.id,
+  libraryDirectory: skill.directory,
+  target: { consumer, workspace: "global" },
+  desired: {
+    id: `desired-${skill.id}-${consumer}`,
+    librarySkillId: skill.id,
+    libraryDirectory: skill.directory,
+    target: { consumer, workspace: "global" },
+    createdAt: 1,
+    updatedAt: 1,
+  },
+  observed: {
+    state: "correct_link",
+    targetPath: `/global/${skill.directory}`,
+    expectedTarget: `/library/${skill.directory}`,
+  },
+  observationToken: `${skill.id}-${consumer}-token`,
+  status: "in_sync",
+});
+
 const partialResult = {
   items: [
     {
@@ -81,11 +107,13 @@ const renderGlobal = () => {
       mutations: { retry: false },
     },
   });
-  return render(
+  const panelRef = createRef<GlobalSkillsPanelHandle>();
+  const view = render(
     <QueryClientProvider client={client}>
-      <GlobalSkillsPanel />
+      <GlobalSkillsPanel ref={panelRef} />
     </QueryClientProvider>,
   );
+  return { ...view, panelRef };
 };
 
 describe("GlobalSkillsPanel Tauri-boundary integration", () => {
@@ -98,7 +126,15 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
         case "listProjectWorkspaces":
           return [];
         case "inspectSkillDeployments":
-          return { items: [] };
+          return {
+            items: skills.map((skill) =>
+              globalDeployment(
+                skill,
+                (args as { query?: { consumer?: "claude" | "codex" } })?.query
+                  ?.consumer ?? "claude",
+              ),
+            ),
+          };
         case "inspectDeploymentRecovery":
           return {
             findings: [
@@ -139,9 +175,9 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
     });
   });
 
-  it("loads real queries, submits ordered Global batch, and renders partial outcomes", async () => {
+  it("loads real queries, submits ordered Global undeploy batch, and renders partial outcomes", async () => {
     const user = userEvent.setup();
-    renderGlobal();
+    const { panelRef } = renderGlobal();
 
     expect(await screen.findByText("Alpha")).toBeInTheDocument();
     expect(await screen.findByText("Beta")).toBeInTheDocument();
@@ -156,13 +192,18 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
       query: { consumer: "codex", workspace: "global" },
     });
 
-    await user.click(
-      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
-    );
+    await act(async () => {
+      panelRef.current?.openBatchUndeploy();
+    });
     await screen.findByTestId("batch-skill-skill-a");
-    for (const checkbox of screen.getAllByRole("checkbox")) {
-      await user.click(checkbox);
-    }
+    const actionSelect = screen.getByRole("combobox", {
+      name: "skills.batch.action",
+    });
+    expect(actionSelect).toHaveTextContent("skills.batch.undeploy");
+    expect(actionSelect).toBeDisabled();
+    expect(
+      screen.getByRole("combobox", { name: "skills.batch.target" }),
+    ).toBeDisabled();
     await user.click(screen.getByTestId("batch-apply"));
 
     await waitFor(() =>
@@ -170,22 +211,22 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
         batch: {
           intents: [
             {
-              action: "deploy",
+              action: "undeploy",
               librarySkillId: "skill-a",
               target: { consumer: "claude", workspace: "global" },
             },
             {
-              action: "deploy",
+              action: "undeploy",
               librarySkillId: "skill-a",
               target: { consumer: "codex", workspace: "global" },
             },
             {
-              action: "deploy",
+              action: "undeploy",
               librarySkillId: "skill-b",
               target: { consumer: "claude", workspace: "global" },
             },
             {
-              action: "deploy",
+              action: "undeploy",
               librarySkillId: "skill-b",
               target: { consumer: "codex", workspace: "global" },
             },
@@ -201,47 +242,13 @@ describe("GlobalSkillsPanel Tauri-boundary integration", () => {
     expect(screen.getAllByTestId(/^batch-result-/)).toHaveLength(4);
   });
 
-  it("inspects and explicitly confirms recovery through the real typed boundary", async () => {
-    const user = userEvent.setup();
+  it("leaves global recovery inspection to the shared Skills navigation", async () => {
     renderGlobal();
 
-    const checkbox = await screen.findByRole("checkbox", {
-      name: "skills.recovery.select",
-    });
-    expect(invokeMock).toHaveBeenCalledWith("inspectDeploymentRecovery", {
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    expect(invokeMock).not.toHaveBeenCalledWith("inspectDeploymentRecovery", {
       query: { workspace: "global" },
     });
-    await user.click(checkbox);
-    await user.click(
-      screen.getByRole("button", {
-        name: "skills.recovery.reviewSelected",
-      }),
-    );
-    expect(invokeMock).not.toHaveBeenCalledWith(
-      "applySkillDeployments",
-      expect.anything(),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "skills.recovery.confirm" }),
-    );
-
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("applySkillDeployments", {
-        batch: {
-          intents: [
-            {
-              action: "recover",
-              librarySkillId: "skill-a",
-              target: { consumer: "claude", workspace: "global" },
-              observationToken: "recovery-token",
-              confirmed: true,
-            },
-          ],
-        },
-      }),
-    );
-    expect(await screen.findByTestId("recovery-result-0")).toHaveTextContent(
-      "skills.batch.outcome.applied",
-    );
+    expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
   });
 });

@@ -2637,8 +2637,8 @@
       "allStatuses": "All statuses",
       "libraryId": "Library ID: {{id}}",
       "loadError": "Could not load Library or global deployment state. Refresh and try again.",
-      "empty": "No Library Skills",
-      "emptyDescription": "Acquire a skill into the Library before deploying it globally.",
+      "empty": "No globally deployed Library Skills",
+      "emptyDescription": "Deploy a Library Skill to Claude or Codex Global to see it here.",
       "import": {
         "title": "Import unmanaged Global Skills",
         "description": "Review real Skill directories installed outside CC Switch. Inspection never changes files or adopts them automatically.",
@@ -2704,6 +2704,8 @@
     "recovery": {
       "title": "Recover unrecorded Deployments",
       "description": "Review links that exist on disk but have no desired Deployment record. Scanning never changes the database or filesystem.",
+      "open": "Open Deployment recovery",
+      "navTooltip": "Recoverable deployment records were found. Click to review them.",
       "refresh": "Refresh recovery scan",
       "loading": "Scanning deployment targets...",
       "loadError": "Could not inspect Deployment recovery candidates.",

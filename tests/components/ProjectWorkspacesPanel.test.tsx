@@ -1,8 +1,12 @@
 import { act, screen, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
 
-import { ProjectWorkspacesPanel } from "@/components/skills/ProjectWorkspacesPanel";
+import {
+  ProjectWorkspacesPanel,
+  type ProjectWorkspacesPanelHandle,
+} from "@/components/skills/ProjectWorkspacesPanel";
 import type { LibrarySkill } from "@/lib/api/skills";
 import type { ProjectWorkspace } from "@/lib/api/projectWorkspaces";
 
@@ -187,6 +191,23 @@ describe("ProjectWorkspacesPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not render the shared navigation and action toolbar", () => {
+    render(<ProjectWorkspacesPanel />);
+
+    expect(
+      screen.queryByRole("button", { name: "skills.projects.library" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.global.title" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.projects.register" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.refresh" }),
+    ).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     pickDirectoryMock.mockReset().mockResolvedValue("/tmp/new-workspace");
     registerWorkspaceMock.mockReset().mockResolvedValue({
@@ -341,9 +362,6 @@ describe("ProjectWorkspacesPanel", () => {
     expect(
       screen.getByRole("button", { name: "skills.projects.addSkills" }),
     ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "skills.projects.register" }),
-    ).toBeEnabled();
 
     await act(async () => resolveApply?.());
     await waitFor(() => expect(clickedButton).toBeEnabled());
@@ -377,14 +395,6 @@ describe("ProjectWorkspacesPanel", () => {
       }),
     );
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", {
-          name: "skills.projects.register",
-          hidden: true,
-        }),
-      ).toBeDisabled(),
-    );
     expect(
       screen.getByRole("button", {
         name: "skills.projects.rename",
@@ -438,34 +448,15 @@ describe("ProjectWorkspacesPanel", () => {
     ).not.toHaveProperty("path");
   });
 
-  it("limits manual refresh feedback to the refresh control", async () => {
-    let resolveRefresh: (() => void) | undefined;
-    refreshDeploymentsMock.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveRefresh = resolve;
-        }),
-    );
-    render(<ProjectWorkspacesPanel />);
+  it("refreshes through the imperative handle", async () => {
+    const panelRef = createRef<ProjectWorkspacesPanelHandle>();
+    render(<ProjectWorkspacesPanel ref={panelRef} />);
 
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+    await act(async () => {
+      await panelRef.current?.refresh();
+    });
 
     expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
-    const refreshButton = screen.getByRole("button", {
-      name: "skills.refresh",
-    });
-    expect(refreshButton).toHaveAttribute("aria-busy", "true");
-    expect(refreshButton).toBeDisabled();
-    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
-    expect(
-      screen.getByRole("button", { name: "skills.projects.addSkills" }),
-    ).toBeEnabled();
-
-    await act(async () => resolveRefresh?.());
-    await waitFor(() =>
-      expect(refreshButton).toHaveAttribute("aria-busy", "false"),
-    );
   });
 
   it("keeps background reconciliation from shifting the Projects view", () => {
@@ -482,11 +473,6 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    const refreshButton = screen.getByRole("button", {
-      name: "skills.refresh",
-    });
-    expect(refreshButton).toBeEnabled();
-    expect(refreshButton.querySelector("svg")).not.toHaveClass("animate-spin");
     expect(
       screen.getByRole("button", { name: "skills.projects.addSkills" }),
     ).toBeEnabled();
@@ -529,27 +515,13 @@ describe("ProjectWorkspacesPanel", () => {
   });
 
   it("blocks local navigation and workspace switching while a child batch is open", async () => {
-    render(
-      <ProjectWorkspacesPanel onOpenLibrary={vi.fn()} onOpenGlobal={vi.fn()} />,
-    );
+    render(<ProjectWorkspacesPanel />);
     const user = userEvent.setup();
     await user.click(
       screen.getByRole("button", { name: "skills.projects.addSkills" }),
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", {
-          name: "skills.projects.library",
-          hidden: true,
-        }),
-      ).toBeDisabled();
-      expect(
-        screen.getByRole("button", {
-          name: "skills.global.title",
-          hidden: true,
-        }),
-      ).toBeDisabled();
       expect(
         screen.getByRole("button", { name: /Demo workspace/, hidden: true }),
       ).toBeDisabled();
@@ -621,18 +593,16 @@ describe("ProjectWorkspacesPanel", () => {
   });
 
   it("registers a directory selected through the settings boundary", async () => {
-    render(<ProjectWorkspacesPanel />);
-    const user = userEvent.setup();
+    const panelRef = createRef<ProjectWorkspacesPanelHandle>();
+    render(<ProjectWorkspacesPanel ref={panelRef} />);
 
-    await user.click(
-      screen.getByRole("button", { name: "skills.projects.register" }),
-    );
+    await act(async () => {
+      await panelRef.current?.registerProject();
+    });
 
-    await waitFor(() => {
-      expect(pickDirectoryMock).toHaveBeenCalledTimes(1);
-      expect(registerWorkspaceMock).toHaveBeenCalledWith({
-        path: "/tmp/new-workspace",
-      });
+    expect(pickDirectoryMock).toHaveBeenCalledTimes(1);
+    expect(registerWorkspaceMock).toHaveBeenCalledWith({
+      path: "/tmp/new-workspace",
     });
   });
 

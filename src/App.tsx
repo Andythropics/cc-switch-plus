@@ -12,6 +12,9 @@ import {
   Maximize2,
   Minimize2,
   X,
+  RefreshCw,
+  Loader2,
+  Unlink,
   Book,
   Brain,
   Wrench,
@@ -88,8 +91,14 @@ import {
   LibrarySkillsPanel,
   type LibrarySkillsPanelHandle,
 } from "@/components/skills/LibrarySkillsPanel";
-import { ProjectWorkspacesPanel } from "@/components/skills/ProjectWorkspacesPanel";
-import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
+import {
+  ProjectWorkspacesPanel,
+  type ProjectWorkspacesPanelHandle,
+} from "@/components/skills/ProjectWorkspacesPanel";
+import {
+  GlobalSkillsPanel,
+  type GlobalSkillsPanelHandle,
+} from "@/components/skills/GlobalSkillsPanel";
 import { SkillsActivityPanel } from "@/components/skills/SkillsActivityPanel";
 import { SkillsMigrationGate } from "@/components/skills/SkillsMigrationGate";
 import { SkillsAccessBoundary } from "@/components/skills/SkillsAccessContext";
@@ -226,6 +235,12 @@ function App() {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [mcpManagementBusy, setMcpManagementBusy] = useState(false);
   const [skillsManagementBusy, setSkillsManagementBusy] = useState(false);
+  const [globalSkillsRefreshPending, setGlobalSkillsRefreshPending] =
+    useState(false);
+  const [projectRegistrationPending, setProjectRegistrationPending] =
+    useState(false);
+  const [projectWorkspacesRefreshPending, setProjectWorkspacesRefreshPending] =
+    useState(false);
   const [skillsNavigationBusy, setSkillsNavigationBusy] = useState(false);
   const [skillsMigrationReadOnly, setSkillsMigrationReadOnly] = useState(false);
   const [skillsMigrationDeferredToken, setSkillsMigrationDeferredToken] =
@@ -302,6 +317,8 @@ function App() {
   const mainContentRef = useRef<HTMLElement>(null);
   const skillsPageRef = useRef<SkillsPageHandle>(null);
   const librarySkillsPanelRef = useRef<LibrarySkillsPanelHandle>(null);
+  const globalSkillsPanelRef = useRef<GlobalSkillsPanelHandle>(null);
+  const projectWorkspacesPanelRef = useRef<ProjectWorkspacesPanelHandle>(null);
   const addActionButtonClass =
     "bg-orange-500 hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30 dark:shadow-orange-500/40 rounded-full w-8 h-8";
 
@@ -1105,8 +1122,7 @@ function App() {
         case "skillsGlobal":
           return isMac() ? (
             <GlobalSkillsPanel
-              onOpenLibrary={() => handleOpenSkillsLibrary()}
-              onOpenProjects={() => handleOpenSkillsProjects()}
+              ref={globalSkillsPanelRef}
               onInteractionBlockedChange={setSkillsManagementBusy}
               onNavigationBlockedChange={setSkillsNavigationBusy}
             />
@@ -1116,8 +1132,7 @@ function App() {
         case "skillsProjects":
           return isMac() ? (
             <ProjectWorkspacesPanel
-              onOpenLibrary={() => handleOpenSkillsLibrary()}
-              onOpenGlobal={handleOpenSkillsGlobal}
+              ref={projectWorkspacesPanelRef}
               focusWorkspaceId={skillsProjectFocusId}
               onInteractionBlockedChange={setSkillsManagementBusy}
               onNavigationBlockedChange={setSkillsNavigationBusy}
@@ -1290,6 +1305,8 @@ function App() {
         onViewChange={handleSkillsViewChange}
         readOnly={skillsMigrationReadOnly}
         navigationDisabled={skillsNavigationBusy}
+        onInteractionBlockedChange={setSkillsManagementBusy}
+        onNavigationBlockedChange={setSkillsNavigationBusy}
       >
         {guardedContent}
       </SkillsShell>
@@ -1621,6 +1638,114 @@ function App() {
                           </Button>
                         ),
                       )}
+                    </>
+                  )}
+                {currentView === "skillsGlobal" &&
+                  isMac() &&
+                  !skillsMigrationReadOnly && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-busy={globalSkillsRefreshPending}
+                        disabled={
+                          skillsManagementBusy || globalSkillsRefreshPending
+                        }
+                        onClick={() => {
+                          if (globalSkillsRefreshPending) return;
+                          const panel = globalSkillsPanelRef.current;
+                          if (!panel) return;
+                          setGlobalSkillsRefreshPending(true);
+                          void panel
+                            .refresh()
+                            .finally(() =>
+                              setGlobalSkillsRefreshPending(false),
+                            );
+                        }}
+                        className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                      >
+                        <RefreshCw
+                          className={`w-4 h-4 mr-2${
+                            globalSkillsRefreshPending ? " animate-spin" : ""
+                          }`}
+                        />
+                        {t("skills.refresh")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={skillsManagementBusy}
+                        onClick={() =>
+                          globalSkillsPanelRef.current?.openBatchUndeploy()
+                        }
+                        className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                      >
+                        <Unlink className="w-4 h-4 mr-2" />
+                        {t("skills.global.batchUndeploy")}
+                      </Button>
+                    </>
+                  )}
+                {currentView === "skillsProjects" &&
+                  isMac() &&
+                  !skillsMigrationReadOnly && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-busy={projectRegistrationPending}
+                        disabled={
+                          skillsManagementBusy || projectRegistrationPending
+                        }
+                        onClick={() => {
+                          if (projectRegistrationPending) return;
+                          const panel = projectWorkspacesPanelRef.current;
+                          if (!panel) return;
+                          setProjectRegistrationPending(true);
+                          void panel
+                            .registerProject()
+                            .finally(() =>
+                              setProjectRegistrationPending(false),
+                            );
+                        }}
+                        className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                      >
+                        {projectRegistrationPending ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <FolderOpen className="w-4 h-4 mr-2" />
+                        )}
+                        {t("skills.projects.register")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-busy={projectWorkspacesRefreshPending}
+                        disabled={
+                          skillsManagementBusy ||
+                          projectWorkspacesRefreshPending
+                        }
+                        onClick={() => {
+                          if (projectWorkspacesRefreshPending) return;
+                          const panel = projectWorkspacesPanelRef.current;
+                          if (!panel) return;
+                          setProjectWorkspacesRefreshPending(true);
+                          void panel
+                            .refresh()
+                            .finally(() =>
+                              setProjectWorkspacesRefreshPending(false),
+                            );
+                        }}
+                        className="hover:bg-black/5 disabled:opacity-100 dark:hover:bg-white/5"
+                      >
+                        <RefreshCw
+                          className={`w-4 h-4 mr-2${
+                            projectWorkspacesRefreshPending
+                              ? " animate-spin"
+                              : ""
+                          }`}
+                        />
+                        {t("skills.refresh")}
+                      </Button>
                     </>
                   )}
                 {currentView === "providers" && (

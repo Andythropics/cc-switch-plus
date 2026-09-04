@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -6,16 +6,28 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "@/App";
 import type { SkillsMigrationReport } from "@/lib/api/skills";
 
-const { Empty, migrationGateRenderMock, migrationGateState, platformState } =
-  vi.hoisted(() => ({
-    Empty: () => null,
-    migrationGateRenderMock: vi.fn(),
-    migrationGateState: {
-      readOnly: false,
-      report: null as SkillsMigrationReport | null,
-    },
-    platformState: { mac: true },
-  }));
+const {
+  Empty,
+  globalBatchUndeployMock,
+  globalRefreshMock,
+  projectRegisterMock,
+  projectRefreshMock,
+  migrationGateRenderMock,
+  migrationGateState,
+  platformState,
+} = vi.hoisted(() => ({
+  Empty: () => null,
+  globalBatchUndeployMock: vi.fn(),
+  globalRefreshMock: vi.fn(),
+  projectRegisterMock: vi.fn(),
+  projectRefreshMock: vi.fn(),
+  migrationGateRenderMock: vi.fn(),
+  migrationGateState: {
+    readOnly: false,
+    report: null as SkillsMigrationReport | null,
+  },
+  platformState: { mac: true },
+}));
 
 vi.mock("@/lib/platform", () => ({
   isMac: () => platformState.mac,
@@ -80,6 +92,13 @@ vi.mock("@/hooks/useSkills", () => {
     useResumeSkillsMigration: idleMutation,
     useRevealSkillsMigrationFinding: idleMutation,
     useRevealSkillsMigrationPlanItem: idleMutation,
+    useDeploymentRecovery: () => ({
+      data: { findings: [] },
+      isError: false,
+      isFetching: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    }),
   };
 });
 
@@ -220,53 +239,42 @@ vi.mock("@/components/skills/LibrarySkillsPanel", async () => {
 vi.mock("@/components/skills/GlobalSkillsPanel", async () => {
   const React = await import("react");
   return {
-    GlobalSkillsPanel: ({
-      onOpenLibrary,
-      onOpenProjects,
-    }: {
-      onOpenLibrary?: () => void;
-      onOpenProjects?: () => void;
-    }) =>
-      React.createElement(
-        "div",
-        { "data-testid": "global-view" },
-        React.createElement(
-          "button",
-          { type: "button", onClick: onOpenLibrary },
-          "open-library-from-global",
-        ),
-        React.createElement(
-          "button",
-          { type: "button", onClick: onOpenProjects },
-          "open-projects-from-global",
-        ),
-      ),
+    GlobalSkillsPanel: React.forwardRef((_props, ref) => {
+      React.useImperativeHandle(ref, () => ({
+        refresh: globalRefreshMock,
+        openBatchUndeploy: globalBatchUndeployMock,
+      }));
+      return React.createElement("div", { "data-testid": "global-view" });
+    }),
   };
 });
 vi.mock("@/components/skills/ProjectWorkspacesPanel", async () => {
   const React = await import("react");
   return {
-    ProjectWorkspacesPanel: ({
-      onOpenGlobal,
-      focusWorkspaceId,
-    }: {
-      onOpenGlobal?: () => void;
-      focusWorkspaceId?: string | null;
-    }) =>
-      React.createElement(
-        "div",
-        { "data-testid": "projects-view" },
-        React.createElement(
-          "span",
-          { "data-testid": "project-focus" },
-          focusWorkspaceId ?? "none",
-        ),
-        React.createElement(
-          "button",
-          { type: "button", onClick: onOpenGlobal },
-          "open-global-from-projects",
-        ),
-      ),
+    ProjectWorkspacesPanel: React.forwardRef(
+      (
+        {
+          focusWorkspaceId,
+        }: {
+          focusWorkspaceId?: string | null;
+        },
+        ref,
+      ) => {
+        React.useImperativeHandle(ref, () => ({
+          refresh: projectRefreshMock,
+          registerProject: projectRegisterMock,
+        }));
+        return React.createElement(
+          "div",
+          { "data-testid": "projects-view" },
+          React.createElement(
+            "span",
+            { "data-testid": "project-focus" },
+            focusWorkspaceId ?? "none",
+          ),
+        );
+      },
+    ),
   };
 });
 vi.mock("@/components/skills/SkillsPage", () => ({
@@ -357,6 +365,10 @@ describe("App Skills navigation", () => {
     migrationGateState.report = null;
     migrationGateRenderMock.mockClear();
     platformState.mac = true;
+    globalBatchUndeployMock.mockReset();
+    globalRefreshMock.mockReset();
+    projectRegisterMock.mockReset();
+    projectRefreshMock.mockReset();
     localStorage.setItem("cc-switch-last-view", "skills");
     localStorage.setItem("cc-switch-last-app", "claude");
   });
@@ -441,6 +453,116 @@ describe("App Skills navigation", () => {
 
     expect(screen.getByText("skills.library.macOnlyTitle")).toBeInTheDocument();
     expect(migrationGateRenderMock).not.toHaveBeenCalled();
+  });
+
+  it("moves only Global refresh and batch undeploy into the app header", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    globalRefreshMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.global.title" }),
+    );
+    expect(await screen.findByTestId("global-view")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.global.library" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.global.projects" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.global.batchDeploy" }),
+    ).not.toBeInTheDocument();
+
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    const batchUndeployButton = screen.getByRole("button", {
+      name: "skills.global.batchUndeploy",
+    });
+
+    await user.click(refreshButton);
+    expect(globalRefreshMock).toHaveBeenCalledTimes(1);
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
+    expect(batchUndeployButton).toBeEnabled();
+
+    await act(async () => resolveRefresh?.());
+    await waitFor(() => expect(refreshButton).toBeEnabled());
+
+    await user.click(batchUndeployButton);
+    expect(globalBatchUndeployMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves Project registration and refresh into the app header", async () => {
+    let resolveRegistration: (() => void) | undefined;
+    let resolveRefresh: (() => void) | undefined;
+    projectRegisterMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRegistration = resolve;
+        }),
+    );
+    projectRefreshMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "skills.projects.title" }),
+    );
+    expect(await screen.findByTestId("projects-view")).toBeInTheDocument();
+
+    const registerButton = screen.getByRole("button", {
+      name: "skills.projects.register",
+    });
+    const refreshButton = screen.getByRole("button", {
+      name: "skills.refresh",
+    });
+    expect(
+      registerButton.compareDocumentPosition(refreshButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(registerButton);
+    expect(projectRegisterMock).toHaveBeenCalledTimes(1);
+    expect(registerButton).toBeDisabled();
+    expect(registerButton).toHaveAttribute("aria-busy", "true");
+    expect(registerButton.querySelector("svg")).toHaveClass("animate-spin");
+    expect(refreshButton).toBeEnabled();
+
+    await act(async () => resolveRegistration?.());
+    await waitFor(() => expect(registerButton).toBeEnabled());
+
+    await user.click(refreshButton);
+    expect(projectRefreshMock).toHaveBeenCalledTimes(1);
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
+    expect(registerButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "common.back" })).toBeEnabled();
+
+    await act(async () => resolveRefresh?.());
+    await waitFor(() => expect(refreshButton).toBeEnabled());
   });
 
   it("keeps a blocked migration gate after the Skills shell is remounted", () => {
@@ -587,7 +709,7 @@ describe("App Skills navigation", () => {
     ).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "open-projects-from-global" }),
+      screen.getByRole("button", { name: "skills.projects.title" }),
     );
     expect(await screen.findByTestId("projects-view")).toBeInTheDocument();
     expect(
@@ -595,7 +717,7 @@ describe("App Skills navigation", () => {
     ).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "open-global-from-projects" }),
+      screen.getByRole("button", { name: "skills.global.title" }),
     );
     expect(await screen.findByTestId("global-view")).toBeInTheDocument();
 

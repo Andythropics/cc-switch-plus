@@ -2637,8 +2637,8 @@
       "allStatuses": "すべての状態",
       "libraryId": "Library ID: {{id}}",
       "loadError": "Library またはグローバル配置状態を読み込めません。更新して再試行してください。",
-      "empty": "Library Skill がありません",
-      "emptyDescription": "グローバルに配置する前に Library に Skill を取得してください。",
+      "empty": "グローバルに配置された Library Skill はありません",
+      "emptyDescription": "Library Skill を Claude または Codex のグローバルターゲットに配置すると、ここに表示されます。",
       "import": {
         "title": "管理外のグローバル Skill をインポート",
         "description": "CC Switch 以外でインストールされた実ディレクトリを確認します。スキャンはファイルを変更せず、自動的に管理対象にしません。",
@@ -2704,6 +2704,8 @@
     "recovery": {
       "title": "未記録のデプロイを復元",
       "description": "ディスク上に存在し、望ましいデプロイ記録がないリンクを確認します。スキャンはデータベースやファイルシステムを変更しません。",
+      "open": "デプロイ復元を開く",
+      "navTooltip": "復元可能なデプロイ記録が見つかりました。クリックして確認してください。",
       "refresh": "復元スキャンを更新",
       "loading": "デプロイ先をスキャンしています...",
       "loadError": "デプロイ復元候補を検査できませんでした。",

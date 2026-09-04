@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -15,7 +20,6 @@ import {
 } from "@/components/ui/select";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
-import { DeploymentRecoveryPanel } from "@/components/skills/DeploymentRecoveryPanel";
 import { GlobalSkillImportPanel } from "@/components/skills/GlobalSkillImportPanel";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
 import {
@@ -47,10 +51,13 @@ import type {
 } from "@/lib/api/skills";
 
 interface GlobalSkillsPanelProps {
-  onOpenLibrary?: () => void;
-  onOpenProjects?: () => void;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
+}
+
+export interface GlobalSkillsPanelHandle {
+  refresh: () => Promise<void>;
+  openBatchUndeploy: () => void;
 }
 
 const statuses: DeploymentStatus[] = [
@@ -71,12 +78,10 @@ const sourceSummary = (skill: LibrarySkill) => {
   return skill.source.url;
 };
 
-export function GlobalSkillsPanel({
-  onOpenLibrary,
-  onOpenProjects,
-  onInteractionBlockedChange,
-  onNavigationBlockedChange,
-}: GlobalSkillsPanelProps) {
+export const GlobalSkillsPanel = forwardRef<
+  GlobalSkillsPanelHandle,
+  GlobalSkillsPanelProps
+>(({ onInteractionBlockedChange, onNavigationBlockedChange }, ref) => {
   const { t } = useTranslation();
   const libraryQuery = useLibrarySkills();
   const {
@@ -103,6 +108,7 @@ export function GlobalSkillsPanel({
     consumer: "codex",
     workspace: "global",
   });
+  const deploymentLoading = claudeQuery.isLoading || codexQuery.isLoading;
   const apply = useApplySkillDeployments();
   const globalImportsQuery = useInspectGlobalSkillImports();
   const refreshDeployments = useRefreshSkillDeployments();
@@ -111,15 +117,10 @@ export function GlobalSkillsPanel({
     "all",
   );
   const [batchOpen, setBatchOpen] = useState(false);
-  const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
-    "deploy",
-  );
   const [pendingDeployments, setPendingDeployments] = useState(
     new Set<string>(),
   );
   const [batchPending, setBatchPending] = useState(false);
-  const [manualRefreshPending, setManualRefreshPending] = useState(false);
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [globalImportBusy, setGlobalImportBusy] = useState(false);
 
   const allInspections = useMemo(
@@ -129,6 +130,15 @@ export function GlobalSkillsPanel({
     ],
     [claudeQuery.data?.items, codexQuery.data?.items],
   );
+  const globallyDeployedSkillIds = useMemo(
+    () =>
+      new Set(
+        allInspections
+          .filter((item) => item.target.workspace === "global" && item.desired)
+          .map((item) => item.librarySkillId),
+      ),
+    [allInspections],
+  );
   const deploymentError = claudeQuery.isError || codexQuery.isError;
   const isRefreshing =
     libraryFetching ||
@@ -136,7 +146,7 @@ export function GlobalSkillsPanel({
     claudeQuery.isFetching ||
     codexQuery.isFetching ||
     globalImportsQuery.isFetching;
-  const navigationBlocked = batchOpen || recoveryBusy || globalImportBusy;
+  const navigationBlocked = batchOpen || globalImportBusy;
 
   useEffect(() => {
     onInteractionBlockedChange?.(navigationBlocked);
@@ -158,6 +168,7 @@ export function GlobalSkillsPanel({
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return skills.filter((skill) => {
+      if (!globallyDeployedSkillIds.has(skill.id)) return false;
       const matchesQuery =
         !needle ||
         [
@@ -172,12 +183,13 @@ export function GlobalSkillsPanel({
         const inspection = allInspections.find(
           (item) =>
             item.librarySkillId === skill.id &&
+            item.target.workspace === "global" &&
             item.target.consumer === consumer,
         );
         return (inspection?.status ?? "not_deployed") === statusFilter;
       });
     });
-  }, [allInspections, query, skills, statusFilter]);
+  }, [globallyDeployedSkillIds, query, skills, statusFilter]);
   const progressiveSkills = useProgressiveSkillList(
     filtered,
     `${query}:${statusFilter}`,
@@ -224,18 +236,18 @@ export function GlobalSkillsPanel({
   };
 
   const refresh = async () => {
-    setManualRefreshPending(true);
-    try {
-      await Promise.all([
-        refreshDeployments(),
-        refetchLibrary(),
-        refetchProjects(),
-        globalImportsQuery.refetch(),
-      ]);
-    } finally {
-      setManualRefreshPending(false);
-    }
+    await Promise.all([
+      refreshDeployments(),
+      refetchLibrary(),
+      refetchProjects(),
+      globalImportsQuery.refetch(),
+    ]);
   };
+
+  useImperativeHandle(ref, () => ({
+    refresh,
+    openBatchUndeploy: () => setBatchOpen(true),
+  }));
 
   const renderConsumer = (
     skill: LibrarySkill,
@@ -293,64 +305,6 @@ export function GlobalSkillsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center justify-end gap-3 border-b px-5 py-3">
-        {onOpenLibrary && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={navigationBlocked}
-            onClick={onOpenLibrary}
-          >
-            {t("skills.global.library")}
-          </Button>
-        )}
-        {onOpenProjects && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={navigationBlocked}
-            onClick={onOpenProjects}
-          >
-            {t("skills.global.projects")}
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={skills.length === 0}
-          onClick={() => {
-            setBatchAction("deploy");
-            setBatchOpen(true);
-          }}
-        >
-          {t("skills.global.batchDeploy")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={skills.length === 0}
-          onClick={() => {
-            setBatchAction("undeploy");
-            setBatchOpen(true);
-          }}
-        >
-          {t("skills.global.batchUndeploy")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("skills.refresh")}
-          aria-busy={manualRefreshPending}
-          title={t("skills.refresh")}
-          disabled={manualRefreshPending}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw
-            className={`h-4 w-4${manualRefreshPending ? " animate-spin" : ""}`}
-          />
-        </Button>
-      </div>
-
       {(libraryError ||
         projectError ||
         deploymentError ||
@@ -370,13 +324,6 @@ export function GlobalSkillsPanel({
           isFetching={globalImportsQuery.isFetching}
           onRefetch={globalImportsQuery.refetch}
           onBusyChange={setGlobalImportBusy}
-        />
-      </div>
-
-      <div className="px-5 pt-3">
-        <DeploymentRecoveryPanel
-          query={{ workspace: "global" }}
-          onBusyChange={setRecoveryBusy}
         />
       </div>
 
@@ -416,7 +363,7 @@ export function GlobalSkillsPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
-        {isLoading ? (
+        {isLoading || deploymentLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
@@ -503,11 +450,12 @@ export function GlobalSkillsPanel({
         projects={projects}
         defaultTarget={{ workspace: "global" }}
         targetLocked
-        defaultAction={batchAction}
+        actionLocked
+        defaultAction="undeploy"
         inspections={allInspections}
         isPending={batchPending || isRefreshing}
         onApply={applyBatch}
       />
     </div>
   );
-}
+});

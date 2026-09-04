@@ -1,9 +1,51 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
 
-import { GlobalSkillsPanel } from "@/components/skills/GlobalSkillsPanel";
-import type { LibrarySkill } from "@/lib/api/skills";
+import {
+  GlobalSkillsPanel,
+  type GlobalSkillsPanelHandle,
+} from "@/components/skills/GlobalSkillsPanel";
+import type {
+  DeploymentInspection,
+  DeploymentStatus,
+  LibrarySkill,
+} from "@/lib/api/skills";
+
+const deployment = (
+  librarySkillId: string,
+  libraryDirectory: string,
+  consumer: "claude" | "codex",
+  status: DeploymentStatus = "in_sync",
+  hasDesired = true,
+): DeploymentInspection => ({
+  librarySkillId,
+  libraryDirectory,
+  target: { consumer, workspace: "global" },
+  desired: hasDesired
+    ? {
+        id: `desired-${librarySkillId}-${consumer}`,
+        librarySkillId,
+        libraryDirectory,
+        target: { consumer, workspace: "global" },
+        createdAt: 1,
+        updatedAt: 1,
+      }
+    : undefined,
+  observed: {
+    state:
+      status === "in_sync"
+        ? "correct_link"
+        : status === "conflict"
+          ? "occupied_directory"
+          : "missing",
+    targetPath: `/global/${libraryDirectory}`,
+    expectedTarget: `/library/${libraryDirectory}`,
+  },
+  observationToken: `${librarySkillId}-${consumer}-token`,
+  status,
+});
 
 const {
   applyMock,
@@ -22,7 +64,9 @@ const {
     libraryError: false,
     projectError: false,
     refreshing: false,
+    deploymentLoading: false,
     recoveryFindings: [] as unknown[],
+    deploymentItems: [] as DeploymentInspection[],
   },
 }));
 
@@ -72,9 +116,14 @@ vi.mock("@/hooks/useSkills", () => ({
     isFetching: state.refreshing,
     refetch: projectRefetch,
   }),
-  useSkillDeployments: () => ({
-    data: { items: [] },
+  useSkillDeployments: ({ consumer }: { consumer: "claude" | "codex" }) => ({
+    data: {
+      items: state.deploymentItems.filter(
+        (item) => item.target.consumer === consumer,
+      ),
+    },
     isError: false,
+    isLoading: state.deploymentLoading,
     isFetching: state.refreshing,
   }),
   useApplySkillDeployments: () => ({
@@ -111,21 +160,76 @@ describe("GlobalSkillsPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("leaves Global navigation and batch deploy actions to the app chrome", () => {
+    render(<GlobalSkillsPanel />);
+
+    for (const label of [
+      "skills.global.library",
+      "skills.global.projects",
+      "skills.global.batchDeploy",
+      "skills.global.batchUndeploy",
+      "skills.refresh",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: label }),
+      ).not.toBeInTheDocument();
+    }
+  });
+
   beforeEach(() => {
     state.libraryError = false;
     state.projectError = false;
     state.refreshing = false;
+    state.deploymentLoading = false;
     libraryRefetch.mockReset().mockResolvedValue(undefined);
     projectRefetch.mockReset().mockResolvedValue(undefined);
     importRefetch.mockReset().mockResolvedValue(undefined);
     refreshMock.mockReset().mockResolvedValue(undefined);
     applyMock.mockReset().mockResolvedValue({ items: [] });
     state.recoveryFindings = [];
+    state.deploymentItems = [
+      deployment("skill-a", "alpha", "claude"),
+      deployment("skill-b", "beta", "codex"),
+    ];
+  });
+
+  it("hides a Library Skill with no global deployment", () => {
+    state.deploymentItems = [
+      deployment("skill-a", "alpha", "claude"),
+      deployment("skill-b", "beta", "codex", "conflict", false),
+    ];
+
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+  });
+
+  it("waits for global deployment inspections before showing the empty state", () => {
+    state.deploymentItems = [];
+    state.deploymentLoading = true;
+
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.queryByText("skills.global.empty")).not.toBeInTheDocument();
+  });
+
+  it("keeps tracked drift and conflict deployments visible", () => {
+    state.deploymentItems = [
+      deployment("skill-a", "alpha", "claude", "drift"),
+      deployment("skill-b", "beta", "codex", "conflict"),
+    ];
+
+    render(<GlobalSkillsPanel />);
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
   });
 
   it("keeps Library identity and filters the global decision list", async () => {
     const user = userEvent.setup();
-    render(<GlobalSkillsPanel />);
+    const panelRef = createRef<GlobalSkillsPanelHandle>();
+    render(<GlobalSkillsPanel ref={panelRef} />);
 
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("alpha")).toBeInTheDocument();
@@ -139,12 +243,14 @@ describe("GlobalSkillsPanel", () => {
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+    await act(async () => {
+      await panelRef.current?.refresh();
+    });
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
     expect(libraryRefetch).toHaveBeenCalledTimes(1);
     expect(projectRefetch).toHaveBeenCalledTimes(1);
     expect(importRefetch).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("skills.recovery.title")).toBeInTheDocument();
+    expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
   });
 
   it("surfaces a structured load error instead of silently hiding state", () => {
@@ -176,24 +282,21 @@ describe("GlobalSkillsPanel", () => {
     render(<GlobalSkillsPanel />);
     const user = userEvent.setup();
     const clickedButton = within(
-      screen.getByTestId("global-deployment-skill-a-claude"),
-    ).getByRole("button", { name: "skills.library.deployClaude" });
+      screen.getByTestId("global-deployment-skill-a-codex"),
+    ).getByRole("button", { name: "skills.library.deployCodex" });
 
     await user.click(clickedButton);
 
     expect(clickedButton).toBeDisabled();
     expect(
-      within(screen.getByTestId("global-deployment-skill-a-codex")).getByRole(
+      within(screen.getByTestId("global-deployment-skill-a-claude")).getByRole(
         "button",
-        { name: "skills.library.deployCodex" },
+        { name: "skills.library.undeployClaude" },
       ),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "skills.refresh" }),
-    ).toBeEnabled();
+      screen.queryByRole("button", { name: "skills.global.batchDeploy" }),
+    ).not.toBeInTheDocument();
 
     await act(async () => resolveApply?.());
     await waitFor(() => expect(clickedButton).toBeEnabled());
@@ -204,83 +307,40 @@ describe("GlobalSkillsPanel", () => {
     render(<GlobalSkillsPanel />);
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    const refreshButton = screen.getByRole("button", {
-      name: "skills.refresh",
-    });
-    expect(refreshButton).toBeEnabled();
-    expect(refreshButton.querySelector("svg")).not.toHaveClass("animate-spin");
-    expect(
-      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
-    ).toBeEnabled();
-  });
-
-  it("limits manual refresh feedback to the refresh control", async () => {
-    let resolveRefresh: (() => void) | undefined;
-    refreshMock.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveRefresh = resolve;
-        }),
-    );
-    render(<GlobalSkillsPanel />);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
-
-    const refreshButton = screen.getByRole("button", {
-      name: "skills.refresh",
-    });
-    expect(refreshButton).toHaveAttribute("aria-busy", "true");
-    expect(refreshButton).toBeDisabled();
-    expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
-    expect(
-      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
-    ).toBeEnabled();
-
-    await act(async () => resolveRefresh?.());
-    await waitFor(() =>
-      expect(refreshButton).toHaveAttribute("aria-busy", "false"),
-    );
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
 
   it("reports navigation busy while its batch dialog is open", async () => {
     const onInteractionBlockedChange = vi.fn();
     const onNavigationBlockedChange = vi.fn();
-    const onOpenLibrary = vi.fn();
-    const onOpenProjects = vi.fn();
-    const user = userEvent.setup();
+    const panelRef = createRef<GlobalSkillsPanelHandle>();
     render(
       <GlobalSkillsPanel
-        onOpenLibrary={onOpenLibrary}
-        onOpenProjects={onOpenProjects}
+        ref={panelRef}
         onInteractionBlockedChange={onInteractionBlockedChange}
         onNavigationBlockedChange={onNavigationBlockedChange}
       />,
     );
 
-    await user.click(
-      screen.getByRole("button", { name: "skills.global.batchDeploy" }),
-    );
+    await act(async () => {
+      panelRef.current?.openBatchUndeploy();
+    });
 
     await waitFor(() => {
       expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
       expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
     });
+    const actionSelect = screen.getByRole("combobox", {
+      name: "skills.batch.action",
+    });
+    expect(actionSelect).toHaveTextContent("skills.batch.undeploy");
+    expect(actionSelect).toBeDisabled();
     expect(
-      screen.getByRole("button", {
-        name: "skills.global.library",
-        hidden: true,
-      }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", {
-        name: "skills.global.projects",
-        hidden: true,
-      }),
+      screen.getByRole("combobox", { name: "skills.batch.target" }),
     ).toBeDisabled();
   });
 
-  it("blocks parent navigation while recovery confirmation is open", async () => {
+  it("leaves global recovery details to the shared Skills navigation", () => {
     state.recoveryFindings = [
       {
         disposition: "recoverable",
@@ -292,44 +352,12 @@ describe("GlobalSkillsPanel", () => {
         safeReason: "exact_library_link",
       },
     ];
-    const onInteractionBlockedChange = vi.fn();
-    const onNavigationBlockedChange = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <GlobalSkillsPanel
-        onOpenLibrary={vi.fn()}
-        onOpenProjects={vi.fn()}
-        onInteractionBlockedChange={onInteractionBlockedChange}
-        onNavigationBlockedChange={onNavigationBlockedChange}
-      />,
-    );
 
-    await user.click(
-      screen.getByRole("checkbox", {
-        name: "skills.recovery.select",
-      }),
-    );
-    await user.click(
-      screen.getByRole("button", {
-        name: "skills.recovery.reviewSelected",
-      }),
-    );
+    render(<GlobalSkillsPanel />);
 
-    await waitFor(() => {
-      expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
-      expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
-    });
+    expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", {
-        name: "skills.global.library",
-        hidden: true,
-      }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", {
-        name: "skills.global.projects",
-        hidden: true,
-      }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "skills.recovery.reviewSelected" }),
+    ).not.toBeInTheDocument();
   });
 });

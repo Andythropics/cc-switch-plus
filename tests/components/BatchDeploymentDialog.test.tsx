@@ -139,6 +139,9 @@ describe("BatchDeploymentDialog", () => {
       "0",
     );
     expect(screen.getByTestId("batch-apply")).toBeDisabled();
+    expect(
+      screen.getByRole("combobox", { name: "skills.batch.action" }),
+    ).toBeEnabled();
 
     await user.click(
       screen.getByRole("checkbox", {
