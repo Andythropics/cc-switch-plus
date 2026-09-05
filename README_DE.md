@@ -456,9 +456,9 @@ Laden Sie den neuesten Linux-Build von der Seite [Releases](../../releases) heru
 
 ### Umgebungsanforderungen
 
-- Node.js 18+
-- pnpm 8+
-- Rust 1.85+
+- Node.js 22.12+
+- pnpm 10.12.3
+- Rust 1.88+
 - Tauri CLI 2.8+
 
 ### Entwicklungsbefehle

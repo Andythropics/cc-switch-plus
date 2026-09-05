@@ -30,3 +30,13 @@ Relevant reports include path traversal, unintended writes or deletes, credentia
 - Preview binaries are not Apple Developer signed or notarized. Check release checksums. Automatic upstream application updates are disabled; install Plus updates from this repository.
 
 迁移前备份，并妥善保管可能含密钥的备份；勿同时运行两个共用数据的版本。部署前审查 Skill，注意共享链接的修改会影响所有部署。网络供应商、仓库、价格目录和可选同步服务仍会产生对应请求。预览包尚未完成 Apple 开发者签名和公证，请核验校验和并从本仓库手动更新。
+
+## Known dependency advisories / 已知依赖问题
+
+The inherited Linux GTK dependency graph includes `glib` 0.18.5, affected by [GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g) (`VariantStrIter` memory unsoundness). This crate is absent from both macOS target dependency graphs and from the published macOS binaries. The preview does not publish or support Linux binaries. Linux source builds still need an upstream-compatible GTK dependency fix before they can be considered supported.
+
+继承的 Linux GTK 依赖中仍包含受上述漏洞影响的 `glib` 0.18.5。该依赖不进入 Apple Silicon 或 Intel macOS 构建；本预览版不发布或支持 Linux 安装包。Linux 源码构建仍需等待兼容上游 GTK 依赖链的修复，不能视为已获支持的平台。
+
+The Tauri build toolchain also retains `rand` 0.7.3 through `tauri-utils` → `kuchikiki` → `selectors` → `phf_codegen`. Its version is flagged by [GHSA-cq8v-f236-94qc](https://github.com/advisories/GHSA-cq8v-f236-94qc), but the advisory requires the crate's `log` feature, which is disabled in the resolved dependency graph. It is a build dependency, with no normal runtime dependency path in the macOS application. There is no compatible patched 0.7 release; this transitive dependency still requires an upstream update. The `rand` 0.8 and 0.9 lockfile entries have been updated to patched versions.
+
+Tauri 构建工具链还间接保留了版本落入上述告警范围的 `rand` 0.7.3，但漏洞所需的 `log` 特性在当前依赖图中未启用。它仅用于构建，不进入 macOS 应用的常规运行时依赖链；0.7 系列没有兼容的修复版，仍需上游更新间接依赖。锁定文件中的 `rand` 0.8 和 0.9 已更新至修复版本。

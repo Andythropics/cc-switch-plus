@@ -457,9 +457,9 @@ paru -S cc-switch-bin
 
 ### 開発環境
 
-- Node.js 18+
-- pnpm 8+
-- Rust 1.85+
+- Node.js 22.12+
+- pnpm 10.12.3
+- Rust 1.88+
 - Tauri CLI 2.8+
 
 ### 開発コマンド

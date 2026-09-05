@@ -11,6 +11,7 @@ Based on CC Switch 3.20.1, including upstream work through `5a040348`.
 - Adds guided migration with backups, resume, and restore, while keeping device-specific deployment metadata local.
 - Establishes the CC Switch Plus product identity, bilingual documentation, MIT attribution, contributor guidance, and macOS release workflow.
 - Disables upstream automatic app updates; Plus releases are installed manually.
+- Updates vulnerable frontend and macOS Rust dependencies and bundles LICENSE / NOTICE with the application. See [Security](SECURITY.md) for remaining Linux and build-tool dependency advisories.
 
 基于 CC Switch 3.20.1，包含上游至 `5a040348` 的工作。首版公开技能库、Claude Code / Codex 全局和项目部署、兼容性检查、导入与更新审查、部署恢复、工作区生命周期及操作记录；提供带备份、续跑和恢复的迁移流程。建立独立品牌、双语文档、MIT 署名和 macOS 发布流程。
 
