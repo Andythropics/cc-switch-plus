@@ -52,7 +52,6 @@ import type {
 
 interface GlobalSkillsPanelProps {
   onInteractionBlockedChange?: (blocked: boolean) => void;
-  onNavigationBlockedChange?: (blocked: boolean) => void;
 }
 
 export interface GlobalSkillsPanelHandle {
@@ -81,7 +80,7 @@ const sourceSummary = (skill: LibrarySkill) => {
 export const GlobalSkillsPanel = forwardRef<
   GlobalSkillsPanelHandle,
   GlobalSkillsPanelProps
->(({ onInteractionBlockedChange, onNavigationBlockedChange }, ref) => {
+>(({ onInteractionBlockedChange }, ref) => {
   const { t } = useTranslation();
   const libraryQuery = useLibrarySkills();
   const {
@@ -150,19 +149,13 @@ export const GlobalSkillsPanel = forwardRef<
 
   useEffect(() => {
     onInteractionBlockedChange?.(navigationBlocked);
-    onNavigationBlockedChange?.(navigationBlocked);
-  }, [
-    navigationBlocked,
-    onInteractionBlockedChange,
-    onNavigationBlockedChange,
-  ]);
+  }, [navigationBlocked, onInteractionBlockedChange]);
 
   useEffect(
     () => () => {
       onInteractionBlockedChange?.(false);
-      onNavigationBlockedChange?.(false);
     },
-    [onInteractionBlockedChange, onNavigationBlockedChange],
+    [onInteractionBlockedChange],
   );
 
   const filtered = useMemo(() => {

@@ -92,7 +92,6 @@ interface LibrarySkillsPanelProps {
   /** Stable Library identity supplied by Activity deep links. */
   focusLibrarySkillId?: string | null;
   onInteractionBlockedChange?: (blocked: boolean) => void;
-  onNavigationBlockedChange?: (blocked: boolean) => void;
 }
 
 export interface LibrarySkillsPanelHandle {
@@ -166,7 +165,6 @@ export const LibrarySkillsPanel = forwardRef<
       onOpenProjects,
       focusLibrarySkillId,
       onInteractionBlockedChange,
-      onNavigationBlockedChange,
     },
     ref,
   ) => {
@@ -328,19 +326,13 @@ export const LibrarySkillsPanel = forwardRef<
 
     useEffect(() => {
       onInteractionBlockedChange?.(navigationBlocked);
-      onNavigationBlockedChange?.(navigationBlocked);
-    }, [
-      navigationBlocked,
-      onInteractionBlockedChange,
-      onNavigationBlockedChange,
-    ]);
+    }, [navigationBlocked, onInteractionBlockedChange]);
 
     useEffect(() => {
       return () => {
         onInteractionBlockedChange?.(false);
-        onNavigationBlockedChange?.(false);
       };
-    }, [onInteractionBlockedChange, onNavigationBlockedChange]);
+    }, [onInteractionBlockedChange]);
 
     const beginEdit = (skill: LibrarySkill) => {
       setEditing(skill);

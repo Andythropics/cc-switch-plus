@@ -312,13 +312,11 @@ describe("GlobalSkillsPanel", () => {
 
   it("reports navigation busy while its batch dialog is open", async () => {
     const onInteractionBlockedChange = vi.fn();
-    const onNavigationBlockedChange = vi.fn();
     const panelRef = createRef<GlobalSkillsPanelHandle>();
     render(
       <GlobalSkillsPanel
         ref={panelRef}
         onInteractionBlockedChange={onInteractionBlockedChange}
-        onNavigationBlockedChange={onNavigationBlockedChange}
       />,
     );
 
@@ -328,7 +326,6 @@ describe("GlobalSkillsPanel", () => {
 
     await waitFor(() => {
       expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
-      expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
     });
     const actionSelect = screen.getByRole("combobox", {
       name: "skills.batch.action",

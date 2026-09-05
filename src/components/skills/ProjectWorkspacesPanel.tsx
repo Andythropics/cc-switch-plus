@@ -85,7 +85,6 @@ interface ProjectWorkspacesPanelProps {
   /** Stable Workspace identity supplied by Activity deep links. */
   focusWorkspaceId?: string | null;
   onInteractionBlockedChange?: (blocked: boolean) => void;
-  onNavigationBlockedChange?: (blocked: boolean) => void;
 }
 
 export interface ProjectWorkspacesPanelHandle {
@@ -362,7 +361,7 @@ export const ProjectWorkspacesPanel = forwardRef<
   ProjectWorkspacesPanelHandle,
   ProjectWorkspacesPanelProps
 >(function ProjectWorkspacesPanel(
-  { focusWorkspaceId, onInteractionBlockedChange, onNavigationBlockedChange },
+  { focusWorkspaceId, onInteractionBlockedChange },
   ref,
 ) {
   const { t } = useTranslation();
@@ -473,15 +472,13 @@ export const ProjectWorkspacesPanel = forwardRef<
 
   useEffect(() => {
     onInteractionBlockedChange?.(managementBusy);
-    onNavigationBlockedChange?.(managementBusy);
-  }, [managementBusy, onInteractionBlockedChange, onNavigationBlockedChange]);
+  }, [managementBusy, onInteractionBlockedChange]);
 
   useEffect(
     () => () => {
       onInteractionBlockedChange?.(false);
-      onNavigationBlockedChange?.(false);
     },
-    [onInteractionBlockedChange, onNavigationBlockedChange],
+    [onInteractionBlockedChange],
   );
 
   const selected =

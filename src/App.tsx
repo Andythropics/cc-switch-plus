@@ -101,7 +101,7 @@ import {
 } from "@/components/skills/GlobalSkillsPanel";
 import { SkillsActivityPanel } from "@/components/skills/SkillsActivityPanel";
 import { SkillsMigrationGate } from "@/components/skills/SkillsMigrationGate";
-import { SkillsAccessBoundary } from "@/components/skills/SkillsAccessContext";
+import { SkillsAccessBoundary } from "@/components/skills/SkillsAccessBoundary";
 import {
   isSkillsView,
   SkillsShell,
@@ -241,7 +241,6 @@ function App() {
     useState(false);
   const [projectWorkspacesRefreshPending, setProjectWorkspacesRefreshPending] =
     useState(false);
-  const [skillsNavigationBusy, setSkillsNavigationBusy] = useState(false);
   const [skillsMigrationReadOnly, setSkillsMigrationReadOnly] = useState(false);
   const [skillsMigrationDeferredToken, setSkillsMigrationDeferredToken] =
     useState<string | null>(null);
@@ -667,7 +666,7 @@ function App() {
 
   const currentViewRef = useRef(currentView);
   const managementBusy =
-    mcpManagementBusy || skillsNavigationBusy || promptNavigationBusy;
+    mcpManagementBusy || skillsManagementBusy || promptNavigationBusy;
   const managementBusyRef = useRef(false);
   managementBusyRef.current = managementBusy;
 
@@ -1114,7 +1113,6 @@ function App() {
               onOpenProjects={() => handleOpenSkillsProjects()}
               focusLibrarySkillId={skillsLibraryFocusId}
               onInteractionBlockedChange={setSkillsManagementBusy}
-              onNavigationBlockedChange={setSkillsNavigationBusy}
             />
           ) : (
             <UnsupportedSkillsLibrary />
@@ -1124,7 +1122,6 @@ function App() {
             <GlobalSkillsPanel
               ref={globalSkillsPanelRef}
               onInteractionBlockedChange={setSkillsManagementBusy}
-              onNavigationBlockedChange={setSkillsNavigationBusy}
             />
           ) : (
             <UnsupportedSkillsLibrary />
@@ -1135,7 +1132,6 @@ function App() {
               ref={projectWorkspacesPanelRef}
               focusWorkspaceId={skillsProjectFocusId}
               onInteractionBlockedChange={setSkillsManagementBusy}
-              onNavigationBlockedChange={setSkillsNavigationBusy}
             />
           ) : (
             <UnsupportedSkillsLibrary />
@@ -1291,7 +1287,10 @@ function App() {
         onReadOnlyChange={setSkillsMigrationReadOnly}
         showReport={currentView === "skillsActivity"}
       >
-        <SkillsAccessBoundary className="h-full min-h-0">
+        <SkillsAccessBoundary
+          className="h-full min-h-0"
+          readOnly={skillsMigrationReadOnly}
+        >
           {animatedContent}
         </SkillsAccessBoundary>
       </SkillsMigrationGate>
@@ -1304,9 +1303,8 @@ function App() {
         view={currentView}
         onViewChange={handleSkillsViewChange}
         readOnly={skillsMigrationReadOnly}
-        navigationDisabled={skillsNavigationBusy}
+        navigationDisabled={skillsManagementBusy}
         onInteractionBlockedChange={setSkillsManagementBusy}
-        onNavigationBlockedChange={setSkillsNavigationBusy}
       >
         {guardedContent}
       </SkillsShell>

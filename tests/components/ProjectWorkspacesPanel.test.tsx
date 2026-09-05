@@ -542,11 +542,9 @@ describe("ProjectWorkspacesPanel", () => {
 
   it("aggregates child deployment busy state and clears navigation block on unmount", async () => {
     const onInteractionBlockedChange = vi.fn();
-    const onNavigationBlockedChange = vi.fn();
     const view = render(
       <ProjectWorkspacesPanel
         onInteractionBlockedChange={onInteractionBlockedChange}
-        onNavigationBlockedChange={onNavigationBlockedChange}
       />,
     );
     const user = userEvent.setup();
@@ -556,12 +554,10 @@ describe("ProjectWorkspacesPanel", () => {
     );
     await waitFor(() => {
       expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(true);
-      expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(true);
     });
 
     view.unmount();
     expect(onInteractionBlockedChange).toHaveBeenLastCalledWith(false);
-    expect(onNavigationBlockedChange).toHaveBeenLastCalledWith(false);
   });
 
   it("blocks local navigation and workspace switching while a child batch is open", async () => {

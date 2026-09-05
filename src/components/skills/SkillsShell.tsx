@@ -18,7 +18,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { SkillsAccessProvider } from "@/components/skills/SkillsAccessContext";
 import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import {
   isActionableDeploymentRecoveryFinding,
@@ -46,7 +45,6 @@ interface SkillsShellProps {
   readOnly?: boolean;
   navigationDisabled?: boolean;
   onInteractionBlockedChange?: (blocked: boolean) => void;
-  onNavigationBlockedChange?: (blocked: boolean) => void;
 }
 
 const NAV_ITEMS = [
@@ -89,7 +87,6 @@ export function SkillsShell({
   readOnly = false,
   navigationDisabled = false,
   onInteractionBlockedChange,
-  onNavigationBlockedChange,
 }: SkillsShellProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -106,16 +103,10 @@ export function SkillsShell({
 
   useEffect(() => {
     onInteractionBlockedChange?.(globalRecoveryBusy);
-    onNavigationBlockedChange?.(globalRecoveryBusy);
     return () => {
       onInteractionBlockedChange?.(false);
-      onNavigationBlockedChange?.(false);
     };
-  }, [
-    globalRecoveryBusy,
-    onInteractionBlockedChange,
-    onNavigationBlockedChange,
-  ]);
+  }, [globalRecoveryBusy, onInteractionBlockedChange]);
 
   useLayoutEffect(() => {
     const scrollNode = scrollRef.current;
@@ -130,10 +121,7 @@ export function SkillsShell({
   }, [view]);
 
   return (
-    <SkillsAccessProvider
-      readOnly={readOnly}
-      navigationDisabled={navigationDisabled}
-    >
+    <>
       <div className="flex h-full min-h-0 flex-col">
         <nav
           aria-label={t("skills.manage")}
@@ -221,6 +209,6 @@ export function SkillsShell({
           />
         </SkillsDialogContent>
       </Dialog>
-    </SkillsAccessProvider>
+    </>
   );
 }
