@@ -1,3 +1,5 @@
+> This is historical upstream documentation. For current **CC Switch Plus** releases and support, use [English](README.md) or [简体中文](README_ZH.md).
+
 <div align="center">
 
 # CC Switch

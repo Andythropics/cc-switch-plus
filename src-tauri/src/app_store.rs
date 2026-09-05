@@ -1,12 +1,23 @@
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
+use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use crate::error::AppError;
 
 /// Store 中的键名
 const STORE_KEY_APP_CONFIG_DIR: &str = "app_config_dir_override";
+
+// Plus shares CC Switch's database and must also share the store that selects
+// that database. Resolving this relative to the new bundle identifier would
+// silently discard existing custom data-directory settings on first launch.
+fn paths_store_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
+    app.path()
+        .data_dir()
+        .map(|root| root.join("com.ccswitch.desktop").join("app_paths.json"))
+        .map_err(|e| AppError::Message(format!("无法定位应用路径 Store: {e}")))
+}
 
 /// 缓存当前的 app_config_dir 覆盖路径，避免存储 AppHandle
 static APP_CONFIG_DIR_OVERRIDE: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
@@ -27,7 +38,14 @@ pub fn get_app_config_dir_override() -> Option<PathBuf> {
 }
 
 fn read_override_from_store(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let store = match app.store_builder("app_paths.json").build() {
+    let path = match paths_store_path(app) {
+        Ok(path) => path,
+        Err(e) => {
+            log::warn!("{e}");
+            return None;
+        }
+    };
+    let store = match app.store_builder(path).build() {
         Ok(store) => store,
         Err(e) => {
             log::warn!("无法创建 Store: {e}");
@@ -76,7 +94,7 @@ pub fn set_app_config_dir_to_store(
     path: Option<&str>,
 ) -> Result<(), AppError> {
     let store = app
-        .store_builder("app_paths.json")
+        .store_builder(paths_store_path(app)?)
         .build()
         .map_err(|e| AppError::Message(format!("创建 Store 失败: {e}")))?;
 

@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { APP_UPDATE_POLICY } from "./product";
 
 export type UpdateChannel = "stable" | "beta";
 
@@ -23,26 +24,13 @@ export async function getCurrentVersion(): Promise<string> {
 }
 
 export async function checkForUpdate(
-  opts: CheckOptions = {},
+  _opts: CheckOptions = {},
 ): Promise<
-  { status: "up-to-date" } | { status: "available"; info: UpdateInfo }
+  | { status: "manual" }
+  | { status: "up-to-date" }
+  | { status: "available"; info: UpdateInfo }
 > {
-  // 动态引入，避免在未安装插件时导致打包期问题
-  const { check } = await import("@tauri-apps/plugin-updater");
-
-  const currentVersion = await getCurrentVersion();
-  const update = await check({ timeout: opts.timeout ?? 30000 } as any);
-
-  if (!update) {
-    return { status: "up-to-date" };
-  }
-
-  const info: UpdateInfo = {
-    currentVersion,
-    availableVersion: (update as any).version ?? "",
-    notes: (update as any).notes,
-    pubDate: (update as any).date,
-  };
-
-  return { status: "available", info };
+  // Plus does not have a signing key or update feed yet. Keep this guard in
+  // the shared updater boundary so no caller can accidentally query upstream.
+  return { status: APP_UPDATE_POLICY };
 }

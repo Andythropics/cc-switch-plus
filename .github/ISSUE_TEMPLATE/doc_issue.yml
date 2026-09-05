@@ -3,6 +3,7 @@ description: |
   Report documentation errors, outdated content, or missing information.
   报告文档错误、过时内容或缺失信息。
 labels:
+  - needs-triage
   - documentation
 body:
   - type: checkboxes
@@ -10,8 +11,8 @@ body:
       label: Self Checks / 自检
       options:
         - label: |
-            I have searched for [existing issues](https://github.com/farion1231/cc-switch/issues), including closed ones.
-            我已搜索过[已有的 Issue](https://github.com/farion1231/cc-switch/issues)，包括已关闭的。
+            I have searched for [existing issues](https://github.com/Andythropics/cc-switch-plus/issues), including closed ones.
+            我已搜索过[已有的 Issue](https://github.com/Andythropics/cc-switch-plus/issues)，包括已关闭的。
           required: true
 
   - type: dropdown

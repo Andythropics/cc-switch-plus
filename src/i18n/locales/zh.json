@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "CC Switch",
+    "title": "CC Switch Plus",
     "description": "Claude Code / Codex / Gemini CLI 全方位辅助工具"
   },
   "common": {
@@ -45,9 +45,9 @@
     "notSet": "未设置"
   },
   "firstRunNotice": {
-    "title": "欢迎使用 CC Switch",
-    "bodyDefault": "CC Switch 可以帮你在 Claude Code / Codex / Gemini CLI 的多个供应商之间一键切换。如果你之前已经配置过这些工具，CC Switch 会自动把现有设置保存为名为 “default” 的供应商，保证你的配置不会丢失。",
-    "bodyOfficial": "列表里还预置了 “官方（Official）” 供应商，随时点一下即可切回官方默认配置。切换前 CC Switch 会自动把当前配置备份回 default，可以放心来回切。CC Switch 就是这样工作的 😊",
+    "title": "欢迎使用 CC Switch Plus",
+    "bodyDefault": "CC Switch Plus 可以帮你在 Claude Code / Codex / Gemini CLI 的多个供应商之间一键切换。如果你之前已经配置过这些工具，CC Switch Plus 会自动把现有设置保存为名为 “default” 的供应商，保证你的配置不会丢失。",
+    "bodyOfficial": "列表里还预置了 “官方（Official）” 供应商，随时点一下即可切回官方默认配置。切换前 CC Switch Plus 会自动把当前配置备份回 default，可以放心来回切。CC Switch Plus 就是这样工作的 😊",
     "confirm": "我知道了"
   },
   "apiKeyInput": {
@@ -208,7 +208,7 @@
     "modeProxy": "需要路由",
     "modelMappingToggle": "需要模型映射",
     "modelMappingOffHint": "仅当供应商直接接受 Claude Desktop 可识别的三档角色 ID（claude-sonnet-* / claude-opus-* / claude-haiku-*）时才适用直连；其他模型名（含 claude-3-5-sonnet-… 等旧式 ID）请选择模型映射。",
-    "modelMappingOnHint": "Claude Desktop 只接受 claude-sonnet-* / claude-opus-* / claude-haiku-* 三档角色 ID。选择模型映射后，CC Switch 会把这三档映射到供应商的实际模型，并在使用期间保持本地路由开启。",
+    "modelMappingOnHint": "Claude Desktop 只接受 claude-sonnet-* / claude-opus-* / claude-haiku-* 三档角色 ID。选择模型映射后，CC Switch Plus 会把这三档映射到供应商的实际模型，并在使用期间保持本地路由开启。",
     "routeMapTitle": "模型映射",
     "routeMapHint": "为 Sonnet、Opus、Haiku 三档分别填写实际请求模型；菜单显示名可写 DeepSeek、Kimi 等品牌名。留空的档会自动沿用 Sonnet（或第一个已填档）的模型，确保子 agent 调用的 Haiku 始终可用。",
     "routeModelLabel": "模型角色",
@@ -250,7 +250,7 @@
     "codexRestartRequired": "切换成功，请重启客户端以生效",
     "grokBuildRestartRequired": "切换成功，请重启 Grok Build 以生效",
     "claudeDesktopRestartRequired": "切换成功，重启 Claude Desktop 后生效",
-    "claudeDesktopProxyRestartRequired": "切换成功，请保持 CC Switch 运行，并重启 Claude Desktop 后生效",
+    "claudeDesktopProxyRestartRequired": "切换成功，请保持 CC Switch Plus 运行，并重启 Claude Desktop 后生效",
     "addToConfigSuccess": "已添加到配置",
     "removeFromConfigSuccess": "已从配置移除",
     "removeFromConfigFailed": "无法移除供应商",
@@ -298,7 +298,7 @@
     "deleteProvider": "删除供应商",
     "deleteProviderMessage": "确定要删除供应商 \"{{name}}\" 吗？此操作无法撤销。",
     "removeProvider": "移除供应商",
-    "removeProviderMessage": "确定要从配置中移除供应商 \"{{name}}\" 吗？\n\n移除后该供应商将不再生效，但配置数据会保留在 CC Switch 中，您可以随时重新添加。",
+    "removeProviderMessage": "确定要从配置中移除供应商 \"{{name}}\" 吗？\n\n移除后该供应商将不再生效，但配置数据会保留在 CC Switch Plus 中，您可以随时重新添加。",
     "piDefaultProviderWarning": "Pi 的全局默认项当前指向此供应商。继续后，Pi 会尝试其他可用模型；你可以在 Pi 中使用 /model 重新选择，或使用 /login 登录其他供应商。",
     "proxy": {
       "title": "启用本地路由服务",
@@ -382,7 +382,7 @@
       },
       "globalProxy": {
         "title": "全局出站代理",
-        "description": "配置 CC Switch 访问外部 API 时使用的代理"
+        "description": "配置 CC Switch Plus 访问外部 API 时使用的代理"
       },
       "data": {
         "title": "数据管理",
@@ -453,7 +453,7 @@
     "themeDark": "深色",
     "themeSystem": "跟随系统",
     "importExport": "SQL 导入导出",
-    "importExportHint": "导入/导出数据库 SQL 备份（仅支持导入由 CC Switch 导出的备份），便于备份或迁移。",
+    "importExportHint": "导入/导出数据库 SQL 备份（仅支持导入由 CC Switch Plus 导出的备份），便于备份或迁移。",
     "exportConfig": "导出 SQL 备份",
     "selectConfigFile": "选择 SQL 文件",
     "noFileSelected": "尚未选择配置文件。",
@@ -691,7 +691,7 @@
     "windowBehavior": "窗口行为",
     "windowBehaviorHint": "配置窗口最小化与 Claude 插件联动策略。",
     "launchOnStartup": "开机自启",
-    "launchOnStartupDescription": "随系统启动自动运行 CC Switch",
+    "launchOnStartupDescription": "随系统启动自动运行 CC Switch Plus",
     "silentStartup": "静默启动",
     "silentStartupDescription": "程序启动时不显示主窗口，仅在系统托盘运行",
     "autoLaunchFailed": "设置开机自启失败",
@@ -755,8 +755,8 @@
     },
     "configDirectoryOverride": "配置目录覆盖（高级）",
     "configDirectoryDescription": "在 WSL 等环境使用 Claude Code 或 Codex 的时候，可手动指定为 WSL 里的配置目录，供应商数据与主环境保持一致。",
-    "appConfigDir": "CC Switch 配置目录",
-    "appConfigDirDescription": "自定义 CC Switch 的配置存储位置（指定到云同步文件夹即可云同步配置）",
+    "appConfigDir": "CC Switch Plus 配置目录",
+    "appConfigDirDescription": "自定义 CC Switch Plus 的配置存储位置（指定到云同步文件夹即可云同步配置）",
     "browsePlaceholderApp": "例如：C:\\Users\\Administrator\\.cc-switch",
     "claudeConfigDir": "Claude Code 配置目录",
     "claudeConfigDirDescription": "覆盖 Claude 配置目录 (settings.json)。真正自定义目录会在目录内存放 Claude MCP 的 .claude.json；默认 ~/.claude 目录仍使用 Claude 默认的 ~/.claude.json。",
@@ -789,7 +789,7 @@
     "updating": "更新中...",
     "checking": "检查中...",
     "upToDate": "已是最新",
-    "aboutHint": "查看版本信息与更新状态。",
+    "aboutHint": "查看 CC Switch Plus 版本和发布信息。",
     "portableMode": "当前为便携版，更新需手动下载。",
     "updateAvailable": "检测到新版本：{{version}}",
     "updateBadge": "有更新可用",
@@ -846,7 +846,7 @@
     "importFailedError": "导入配置失败：{{message}}",
     "exportFailedError": "导出配置失败:",
     "restartRequired": "需要重启应用",
-    "restartRequiredMessage": "修改 CC Switch 配置目录后需要重启应用才能生效，是否立即重启？",
+    "restartRequiredMessage": "修改 CC Switch Plus 配置目录后需要重启应用才能生效，是否立即重启？",
     "restartNow": "立即重启",
     "restartLater": "稍后重启",
     "restartFailed": "应用重启失败，请手动关闭后重新打开。",
@@ -963,7 +963,7 @@
     },
     "current": {
       "readFailed": "无法读取 Pi 供应商配置",
-      "stateUnavailableHint": "CC Switch 读取到 Pi 供应商配置前，供应商变更已暂时禁用。"
+      "stateUnavailableHint": "CC Switch Plus 读取到 Pi 供应商配置前，供应商变更已暂时禁用。"
     },
     "prompts": {
       "globalTab": "全局提示",
@@ -1611,7 +1611,7 @@
     "headerName": "请求头",
     "headerValue": "值",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "CC Switch",
+    "headerValuePlaceholder": "CC Switch Plus",
     "removeHeader": "删除请求头",
     "noHeaders": "暂无自定义请求头",
     "extraOptions": "额外选项",
@@ -1822,11 +1822,11 @@
     "modelsDevDefaultHint": "默认展示最新发布的 {{shown}} 个模型（共 {{total}} 个），输入关键字可全量搜索",
     "modelsDevAutoSync": {
       "title": "自动同步 models.dev 定价",
-      "description": "开启后，CC Switch 会在启动时定期拉取所选模型的最新价格，并保存到本地定价文件。",
+      "description": "开启后，CC Switch Plus 会在启动时定期拉取所选模型的最新价格，并保存到本地定价文件。",
       "enabled": "已开启",
       "disabled": "已关闭",
       "enableConfirmTitle": "开启自动同步定价？",
-      "enableConfirmMessage": "开启后，CC Switch 会在启动时定期从 models.dev 更新所选模型的价格（最多每 6 小时一次）。同一模型 ID 的软件内置价格和手动设置价格都会被覆盖。",
+      "enableConfirmMessage": "开启后，CC Switch Plus 会在启动时定期从 models.dev 更新所选模型的价格（最多每 6 小时一次）。同一模型 ID 的软件内置价格和手动设置价格都会被覆盖。",
       "enableConfirmAction": "开启自动同步",
       "configure": "选择模型",
       "configureTitle": "选择自动同步定价的模型",
@@ -1947,13 +1947,13 @@
   },
   "dbUpgrade": {
     "title": "数据库版本过新",
-    "description": "当前数据库由更新版本的 CC Switch 创建，需要升级应用后才能继续使用。升级不会删除你的数据。",
+    "description": "当前数据库由更新版本的 CC Switch Plus 创建，需要安装兼容版本后才能继续使用。你的数据不会被删除。",
     "versionInfo": "数据库版本 v{{db}} · 应用支持 v{{supported}}",
     "dbPath": "数据库文件",
     "checking": "正在检查可用更新…",
     "updateAvailable": "发现新版本 v{{version}}，升级后即可继续使用。",
-    "incompatibleTitle": "升级也无法解决",
-    "incompatibleDescription": "你已是最新版本，但数据库版本（v{{db}}）仍高于本应用支持的版本（v{{supported}}）。该数据库可能由第三方客户端或更高版本创建，升级当前官方应用也无法兼容。",
+    "incompatibleTitle": "需要兼容的应用版本",
+    "incompatibleDescription": "CC Switch Plus 初始预发布版本已停用应用自动更新。请前往 Plus 发布页，查找支持数据库 v{{db}} 的版本（当前应用支持 v{{supported}}）。",
     "preparing": "正在准备更新…",
     "downloading": "正在下载更新…",
     "upgradeNow": "升级应用",
@@ -1993,7 +1993,7 @@
       "deleteConfirm": "确定要删除服务器 \"{{id}}\" 吗？此操作无法撤销。",
       "noServers": "暂无服务器",
       "enabledApps": "启用的应用",
-      "noImportFound": "未发现需要导入的 MCP 服务器。所有服务器已在 CC Switch 统一管理中。",
+      "noImportFound": "未发现需要导入的 MCP 服务器。所有服务器已在 CC Switch Plus 统一管理中。",
       "importSuccess": "成功导入 {{count}} 个 MCP 服务器",
       "searchPlaceholder": "搜索 MCP 名称、描述、标签或命令...",
       "searchAriaLabel": "搜索已管理的 MCP 服务器",
@@ -2522,7 +2522,7 @@
       "replaceForeignLinkSuccess": "外部链接已替换",
       "forget": "忘记记录",
       "forgetTitle": "忘记部署记录？",
-      "forgetDescription": "这只会移除 CC Switch 的期望部署记录，不会删除或更改文件系统中的任何内容。",
+      "forgetDescription": "这只会移除 CC Switch Plus 的期望部署记录，不会删除或更改文件系统中的任何内容。",
       "forgetConfirm": "忘记记录",
       "forgetSuccess": "部署记录已忘记",
       "resolutionCancel": "取消",
@@ -2635,7 +2635,7 @@
         }
       },
       "macOnlyTitle": "私有技能库仅支持 macOS",
-      "macOnlyDescription": "新版 Skills 系统仅支持 macOS。在 Windows 和 Linux 上，CC Switch 不会改动现有的 Skill 文件或数据库状态。"
+      "macOnlyDescription": "新版 Skills 系统仅支持 macOS。在 Windows 和 Linux 上，CC Switch Plus 不会改动现有的 Skill 文件或数据库状态。"
     },
     "global": {
       "title": "全局 Skills",
@@ -2652,7 +2652,7 @@
       "emptyDescription": "将 Library Skill 部署到 Claude 或 Codex 全局目标后，它会显示在这里。",
       "import": {
         "title": "导入未托管的全局 Skill",
-        "description": "检查由 CC Switch 之外的工具安装的真实 Skill 目录。扫描不会改动文件，也不会自动接管。",
+        "description": "检查由 CC Switch Plus 之外的工具安装的真实 Skill 目录。扫描不会改动文件，也不会自动接管。",
         "scanning": "正在扫描 Claude 与 Codex 全局目录…",
         "selectFinding": "选择 {{consumer}} 中的 {{directory}}",
         "modeImportOnly": "仅导入 Library 副本",
@@ -2661,7 +2661,7 @@
         "replaceLibrary": "替换匹配的 Library Skill",
         "directory": "Library 目录",
         "submit": "导入 Skill",
-        "replaceTitle": "让 CC Switch 管理这个外部 Skill？",
+        "replaceTitle": "让 CC Switch Plus 管理这个外部 Skill？",
         "replaceDescription": "系统会先备份该目录，导入 Library，再用受管理的绝对链接替换它。",
         "installerWarning": "之后再次运行原始 npx 安装命令，可能覆盖此受管理部署或与其冲突。",
         "cancel": "取消",
@@ -2726,7 +2726,7 @@
       "select": "选择 {{entryName}} 进行恢复",
       "reviewSelected": "审阅所选恢复项",
       "confirmTitle": "记录所选部署？",
-      "confirmDescription": "CC Switch 将重新验证所选的 {{count}} 个链接，并且只记录当前准确指向技能库的链接，不会替换文件系统目标。",
+      "confirmDescription": "CC Switch Plus 将重新验证所选的 {{count}} 个链接，并且只记录当前准确指向技能库的链接，不会替换文件系统目标。",
       "confirm": "确认恢复",
       "applyError": "无法应用恢复。重试前请刷新扫描。",
       "results": "恢复结果（按请求顺序）",
@@ -2770,15 +2770,15 @@
       "inventory": "旧版清单",
       "inventoryEmpty": "未发现旧版清单项目。",
       "plan": "建议计划",
-      "planDescription": "项目分为 CC Switch 可执行、将保留的内容，以及需要你处理的冲突。",
+      "planDescription": "项目分为 CC Switch Plus 可执行、将保留的内容，以及需要你处理的冲突。",
       "planEmpty": "没有建议的迁移操作。",
       "enabled": "已启用",
       "disabled": "未启用",
       "applyUnavailable": "备份前置条件就绪后才能应用迁移。",
       "confirm": {
         "title": "应用已审查的迁移？",
-        "description": "CC Switch 将验证本次审查仍然有效，创建备份，然后执行由后端管理的迁移计划。",
-        "preserveUnsupportedConsumers": "保留不受支持的旧版 Consumer 侧文件、不再由 CC Switch 管理，并继续迁移 Claude 和 Codex。",
+        "description": "CC Switch Plus 将验证本次审查仍然有效，创建备份，然后执行由后端管理的迁移计划。",
+        "preserveUnsupportedConsumers": "保留不受支持的旧版 Consumer 侧文件、不再由 CC Switch Plus 管理，并继续迁移 Claude 和 Codex。",
         "apply": "确认并应用"
       },
       "pending": {
@@ -2835,7 +2835,7 @@
         "invalid": "无效"
       },
       "disposition": {
-        "perform": "CC Switch 可执行",
+        "perform": "CC Switch Plus 可执行",
         "preserve": "保留",
         "preserve_with_consent": "确认后保留",
         "user_resolve": "需要用户处理"
@@ -2852,10 +2852,10 @@
         "finalize": "完成迁移"
       },
       "reason": {
-        "proven_managed": "已确认由 CC Switch 管理。",
+        "proven_managed": "已确认由 CC Switch Plus 管理。",
         "already_in_library": "内容已存在于 Library。",
         "legacy_enabled": "旧版 Consumer 标志已启用。",
-        "proven_cc_switch_link": "已确认旧版链接由 CC Switch 管理。",
+        "proven_cc_switch_link": "已确认旧版链接由 CC Switch Plus 管理。",
         "unmanaged": "无法确认归属，因此将保留内容。",
         "unsupported_consumer_enabled": "此 Skill 仍启用了新版系统不再管理的旧版 Consumer。",
         "foreign_or_ambiguous": "链接为外部链接或目标不明确。",
@@ -2866,7 +2866,7 @@
         "migration_finalized": "迁移已完成收尾。"
       },
       "guidance": {
-        "unsupported_consumer_enabled": "确认让 CC Switch 保持这些 Consumer 侧文件不变并停止管理它们；Claude 和 Codex 将继续迁移。",
+        "unsupported_consumer_enabled": "确认让 CC Switch Plus 保持这些 Consumer 侧文件不变并停止管理它们；Claude 和 Codex 将继续迁移。",
         "foreign_or_ambiguous": "请先在 Finder 中检查此项目。仅在确认安全后移除或迁移它，然后重新检查迁移计划。",
         "content_conflict": "请比较冲突目录，在目标路径保留你需要的版本，然后重新检查迁移计划。",
         "missing_source": "请恢复预期来源目录，或移除过期的旧版记录，然后重新检查迁移计划。",
@@ -2909,7 +2909,7 @@
         "restore": "恢复已验证备份",
         "restoreError": "无法恢复已验证备份，请刷新报告后重试。",
         "restoreConfirmTitle": "恢复迁移备份？",
-        "restoreConfirmDescription": "CC Switch 将恢复此报告标识的已验证备份，当前迁移状态可能被替换。",
+        "restoreConfirmDescription": "CC Switch Plus 将恢复此报告标识的已验证备份，当前迁移状态可能被替换。",
         "restoreConfirm": "确认恢复",
         "state": {
           "prepared": "已准备",
@@ -2968,7 +2968,10 @@
         "system": "系统",
         "migration": "迁移"
       },
-      "consumer": { "claude": "Claude", "codex": "Codex" },
+      "consumer": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
       "reason": {
         "acquire": "获取",
         "import": "导入",
@@ -3093,7 +3096,7 @@
         "libraryReuse": "发现内容相同的技能库技能；导入可以复用现有快照。",
         "libraryDifferent": "技能库中已有不同版本；请选择新建或替换技能库版本。",
         "trackedBlocker": "Git 已跟踪的内容会阻止替换。",
-        "trackedNoMutation": "CC Switch 不会暂存、取消跟踪或修改 Git 文件。",
+        "trackedNoMutation": "CC Switch Plus 不会暂存、取消跟踪或修改 Git 文件。",
         "directoryCollision": "检测到目录冲突",
         "localCopyDescription": "导入会创建没有实时来源链接的本地技能库快照。",
         "recoveryRequired": "重试前需要恢复处理。请保留下面的备份路径。",
@@ -3150,7 +3153,7 @@
     "installSuccess": "技能 {{name}} 已获取",
     "installFailed": "获取失败",
     "uninstallSuccess": "技能 {{name}} 已移除",
-    "uninstallPiPreserved": "无法确认该 Pi 副本由 CC Switch 管理，已保留：{{path}}",
+    "uninstallPiPreserved": "无法确认该 Pi 副本由 CC Switch Plus 管理，已保留：{{path}}",
     "uninstallPiCleanupIncomplete": "Pi 清理未能完成，请手动检查 Pi Skills 目录中是否有残留副本。",
     "uninstallFailed": "移除失败",
     "update": "更新",
@@ -3261,10 +3264,10 @@
     "noInstalledDescription": "从仓库发现并获取技能，或导入已有的技能",
     "discover": "发现技能",
     "import": "导入已有",
-    "importDescription": "选择要导入到 CC Switch 统一管理的技能",
+    "importDescription": "选择要导入到 CC Switch Plus 统一管理的技能",
     "importSuccess": "成功导入 {{count}} 个技能",
     "importSelected": "导入已选 ({{count}})",
-    "noUnmanagedFound": "未发现需要导入的技能。所有技能已在 CC Switch 统一管理中。",
+    "noUnmanagedFound": "未发现需要导入的技能。所有技能已在 CC Switch Plus 统一管理中。",
     "unmanagedAvailable": "发现可导入的技能",
     "foundIn": "发现于",
     "local": "本地",
@@ -3309,7 +3312,7 @@
   },
   "deeplink": {
     "confirmImport": "确认导入供应商配置",
-    "confirmImportDescription": "以下配置将导入到 CC Switch",
+    "confirmImportDescription": "以下配置将导入到 CC Switch Plus",
     "importPrompt": "导入提示词",
     "importPromptDescription": "请确认是否导入此系统提示词",
     "importMcp": "导入 MCP Servers",

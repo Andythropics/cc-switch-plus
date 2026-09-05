@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "CC Switch",
+    "title": "CC Switch Plus",
     "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
   },
   "common": {
@@ -45,9 +45,9 @@
     "notSet": "Not Set"
   },
   "firstRunNotice": {
-    "title": "Welcome to CC Switch",
-    "bodyDefault": "CC Switch lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, CC Switch has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
-    "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. CC Switch automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how CC Switch works 😊",
+    "title": "Welcome to CC Switch Plus",
+    "bodyDefault": "CC Switch Plus lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, CC Switch Plus has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
+    "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. CC Switch Plus automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how CC Switch Plus works 😊",
     "confirm": "Got it"
   },
   "apiKeyInput": {
@@ -208,7 +208,7 @@
     "modeProxy": "Requires routing",
     "modelMappingToggle": "Needs model mapping",
     "modelMappingOffHint": "Direct mode works only when the provider accepts Claude Desktop's three role IDs (claude-sonnet-* / claude-opus-* / claude-haiku-*); for any other model name (including legacy IDs like claude-3-5-sonnet-…), select Model Mapping.",
-    "modelMappingOnHint": "Claude Desktop only accepts the three role IDs claude-sonnet-* / claude-opus-* / claude-haiku-*. In Model Mapping mode, CC Switch maps these roles to your provider's actual models and keeps local routing running while in use.",
+    "modelMappingOnHint": "Claude Desktop only accepts the three role IDs claude-sonnet-* / claude-opus-* / claude-haiku-*. In Model Mapping mode, CC Switch Plus maps these roles to your provider's actual models and keeps local routing running while in use.",
     "routeMapTitle": "Model mapping",
     "routeMapHint": "Fill in the actual request model for each of the Sonnet, Opus, and Haiku tiers. Use the menu display name for branded models such as DeepSeek or Kimi. Any tier left blank inherits the Sonnet tier's model (or the first tier you filled in), so the Haiku that sub-agents call is always available.",
     "routeModelLabel": "Model role",
@@ -250,7 +250,7 @@
     "codexRestartRequired": "Switched successfully. Restart the client to apply changes.",
     "grokBuildRestartRequired": "Switched successfully. Restart Grok Build to apply changes.",
     "claudeDesktopRestartRequired": "Switched successfully. Restart Claude Desktop to apply changes.",
-    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep CC Switch running and restart Claude Desktop to apply changes.",
+    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep CC Switch Plus running and restart Claude Desktop to apply changes.",
     "addToConfigSuccess": "Added to config",
     "removeFromConfigSuccess": "Removed from config",
     "removeFromConfigFailed": "Could not remove provider",
@@ -298,7 +298,7 @@
     "deleteProvider": "Delete Provider",
     "deleteProviderMessage": "Are you sure you want to delete provider \"{{name}}\"? This action cannot be undone.",
     "removeProvider": "Remove Provider",
-    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in CC Switch. You can re-add it at any time.",
+    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in CC Switch Plus. You can re-add it at any time.",
     "piDefaultProviderWarning": "Pi's global default currently points to this provider. If you continue, Pi will try another available model; use /model to choose one or /login to sign in to another provider.",
     "proxy": {
       "title": "Enable Local Routing",
@@ -382,7 +382,7 @@
       },
       "globalProxy": {
         "title": "Global Outbound Proxy",
-        "description": "Configure proxy for CC Switch to access external APIs"
+        "description": "Configure proxy for CC Switch Plus to access external APIs"
       },
       "data": {
         "title": "Data Management",
@@ -453,7 +453,7 @@
     "themeDark": "Dark",
     "themeSystem": "System",
     "importExport": "SQL Import/Export",
-    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by CC Switch).",
+    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by CC Switch Plus).",
     "exportConfig": "Export SQL Backup",
     "selectConfigFile": "Select SQL File",
     "noFileSelected": "No configuration file selected.",
@@ -691,7 +691,7 @@
     "windowBehavior": "Window Behavior",
     "windowBehaviorHint": "Configure window minimize and Claude plugin integration policies.",
     "launchOnStartup": "Launch on Startup",
-    "launchOnStartupDescription": "Automatically run CC Switch when system starts",
+    "launchOnStartupDescription": "Automatically run CC Switch Plus when system starts",
     "silentStartup": "Silent Startup",
     "silentStartupDescription": "Start in background mode without showing main window",
     "autoLaunchFailed": "Failed to set auto-launch",
@@ -755,8 +755,8 @@
     },
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
     "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
-    "appConfigDir": "CC Switch Configuration Directory",
-    "appConfigDirDescription": "Customize the storage location for CC Switch configuration (point to cloud sync folder to enable config sync)",
+    "appConfigDir": "CC Switch Plus Configuration Directory",
+    "appConfigDirDescription": "Customize the storage location for CC Switch Plus configuration (point to cloud sync folder to enable config sync)",
     "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.cc-switch",
     "claudeConfigDir": "Claude Code Configuration Directory",
     "claudeConfigDirDescription": "Override Claude configuration directory (settings.json). Custom directories store .claude.json (MCP) inside the directory; the default ~/.claude directory keeps Claude Code's split ~/.claude.json path.",
@@ -789,7 +789,7 @@
     "updating": "Updating...",
     "checking": "Checking...",
     "upToDate": "Up to Date",
-    "aboutHint": "View version information and update status.",
+    "aboutHint": "View CC Switch Plus version and release information.",
     "portableMode": "Portable mode: updates require manual download.",
     "updateAvailable": "New version available: {{version}}",
     "updateBadge": "Update available",
@@ -846,7 +846,7 @@
     "importFailedError": "Import config failed: {{message}}",
     "exportFailedError": "Export config failed:",
     "restartRequired": "Restart Required",
-    "restartRequiredMessage": "Modifying the CC Switch configuration directory requires restarting the application to take effect. Restart now?",
+    "restartRequiredMessage": "Modifying the CC Switch Plus configuration directory requires restarting the application to take effect. Restart now?",
     "restartNow": "Restart Now",
     "restartLater": "Restart Later",
     "restartFailed": "Application restart failed, please manually close and reopen.",
@@ -963,7 +963,7 @@
     },
     "current": {
       "readFailed": "Could not read Pi's provider configuration",
-      "stateUnavailableHint": "Provider changes are disabled until CC Switch can read Pi's provider configuration."
+      "stateUnavailableHint": "Provider changes are disabled until CC Switch Plus can read Pi's provider configuration."
     },
     "prompts": {
       "globalTab": "Global prompts",
@@ -1611,7 +1611,7 @@
     "headerName": "Header",
     "headerValue": "Value",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "CC Switch",
+    "headerValuePlaceholder": "CC Switch Plus",
     "removeHeader": "Remove header",
     "noHeaders": "No custom headers configured",
     "extraOptions": "Extra Options",
@@ -1822,11 +1822,11 @@
     "modelsDevDefaultHint": "Showing the {{shown}} most recently released models (of {{total}}) — type to search all",
     "modelsDevAutoSync": {
       "title": "Automatic models.dev pricing sync",
-      "description": "When enabled, periodically fetch selected prices when CC Switch launches and keep them in your local pricing file.",
+      "description": "When enabled, periodically fetch selected prices when CC Switch Plus launches and keep them in your local pricing file.",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "enableConfirmTitle": "Enable automatic pricing sync?",
-      "enableConfirmMessage": "After enabling, CC Switch will periodically update prices for the selected models from models.dev when it launches (at most once every 6 hours). Built-in and manually configured prices with the same model ID will be overwritten.",
+      "enableConfirmMessage": "After enabling, CC Switch Plus will periodically update prices for the selected models from models.dev when it launches (at most once every 6 hours). Built-in and manually configured prices with the same model ID will be overwritten.",
       "enableConfirmAction": "Enable automatic sync",
       "configure": "Choose models",
       "configureTitle": "Choose models for automatic pricing sync",
@@ -1947,13 +1947,13 @@
   },
   "dbUpgrade": {
     "title": "Database version is too new",
-    "description": "This database was created by a newer version of CC Switch. Upgrade the app to continue. Upgrading will not delete your data.",
+    "description": "This database was created by a newer version of CC Switch Plus. Install a compatible app version to continue. Your data will not be deleted.",
     "versionInfo": "Database v{{db}} · App supports v{{supported}}",
     "dbPath": "Database file",
     "checking": "Checking for available updates…",
     "updateAvailable": "Version v{{version}} is available; upgrading will let you continue.",
-    "incompatibleTitle": "Upgrading won't fix this",
-    "incompatibleDescription": "You are already on the latest version, but the database (v{{db}}) is still newer than this app supports (v{{supported}}). It was likely created by a third-party client or a newer build, so upgrading the official app cannot make it compatible.",
+    "incompatibleTitle": "A compatible app version is required",
+    "incompatibleDescription": "Automatic app updates are disabled for this initial CC Switch Plus prerelease. Check the Plus releases page for a version that supports database v{{db}} (this app supports v{{supported}}).",
     "preparing": "Preparing update…",
     "downloading": "Downloading update…",
     "upgradeNow": "Upgrade app",
@@ -1993,7 +1993,7 @@
       "deleteConfirm": "Are you sure you want to delete server \"{{id}}\"? This action cannot be undone.",
       "noServers": "No servers yet",
       "enabledApps": "Enabled Apps",
-      "noImportFound": "No MCP servers to import found. All servers are already managed by CC Switch.",
+      "noImportFound": "No MCP servers to import found. All servers are already managed by CC Switch Plus.",
       "importSuccess": "Successfully imported {{count}} MCP servers",
       "searchPlaceholder": "Search MCP name, description, tag, or command...",
       "searchAriaLabel": "Search managed MCP servers",
@@ -2522,7 +2522,7 @@
       "replaceForeignLinkSuccess": "Foreign link replaced",
       "forget": "Forget record",
       "forgetTitle": "Forget deployment record?",
-      "forgetDescription": "This removes only CC Switch's desired deployment record. It does not delete or change anything on disk.",
+      "forgetDescription": "This removes only CC Switch Plus's desired deployment record. It does not delete or change anything on disk.",
       "forgetConfirm": "Forget record",
       "forgetSuccess": "Deployment record forgotten",
       "resolutionCancel": "Cancel",
@@ -2635,7 +2635,7 @@
         }
       },
       "macOnlyTitle": "Private Skill Library is available on macOS only",
-      "macOnlyDescription": "The redesigned Skills system is available only on macOS. On Windows and Linux, CC Switch leaves existing Skill files and database state untouched."
+      "macOnlyDescription": "The redesigned Skills system is available only on macOS. On Windows and Linux, CC Switch Plus leaves existing Skill files and database state untouched."
     },
     "global": {
       "title": "Global Skills",
@@ -2652,7 +2652,7 @@
       "emptyDescription": "Deploy a Library Skill to Claude or Codex Global to see it here.",
       "import": {
         "title": "Import unmanaged Global Skills",
-        "description": "Review real Skill directories installed outside CC Switch. Inspection never changes files or adopts them automatically.",
+        "description": "Review real Skill directories installed outside CC Switch Plus. Inspection never changes files or adopts them automatically.",
         "scanning": "Scanning Claude and Codex Global roots...",
         "selectFinding": "Select {{directory}} from {{consumer}}",
         "modeImportOnly": "Import a Library copy",
@@ -2661,7 +2661,7 @@
         "replaceLibrary": "Replace the matching Library Skill",
         "directory": "Library directory",
         "submit": "Import Skill",
-        "replaceTitle": "Manage this external Skill with CC Switch?",
+        "replaceTitle": "Manage this external Skill with CC Switch Plus?",
         "replaceDescription": "The directory will be backed up, imported into the Library, and replaced by a managed absolute link.",
         "installerWarning": "Running the original npx installer again may overwrite or conflict with this managed deployment.",
         "cancel": "Cancel",
@@ -2726,7 +2726,7 @@
       "select": "Select {{entryName}} for recovery",
       "reviewSelected": "Review selected recovery",
       "confirmTitle": "Record selected Deployments?",
-      "confirmDescription": "CC Switch will revalidate {{count}} selected link(s) and record only exact current Library links. It will not replace filesystem targets.",
+      "confirmDescription": "CC Switch Plus will revalidate {{count}} selected link(s) and record only exact current Library links. It will not replace filesystem targets.",
       "confirm": "Confirm recovery",
       "applyError": "Recovery could not be applied. Refresh the scan before retrying.",
       "results": "Recovery results (in request order)",
@@ -2770,15 +2770,15 @@
       "inventory": "Legacy inventory",
       "inventoryEmpty": "No legacy inventory items were found.",
       "plan": "Proposed plan",
-      "planDescription": "Items are separated into work CC Switch can perform, content it will preserve, and conflicts that require your decision.",
+      "planDescription": "Items are separated into work CC Switch Plus can perform, content it will preserve, and conflicts that require your decision.",
       "planEmpty": "No migration operations are proposed.",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "applyUnavailable": "Migration cannot be applied until backup prerequisites are ready.",
       "confirm": {
         "title": "Apply the reviewed migration?",
-        "description": "CC Switch will verify this review is still current, create backups, and then execute the backend-managed migration plan.",
-        "preserveUnsupportedConsumers": "Keep files used by unsupported legacy Consumers unchanged, stop managing them in CC Switch, and continue migrating Claude and Codex.",
+        "description": "CC Switch Plus will verify this review is still current, create backups, and then execute the backend-managed migration plan.",
+        "preserveUnsupportedConsumers": "Keep files used by unsupported legacy Consumers unchanged, stop managing them in CC Switch Plus, and continue migrating Claude and Codex.",
         "apply": "Confirm and apply"
       },
       "pending": {
@@ -2835,7 +2835,7 @@
         "invalid": "Invalid"
       },
       "disposition": {
-        "perform": "CC Switch can perform",
+        "perform": "CC Switch Plus can perform",
         "preserve": "Preserve",
         "preserve_with_consent": "Preserve with confirmation",
         "user_resolve": "User resolution required"
@@ -2852,10 +2852,10 @@
         "finalize": "Finalize the migration"
       },
       "reason": {
-        "proven_managed": "CC Switch ownership is proven.",
+        "proven_managed": "CC Switch Plus ownership is proven.",
         "already_in_library": "The content is already in the Library.",
         "legacy_enabled": "The legacy Consumer flag is enabled.",
-        "proven_cc_switch_link": "The legacy link is proven to be managed by CC Switch.",
+        "proven_cc_switch_link": "The legacy link is proven to be managed by CC Switch Plus.",
         "unmanaged": "Ownership is not proven, so the content will be preserved.",
         "unsupported_consumer_enabled": "This Skill is still enabled for a legacy Consumer that the redesigned system does not manage.",
         "foreign_or_ambiguous": "The link is foreign or its target is ambiguous.",
@@ -2866,7 +2866,7 @@
         "migration_finalized": "The migration was finalized."
       },
       "guidance": {
-        "unsupported_consumer_enabled": "Confirm that CC Switch should leave these Consumer-side files untouched and stop managing them. Claude and Codex will continue migrating.",
+        "unsupported_consumer_enabled": "Confirm that CC Switch Plus should leave these Consumer-side files untouched and stop managing them. Claude and Codex will continue migrating.",
         "foreign_or_ambiguous": "Inspect the item in Finder. Remove or relocate it only if you know it is safe, then recheck the migration plan.",
         "content_conflict": "Compare the conflicting folders and keep the version you want at the target path, then recheck the migration plan.",
         "missing_source": "Restore the expected source folder or remove its stale legacy record, then recheck the migration plan.",
@@ -2909,7 +2909,7 @@
         "restore": "Restore verified backup",
         "restoreError": "The verified backup could not be restored. Refresh the report and try again.",
         "restoreConfirmTitle": "Restore the migration backup?",
-        "restoreConfirmDescription": "CC Switch will restore the verified backup identified by this report. Current migration state may be replaced.",
+        "restoreConfirmDescription": "CC Switch Plus will restore the verified backup identified by this report. Current migration state may be replaced.",
         "restoreConfirm": "Confirm restore",
         "state": {
           "prepared": "Prepared",
@@ -3096,7 +3096,7 @@
         "libraryReuse": "Identical Library Skill found; import can reuse its snapshot.",
         "libraryDifferent": "A different Library version exists; choose Create New or Replace Library.",
         "trackedBlocker": "Git-tracked content blocks replacement.",
-        "trackedNoMutation": "CC Switch will not stage, untrack, or mutate Git files.",
+        "trackedNoMutation": "CC Switch Plus will not stage, untrack, or mutate Git files.",
         "directoryCollision": "Directory collision detected",
         "localCopyDescription": "Import creates a local Library snapshot with no live source link.",
         "recoveryRequired": "Recovery is required before retrying. Preserve the backup path below.",
@@ -3153,7 +3153,7 @@
     "installSuccess": "Skill {{name}} acquired",
     "installFailed": "Failed to acquire",
     "uninstallSuccess": "Skill {{name}} removed",
-    "uninstallPiPreserved": "Pi's copy could not be verified as CC Switch-managed and was left in place: {{path}}",
+    "uninstallPiPreserved": "Pi's copy could not be verified as CC Switch Plus-managed and was left in place: {{path}}",
     "uninstallPiCleanupIncomplete": "Pi cleanup could not be completed. Check the Pi Skills directory manually for a leftover copy.",
     "uninstallFailed": "Failed to remove",
     "update": "Update",
@@ -3264,10 +3264,10 @@
     "noInstalledDescription": "Discover and acquire skills from repositories, or import existing skills",
     "discover": "Discover Skills",
     "import": "Import Existing",
-    "importDescription": "Select skills to import into CC Switch unified management",
+    "importDescription": "Select skills to import into CC Switch Plus unified management",
     "importSuccess": "Successfully imported {{count}} skills",
     "importSelected": "Import Selected ({{count}})",
-    "noUnmanagedFound": "No skills to import found. All skills are already managed by CC Switch.",
+    "noUnmanagedFound": "No skills to import found. All skills are already managed by CC Switch Plus.",
     "unmanagedAvailable": "Skills available to import",
     "foundIn": "Found in",
     "local": "Local",
@@ -3312,7 +3312,7 @@
   },
   "deeplink": {
     "confirmImport": "Confirm Import Provider",
-    "confirmImportDescription": "The following configuration will be imported from deep link into CC Switch",
+    "confirmImportDescription": "The following configuration will be imported from deep link into CC Switch Plus",
     "importPrompt": "Import Prompt",
     "importPromptDescription": "Please confirm whether to import this system prompt",
     "importMcp": "Import MCP Servers",

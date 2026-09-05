@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "CC Switch",
+    "title": "CC Switch Plus",
     "description": "Claude Code・Codex・Gemini CLI のためのオールインワンアシスタント"
   },
   "common": {
@@ -45,9 +45,9 @@
     "notSet": "未設定"
   },
   "firstRunNotice": {
-    "title": "CC Switch へようこそ",
-    "bodyDefault": "CC Switch は Claude Code / Codex / Gemini CLI の複数プロバイダーをワンクリックで切り替えられるツールです。すでにこれらのツールを設定済みの場合、CC Switch は現在の設定を「default」という名前のプロバイダーとして自動的に保存するので、既存の設定が失われることはありません。",
-    "bodyOfficial": "リストには「Official（公式）」プリセットも用意されており、公式バージョンに戻したくなったらクリックするだけで切り替えられます。切り替える前に現在の設定は自動で default にバックアップされるので、自由に行き来できます。これが CC Switch の仕組みです 😊",
+    "title": "CC Switch Plus へようこそ",
+    "bodyDefault": "CC Switch Plus は Claude Code / Codex / Gemini CLI の複数プロバイダーをワンクリックで切り替えられるツールです。すでにこれらのツールを設定済みの場合、CC Switch Plus は現在の設定を「default」という名前のプロバイダーとして自動的に保存するので、既存の設定が失われることはありません。",
+    "bodyOfficial": "リストには「Official（公式）」プリセットも用意されており、公式バージョンに戻したくなったらクリックするだけで切り替えられます。切り替える前に現在の設定は自動で default にバックアップされるので、自由に行き来できます。これが CC Switch Plus の仕組みです 😊",
     "confirm": "了解しました"
   },
   "apiKeyInput": {
@@ -208,7 +208,7 @@
     "modeProxy": "ルーティング必要",
     "modelMappingToggle": "モデルマッピングが必要",
     "modelMappingOffHint": "プロバイダーが Claude Desktop の三つの役割 ID（claude-sonnet-* / claude-opus-* / claude-haiku-*）を受け付ける場合のみ直結できます。それ以外のモデル名（claude-3-5-sonnet-… などの旧式 ID を含む）は「モデルマッピング」を選択してください。",
-    "modelMappingOnHint": "Claude Desktop は claude-sonnet-* / claude-opus-* / claude-haiku-* の三つの役割 ID のみ受け付けます。「モデルマッピング」を選択すると、CC Switch がこの三役割をプロバイダーの実モデルにマッピングし、使用中はローカルルーティングを起動したままにします。",
+    "modelMappingOnHint": "Claude Desktop は claude-sonnet-* / claude-opus-* / claude-haiku-* の三つの役割 ID のみ受け付けます。「モデルマッピング」を選択すると、CC Switch Plus がこの三役割をプロバイダーの実モデルにマッピングし、使用中はローカルルーティングを起動したままにします。",
     "routeMapTitle": "モデルマッピング",
     "routeMapHint": "Sonnet・Opus・Haiku の各区分に実際のリクエストモデルを入力してください。DeepSeek や Kimi などのブランド名はメニュー表示名に入れられます。空欄の区分は Sonnet（または最初に入力した区分）のモデルを引き継ぐため、サブ agent が呼び出す Haiku が常に利用可能になります。",
     "routeModelLabel": "モデル役割",
@@ -250,7 +250,7 @@
     "codexRestartRequired": "切り替えました。反映するにはクライアントを再起動してください",
     "grokBuildRestartRequired": "切り替えました。反映するには Grok Build を再起動してください",
     "claudeDesktopRestartRequired": "切り替えました。反映するには Claude Desktop を再起動してください",
-    "claudeDesktopProxyRestartRequired": "切り替えました。CC Switch を起動したまま Claude Desktop を再起動してください",
+    "claudeDesktopProxyRestartRequired": "切り替えました。CC Switch Plus を起動したまま Claude Desktop を再起動してください",
     "addToConfigSuccess": "設定に追加しました",
     "removeFromConfigSuccess": "設定から削除しました",
     "removeFromConfigFailed": "プロバイダーを削除できません",
@@ -298,7 +298,7 @@
     "deleteProvider": "プロバイダーを削除",
     "deleteProviderMessage": "プロバイダー「{{name}}」を削除してもよろしいですか？この操作は元に戻せません。",
     "removeProvider": "プロバイダーを解除",
-    "removeProviderMessage": "プロバイダー「{{name}}」を設定から解除してもよろしいですか？\n\n解除後、このプロバイダーは無効になりますが、設定データは CC Switch に保持されます。いつでも再追加できます。",
+    "removeProviderMessage": "プロバイダー「{{name}}」を設定から解除してもよろしいですか？\n\n解除後、このプロバイダーは無効になりますが、設定データは CC Switch Plus に保持されます。いつでも再追加できます。",
     "piDefaultProviderWarning": "Pi のグローバルデフォルトは現在このプロバイダーを参照しています。続行すると、Pi は別の利用可能なモデルを試します。/model で再選択するか、/login で別のプロバイダーにログインできます。",
     "proxy": {
       "title": "ローカルルーティングの有効化",
@@ -382,7 +382,7 @@
       },
       "globalProxy": {
         "title": "グローバル送信プロキシ",
-        "description": "CC Switch が外部 API にアクセスする際のプロキシを設定"
+        "description": "CC Switch Plus が外部 API にアクセスする際のプロキシを設定"
       },
       "data": {
         "title": "データ管理",
@@ -453,7 +453,7 @@
     "themeDark": "ダーク",
     "themeSystem": "システム",
     "importExport": "SQL インポート/エクスポート",
-    "importExportHint": "移行や復元用にデータベースの SQL バックアップをインポート/エクスポートします（インポートは CC Switch がエクスポートしたバックアップのみ対応）。",
+    "importExportHint": "移行や復元用にデータベースの SQL バックアップをインポート/エクスポートします（インポートは CC Switch Plus がエクスポートしたバックアップのみ対応）。",
     "exportConfig": "SQL バックアップをエクスポート",
     "selectConfigFile": "SQL ファイルを選択",
     "noFileSelected": "ファイルが選択されていません。",
@@ -691,7 +691,7 @@
     "windowBehavior": "ウィンドウ動作",
     "windowBehaviorHint": "最小化動作や Claude プラグイン連携を設定します。",
     "launchOnStartup": "起動時に自動実行",
-    "launchOnStartupDescription": "システム起動時に CC Switch を自動起動します",
+    "launchOnStartupDescription": "システム起動時に CC Switch Plus を自動起動します",
     "silentStartup": "サイレント起動",
     "silentStartupDescription": "起動時にメインウィンドウを表示せず、トレイのみで起動",
     "autoLaunchFailed": "自動起動の設定に失敗しました",
@@ -755,8 +755,8 @@
     },
     "configDirectoryOverride": "設定ディレクトリの上書き（詳細）",
     "configDirectoryDescription": "WSL などで Claude Code や Codex を使う場合、ここで設定ディレクトリを WSL 側に合わせるとデータを揃えられます。",
-    "appConfigDir": "CC Switch 設定ディレクトリ",
-    "appConfigDirDescription": "CC Switch の保存場所をカスタマイズします（クラウド同期フォルダを指定すると設定を同期できます）",
+    "appConfigDir": "CC Switch Plus 設定ディレクトリ",
+    "appConfigDirDescription": "CC Switch Plus の保存場所をカスタマイズします（クラウド同期フォルダを指定すると設定を同期できます）",
     "browsePlaceholderApp": "例: C:\\\\Users\\\\Administrator\\\\.cc-switch",
     "claudeConfigDir": "Claude Code 設定ディレクトリ",
     "claudeConfigDirDescription": "Claude の設定ディレクトリ（settings.json）を上書きします。カスタムディレクトリでは .claude.json（MCP）をその中に保存し、既定の ~/.claude では Claude Code の既定どおり ~/.claude.json を使います。",
@@ -789,7 +789,7 @@
     "updating": "更新中...",
     "checking": "確認中...",
     "upToDate": "最新バージョンです",
-    "aboutHint": "バージョン情報と更新状況を表示します。",
+    "aboutHint": "CC Switch Plus のバージョンとリリース情報を表示します。",
     "portableMode": "ポータブルモード: 更新は手動ダウンロードが必要です。",
     "updateAvailable": "新しいバージョンがあります: {{version}}",
     "updateBadge": "更新あり",
@@ -846,7 +846,7 @@
     "importFailedError": "設定のインポートに失敗しました: {{message}}",
     "exportFailedError": "設定のエクスポートに失敗しました:",
     "restartRequired": "再起動が必要です",
-    "restartRequiredMessage": "CC Switch の設定ディレクトリを変更すると再起動が必要です。今すぐ再起動しますか？",
+    "restartRequiredMessage": "CC Switch Plus の設定ディレクトリを変更すると再起動が必要です。今すぐ再起動しますか？",
     "restartNow": "今すぐ再起動",
     "restartLater": "後で再起動",
     "restartFailed": "アプリの再起動に失敗しました。手動で閉じて再度開いてください。",
@@ -963,7 +963,7 @@
     },
     "current": {
       "readFailed": "Pi のプロバイダー設定を読み込めません",
-      "stateUnavailableHint": "CC Switch が Pi のプロバイダー設定を読み込むまで、プロバイダーの変更は無効です。"
+      "stateUnavailableHint": "CC Switch Plus が Pi のプロバイダー設定を読み込むまで、プロバイダーの変更は無効です。"
     },
     "prompts": {
       "globalTab": "グローバルプロンプト",
@@ -1611,7 +1611,7 @@
     "headerName": "ヘッダー",
     "headerValue": "値",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "CC Switch",
+    "headerValuePlaceholder": "CC Switch Plus",
     "removeHeader": "ヘッダーを削除",
     "noHeaders": "カスタムヘッダーはありません",
     "extraOptions": "追加オプション",
@@ -1822,11 +1822,11 @@
     "modelsDevDefaultHint": "最新リリース順に {{shown}} 件を表示しています（全 {{total}} 件）。キーワード入力で全件検索できます",
     "modelsDevAutoSync": {
       "title": "models.dev 料金の自動同期",
-      "description": "有効にすると、CC Switch の起動時に選択したモデルの最新料金を定期的に取得し、ローカル料金ファイルに保存します。",
+      "description": "有効にすると、CC Switch Plus の起動時に選択したモデルの最新料金を定期的に取得し、ローカル料金ファイルに保存します。",
       "enabled": "有効",
       "disabled": "無効",
       "enableConfirmTitle": "料金の自動同期を有効にしますか？",
-      "enableConfirmMessage": "有効にすると、CC Switch の起動時に models.dev から選択したモデルの料金を定期的に更新します（最大 6 時間に 1 回）。同じモデル ID の内蔵料金と手動設定した料金は上書きされます。",
+      "enableConfirmMessage": "有効にすると、CC Switch Plus の起動時に models.dev から選択したモデルの料金を定期的に更新します（最大 6 時間に 1 回）。同じモデル ID の内蔵料金と手動設定した料金は上書きされます。",
       "enableConfirmAction": "自動同期を有効にする",
       "configure": "モデルを選択",
       "configureTitle": "料金を自動同期するモデルを選択",
@@ -1947,13 +1947,13 @@
   },
   "dbUpgrade": {
     "title": "データベースのバージョンが新しすぎます",
-    "description": "このデータベースは新しいバージョンの CC Switch で作成されています。続行するにはアプリを更新してください。更新してもデータは削除されません。",
+    "description": "このデータベースは新しいバージョンの CC Switch Plus で作成されています。続行するには互換性のあるアプリをインストールしてください。データは削除されません。",
     "versionInfo": "データベース v{{db}} · アプリ対応 v{{supported}}",
     "dbPath": "データベースファイル",
     "checking": "利用可能な更新を確認中…",
     "updateAvailable": "新しいバージョン v{{version}} が利用可能です。更新すると続行できます。",
-    "incompatibleTitle": "更新しても解決できません",
-    "incompatibleDescription": "すでに最新バージョンですが、データベース（v{{db}}）はこのアプリの対応バージョン（v{{supported}}）より新しいままです。サードパーティ製クライアントまたはより新しいビルドで作成された可能性があり、公式アプリを更新しても互換性は得られません。",
+    "incompatibleTitle": "互換性のあるアプリが必要です",
+    "incompatibleDescription": "CC Switch Plus の初期プレリリースではアプリの自動更新が無効です。データベース v{{db}} に対応するバージョンを Plus のリリースページで確認してください（このアプリは v{{supported}} に対応）。",
     "preparing": "更新を準備中…",
     "downloading": "更新をダウンロード中…",
     "upgradeNow": "アプリを更新",
@@ -1993,7 +1993,7 @@
       "deleteConfirm": "サーバー「{{id}}」を削除しますか？この操作は元に戻せません。",
       "noServers": "まだサーバーがありません",
       "enabledApps": "有効なアプリ",
-      "noImportFound": "インポートする MCP サーバーが見つかりませんでした。すべてのサーバーは CC Switch で管理されています。",
+      "noImportFound": "インポートする MCP サーバーが見つかりませんでした。すべてのサーバーは CC Switch Plus で管理されています。",
       "importSuccess": "{{count}} 個の MCP サーバーをインポートしました",
       "searchPlaceholder": "MCP の名前、説明、タグ、コマンドを検索...",
       "searchAriaLabel": "管理中の MCP サーバーを検索",
@@ -2522,7 +2522,7 @@
       "replaceForeignLinkSuccess": "外部リンクを置換しました",
       "forget": "記録を忘れる",
       "forgetTitle": "デプロイ記録を忘れますか？",
-      "forgetDescription": "CC Switch の希望デプロイ記録だけを削除します。ファイルシステム上の内容は削除・変更しません。",
+      "forgetDescription": "CC Switch Plus の希望デプロイ記録だけを削除します。ファイルシステム上の内容は削除・変更しません。",
       "forgetConfirm": "記録を忘れる",
       "forgetSuccess": "デプロイ記録を削除しました",
       "resolutionCancel": "キャンセル",
@@ -2652,7 +2652,7 @@
       "emptyDescription": "Library Skill を Claude または Codex のグローバルターゲットに配置すると、ここに表示されます。",
       "import": {
         "title": "管理外のグローバル Skill をインポート",
-        "description": "CC Switch 以外でインストールされた実ディレクトリを確認します。スキャンはファイルを変更せず、自動的に管理対象にしません。",
+        "description": "CC Switch Plus 以外でインストールされた実ディレクトリを確認します。スキャンはファイルを変更せず、自動的に管理対象にしません。",
         "scanning": "Claude と Codex のグローバルディレクトリをスキャン中…",
         "selectFinding": "{{consumer}} の {{directory}} を選択",
         "modeImportOnly": "Library コピーのみ作成",
@@ -2661,7 +2661,7 @@
         "replaceLibrary": "一致する Library Skill を置換",
         "directory": "Library ディレクトリ",
         "submit": "Skill をインポート",
-        "replaceTitle": "この外部 Skill を CC Switch で管理しますか？",
+        "replaceTitle": "この外部 Skill を CC Switch Plus で管理しますか？",
         "replaceDescription": "ディレクトリをバックアップして Library に取り込み、管理された絶対リンクに置き換えます。",
         "installerWarning": "元の npx インストーラーを再実行すると、管理された配置が上書きまたは競合する可能性があります。",
         "cancel": "キャンセル",
@@ -2726,7 +2726,7 @@
       "select": "{{entryName}} を復元対象に選択",
       "reviewSelected": "選択した復元を確認",
       "confirmTitle": "選択したデプロイを記録しますか？",
-      "confirmDescription": "CC Switch は選択した {{count}} 件のリンクを再検証し、現在のライブラリを正確に指すリンクだけを記録します。ファイルシステムの対象は置換しません。",
+      "confirmDescription": "CC Switch Plus は選択した {{count}} 件のリンクを再検証し、現在のライブラリを正確に指すリンクだけを記録します。ファイルシステムの対象は置換しません。",
       "confirm": "復元を確認",
       "applyError": "復元を適用できませんでした。再試行する前にスキャンを更新してください。",
       "results": "復元結果（リクエスト順）",
@@ -2770,15 +2770,15 @@
       "inventory": "旧データの棚卸し",
       "inventoryEmpty": "旧データの項目は見つかりませんでした。",
       "plan": "提案された計画",
-      "planDescription": "CC Switch が実行できる作業、保持する内容、ユーザーの判断が必要な競合に分類しています。",
+      "planDescription": "CC Switch Plus が実行できる作業、保持する内容、ユーザーの判断が必要な競合に分類しています。",
       "planEmpty": "提案される移行操作はありません。",
       "enabled": "有効",
       "disabled": "無効",
       "applyUnavailable": "バックアップの前提条件が整うまで移行を適用できません。",
       "confirm": {
         "title": "確認済みの移行を適用しますか？",
-        "description": "CC Switch は、この確認が現在も有効であることを検証し、バックアップを作成してから、バックエンド管理の移行計画を実行します。",
-        "preserveUnsupportedConsumers": "未対応の旧 Consumer 側ファイルは変更せず、CC Switch の管理対象から外して、Claude と Codex の移行を続行します。",
+        "description": "CC Switch Plus は、この確認が現在も有効であることを検証し、バックアップを作成してから、バックエンド管理の移行計画を実行します。",
+        "preserveUnsupportedConsumers": "未対応の旧 Consumer 側ファイルは変更せず、CC Switch Plus の管理対象から外して、Claude と Codex の移行を続行します。",
         "apply": "確認して適用"
       },
       "pending": {
@@ -2835,7 +2835,7 @@
         "invalid": "無効"
       },
       "disposition": {
-        "perform": "CC Switch が実行可能",
+        "perform": "CC Switch Plus が実行可能",
         "preserve": "保持",
         "preserve_with_consent": "確認して保持",
         "user_resolve": "ユーザーによる解決が必要"
@@ -2852,10 +2852,10 @@
         "finalize": "移行を完了"
       },
       "reason": {
-        "proven_managed": "CC Switch の管理対象であることが確認されています。",
+        "proven_managed": "CC Switch Plus の管理対象であることが確認されています。",
         "already_in_library": "コンテンツはすでに Library にあります。",
         "legacy_enabled": "旧 Consumer フラグが有効です。",
-        "proven_cc_switch_link": "旧リンクが CC Switch 管理であることが確認されています。",
+        "proven_cc_switch_link": "旧リンクが CC Switch Plus 管理であることが確認されています。",
         "unmanaged": "所有を確認できないため、コンテンツを保持します。",
         "unsupported_consumer_enabled": "この Skill は、新システムで管理されない旧 Consumer に対して引き続き有効です。",
         "foreign_or_ambiguous": "外部リンク、またはリンク先が曖昧です。",
@@ -2866,7 +2866,7 @@
         "migration_finalized": "移行の最終処理が完了しました。"
       },
       "guidance": {
-        "unsupported_consumer_enabled": "これらの Consumer 側ファイルを変更せず、CC Switch の管理対象から外すことを確認してください。Claude と Codex の移行は続行されます。",
+        "unsupported_consumer_enabled": "これらの Consumer 側ファイルを変更せず、CC Switch Plus の管理対象から外すことを確認してください。Claude と Codex の移行は続行されます。",
         "foreign_or_ambiguous": "Finder で項目を確認し、安全だと判断できる場合のみ削除または移動してから、移行計画を再確認してください。",
         "content_conflict": "競合するフォルダーを比較し、必要な版を対象パスに残してから、移行計画を再確認してください。",
         "missing_source": "想定されたソースフォルダーを復元するか、古い旧記録を削除してから、移行計画を再確認してください。",
@@ -2968,7 +2968,10 @@
         "system": "システム",
         "migration": "移行"
       },
-      "consumer": { "claude": "Claude", "codex": "Codex" },
+      "consumer": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
       "reason": {
         "acquire": "取得",
         "import": "インポート",
@@ -3093,7 +3096,7 @@
         "libraryReuse": "同一内容のライブラリスキルがあります。既存スナップショットを再利用できます。",
         "libraryDifferent": "異なるライブラリ版があります。「新規作成」または「ライブラリ版を置換」を選択してください。",
         "trackedBlocker": "Git 管理対象の内容は置換できません。",
-        "trackedNoMutation": "CC Switch は Git ファイルをステージ、追跡解除、変更しません。",
+        "trackedNoMutation": "CC Switch Plus は Git ファイルをステージ、追跡解除、変更しません。",
         "directoryCollision": "ディレクトリの衝突を検出",
         "localCopyDescription": "インポートはライブソースリンクを持たないローカルライブラリスナップショットを作成します。",
         "recoveryRequired": "再試行する前に復旧が必要です。以下のバックアップパスを保存してください。",
@@ -3150,7 +3153,7 @@
     "installSuccess": "スキル {{name}} を取得しました",
     "installFailed": "取得に失敗しました",
     "uninstallSuccess": "スキル {{name}} を削除しました",
-    "uninstallPiPreserved": "Pi のコピーが CC Switch 管理下であることを確認できなかったため、そのまま残しました: {{path}}",
+    "uninstallPiPreserved": "Pi のコピーが CC Switch Plus 管理下であることを確認できなかったため、そのまま残しました: {{path}}",
     "uninstallPiCleanupIncomplete": "Pi のクリーンアップを完了できませんでした。Pi Skills ディレクトリにコピーが残っていないか手動で確認してください。",
     "uninstallFailed": "削除に失敗しました",
     "update": "更新",
@@ -3261,10 +3264,10 @@
     "noInstalledDescription": "リポジトリからスキルを発見して取得するか、既存のスキルをインポートしてください",
     "discover": "スキルを発見",
     "import": "既存をインポート",
-    "importDescription": "CC Switch 統合管理にインポートするスキルを選択してください",
+    "importDescription": "CC Switch Plus 統合管理にインポートするスキルを選択してください",
     "importSuccess": "{{count}} 件のスキルをインポートしました",
     "importSelected": "選択をインポート ({{count}})",
-    "noUnmanagedFound": "インポートするスキルが見つかりませんでした。すべてのスキルは CC Switch で管理されています。",
+    "noUnmanagedFound": "インポートするスキルが見つかりませんでした。すべてのスキルは CC Switch Plus で管理されています。",
     "unmanagedAvailable": "インポート可能なスキルがあります",
     "foundIn": "発見場所",
     "local": "ローカル",
@@ -3309,7 +3312,7 @@
   },
   "deeplink": {
     "confirmImport": "プロバイダーのインポートを確認",
-    "confirmImportDescription": "次の設定をディープリンクから CC Switch へインポートします",
+    "confirmImportDescription": "次の設定をディープリンクから CC Switch Plus へインポートします",
     "importPrompt": "プロンプトをインポート",
     "importPromptDescription": "このシステムプロンプトをインポートするか確認してください",
     "importMcp": "MCP サーバーをインポート",

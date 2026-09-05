@@ -1,7 +1,7 @@
 {
-  "name": "cc-switch",
-  "version": "3.20.1",
-  "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI",
+  "name": "cc-switch-plus",
+  "version": "3.20.1-plus.1",
+  "description": "A shared Skill Library for Claude Code, Codex, and every project. Built on CC Switch.",
   "type": "module",
   "scripts": {
     "dev": "pnpm tauri dev",
@@ -15,8 +15,26 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest watch"
   },
-  "keywords": [],
+  "keywords": [
+    "skills",
+    "claude-code",
+    "codex",
+    "tauri",
+    "skill-management",
+    "macos"
+  ],
   "author": "Jason Young",
+  "contributors": [
+    "Andythropics"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Andythropics/cc-switch-plus.git"
+  },
+  "homepage": "https://github.com/Andythropics/cc-switch-plus#readme",
+  "bugs": {
+    "url": "https://github.com/Andythropics/cc-switch-plus/issues"
+  },
   "license": "MIT",
   "packageManager": "pnpm@10.12.3",
   "devDependencies": {
@@ -71,7 +89,6 @@
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-log": "2.8.0",
     "@tauri-apps/plugin-process": "^2.0.0",
-    "@tauri-apps/plugin-updater": "^2.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -89,5 +106,9 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
     "zod": "^4.1.12"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

@@ -1432,9 +1432,7 @@ fn shallow_root_fingerprint(path: &Path) -> String {
     };
     hasher.update(metadata.dev().to_le_bytes());
     hasher.update(metadata.ino().to_le_bytes());
-    if metadata.file_type().is_symlink() {
-        hash_shallow_entry(path, &metadata, &mut hasher);
-    } else if metadata.file_type().is_file() {
+    if metadata.file_type().is_symlink() || metadata.file_type().is_file() {
         hash_shallow_entry(path, &metadata, &mut hasher);
     } else if metadata.file_type().is_dir() {
         hasher.update(b"dir:");

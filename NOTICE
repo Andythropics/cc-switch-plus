@@ -1,0 +1,22 @@
+CC Switch Plus
+https://github.com/Andythropics/cc-switch-plus
+
+An independently maintained derivative of CC Switch:
+https://github.com/farion1231/cc-switch
+
+Original work: Copyright (c) 2025 Jason Young and upstream contributors.
+Modifications: Copyright (c) 2026 Andythropics and CC Switch Plus contributors.
+
+The original MIT notice is retained in LICENSE. Git history records provenance;
+embedded credentials in historical examples have been replaced with placeholders
+in the published history. Original authorship and commit messages are retained.
+The initial Plus preview includes upstream work through commit 5a040348 and
+the fork's Skill Library, deployment, workspace, import, update, and migration systems.
+
+CC Switch Plus is not an official CC Switch distribution. The upstream website,
+download channels, sponsors, rankings, and community accounts do not represent
+endorsements of this fork. Historical documentation and provider presets may
+retain upstream names, links, or referral parameters.
+
+Third-party dependencies, logos, services, and externally acquired Skills
+remain subject to their respective licenses, trademarks, and terms.
