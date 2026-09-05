@@ -35,6 +35,7 @@ const docs = [
   "README_ZH.md",
   "CONTRIBUTING.md",
   "SECURITY.md",
+  "SUPPORT.md",
   "CODE_OF_CONDUCT.md",
   "ROADMAP.md",
   "CHANGELOG_PLUS.md",
