@@ -74,6 +74,8 @@ jobs:
           set -euo pipefail
           bundle="src-tauri/target/$BUILD_TARGET/release/bundle"
           stem="CC-Switch-Plus-$RELEASE_TAG-macOS-$BUILD_ARCH"
+          cmp LICENSE "$bundle/macos/CC Switch Plus.app/Contents/Resources/LICENSE"
+          cmp NOTICE "$bundle/macos/CC Switch Plus.app/Contents/Resources/NOTICE"
           mkdir -p release-assets
           ditto -c -k --sequesterRsrc --keepParent "$bundle/macos/CC Switch Plus.app" "release-assets/$stem.zip"
           dmg=("$bundle"/dmg/*.dmg)

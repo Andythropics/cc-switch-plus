@@ -19,6 +19,8 @@ assert.equal(
 assert.equal(tauri.productName, "CC Switch Plus");
 assert.equal(tauri.identifier, "com.ccswitch.plus.desktop");
 assert.equal(tauri.bundle.createUpdaterArtifacts, false);
+assert.equal(tauri.bundle.resources["../LICENSE"], "LICENSE");
+assert.equal(tauri.bundle.resources["../NOTICE"], "NOTICE");
 assert.equal(tauri.plugins.updater, undefined);
 assert.ok(
   fs.readFileSync("LICENSE", "utf8").includes("Copyright (c) 2025 Jason Young"),
