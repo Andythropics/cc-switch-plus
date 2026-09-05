@@ -79,7 +79,7 @@ jobs:
           dmg=("$bundle"/dmg/*.dmg)
           test "${#dmg[@]}" -eq 1
           cp "${dmg[0]}" "release-assets/$stem.dmg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macOS-${{ matrix.arch }}
           path: release-assets/*
