@@ -319,12 +319,20 @@ impl Database {
         .map_err(|e| AppError::Database(e.to_string()))?;
 
         // 18. Session Log Sync 表 (会话日志同步状态)
+        //
+        // last_byte_offset：Claude 路径的字节游标（seek 增量读）；NULL 表示
+        // 尚无字节游标（旧行号游标或非 Claude 路径行），此时回退全量读。
+        // last_tail_fingerprint：游标边界前尾部字节的指纹，用于识别文件被
+        // 外部重写（同尺寸/更大的替换无法靠 size 检测）；NULL 表示无指纹
+        // 可校验，按纯追加处理。
         conn.execute(
             "CREATE TABLE IF NOT EXISTS session_log_sync (
                 file_path TEXT PRIMARY KEY,
                 last_modified INTEGER NOT NULL,
                 last_line_offset INTEGER NOT NULL DEFAULT 0,
-                last_synced_at INTEGER NOT NULL
+                last_synced_at INTEGER NOT NULL,
+                last_byte_offset INTEGER,
+                last_tail_fingerprint INTEGER
             )",
             [],
         )
@@ -475,10 +483,19 @@ impl Database {
                 .map_err(|error| AppError::Database(error.to_string()))?;
             let result = (|| {
                 let version = Self::get_user_version(conn)?;
-                Self::migrate_v16_to_v17(conn)?;
-                let canonical_version = version.checked_add(1).ok_or_else(|| {
-                    AppError::Database("legacy schema version overflow".to_string())
-                })?;
+                let mut inserted_versions = 0;
+                if !Self::table_exists(conn, "session_usage_dedup")? {
+                    Self::migrate_v16_to_v17(conn)?;
+                    inserted_versions += 1;
+                }
+                if !Self::has_column(conn, "session_log_sync", "last_byte_offset")? {
+                    Self::migrate_v17_to_v18(conn)?;
+                    inserted_versions += 1;
+                }
+                let canonical_version =
+                    version.checked_add(inserted_versions).ok_or_else(|| {
+                        AppError::Database("legacy schema version overflow".to_string())
+                    })?;
                 Self::set_user_version(conn, canonical_version)?;
                 log::info!(
                     "规范化旧 macOS Skills schema v{version} 为 canonical v{canonical_version}"
@@ -618,69 +635,74 @@ impl Database {
                         Self::migrate_v16_to_v17(conn)?;
                         Self::set_user_version(conn, 17)?;
                     }
-                    #[cfg(target_os = "macos")]
                     17 => {
-                        log::info!("迁移数据库从 v17 到 v18（添加私有 Skill Library 元数据）");
+                        log::info!("迁移数据库从 v17 到 v18（会话日志字节游标列）");
                         Self::migrate_v17_to_v18(conn)?;
                         Self::set_user_version(conn, 18)?;
                     }
                     #[cfg(target_os = "macos")]
                     18 => {
-                        log::info!(
-                            "迁移数据库从 v18 到 v19（添加 Skill Deployment desired state）"
-                        );
+                        log::info!("迁移数据库从 v18 到 v19（添加私有 Skill Library 元数据）");
                         Self::migrate_v18_to_v19(conn)?;
                         Self::set_user_version(conn, 19)?;
                     }
                     #[cfg(target_os = "macos")]
                     19 => {
-                        log::info!("迁移数据库从 v19 到 v20（添加 Project Workspace 身份）");
+                        log::info!(
+                            "迁移数据库从 v19 到 v20（添加 Skill Deployment desired state）"
+                        );
                         Self::migrate_v19_to_v20(conn)?;
                         Self::set_user_version(conn, 20)?;
                     }
                     #[cfg(target_os = "macos")]
                     20 => {
-                        log::info!("迁移数据库从 v20 到 v21（记录 Project Workspace 稳定身份）");
+                        log::info!("迁移数据库从 v20 到 v21（添加 Project Workspace 身份）");
                         Self::migrate_v20_to_v21(conn)?;
                         Self::set_user_version(conn, 21)?;
                     }
                     #[cfg(target_os = "macos")]
                     21 => {
-                        log::info!(
-                            "迁移数据库从 v21 到 v22（添加设备本地 Skills activity history）"
-                        );
+                        log::info!("迁移数据库从 v21 到 v22（记录 Project Workspace 稳定身份）");
                         Self::migrate_v21_to_v22(conn)?;
                         Self::set_user_version(conn, 22)?;
                     }
                     #[cfg(target_os = "macos")]
                     22 => {
                         log::info!(
-                            "迁移数据库从 v22 到 v23（添加设备本地 Skills migration journal）"
+                            "迁移数据库从 v22 到 v23（添加设备本地 Skills activity history）"
                         );
                         Self::migrate_v22_to_v23(conn)?;
                         Self::set_user_version(conn, 23)?;
                     }
                     #[cfg(target_os = "macos")]
                     23 => {
-                        log::info!("迁移数据库从 v23 到 v24（从 Profiles 移除旧版 Skills 分配）");
+                        log::info!(
+                            "迁移数据库从 v23 到 v24（添加设备本地 Skills migration journal）"
+                        );
                         Self::migrate_v23_to_v24(conn)?;
                         Self::set_user_version(conn, 24)?;
                     }
                     #[cfg(target_os = "macos")]
                     24 => {
-                        log::info!(
-                            "迁移数据库从 v24 到 v25（允许保留缺少 Library 元数据的 Deployment intent）"
-                        );
+                        log::info!("迁移数据库从 v24 到 v25（从 Profiles 移除旧版 Skills 分配）");
                         Self::migrate_v24_to_v25(conn)?;
                         Self::set_user_version(conn, 25)?;
                     }
                     #[cfg(target_os = "macos")]
                     25 => {
                         log::info!(
-                            "迁移数据库从 v25 到 v26（添加 Skills migration report 与 findings）"
+                            "迁移数据库从 v25 到 v26（允许保留缺少 Library 元数据的 Deployment intent）"
                         );
                         Self::migrate_v25_to_v26(conn)?;
                         Self::set_user_version(conn, 26)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    26 => {
+                        log::info!(
+                            "迁移数据库从 v26 到 v27（添加 Skills migration report 与 findings）"
+                        );
+                        Self::migrate_v26_to_v27(conn)?;
+                        Self::set_user_version(conn, 27)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1406,9 +1428,9 @@ impl Database {
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v18_to_v19(conn: &Connection) -> Result<(), AppError> {
         Self::create_library_skills_table(conn)?;
-        log::info!("v17 -> v18 迁移完成：已添加私有 Skill Library 元数据");
+        log::info!("v18 -> v19 迁移完成：已添加私有 Skill Library 元数据");
         Ok(())
     }
 
@@ -1439,9 +1461,9 @@ impl Database {
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v18_to_v19(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
         Self::create_skill_deployments_table(conn)?;
-        log::info!("v18 -> v19 迁移完成：已添加 Skill Deployment desired state");
+        log::info!("v19 -> v20 迁移完成：已添加 Skill Deployment desired state");
         Ok(())
     }
 
@@ -1471,14 +1493,14 @@ impl Database {
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
         Self::create_project_workspaces_table(conn)?;
-        log::info!("v19 -> v20 迁移完成：已添加 Project Workspace 身份");
+        log::info!("v20 -> v21 迁移完成：已添加 Project Workspace 身份");
         Ok(())
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
         Self::add_column_if_missing(
             conn,
             "project_workspaces",
@@ -1541,7 +1563,7 @@ impl Database {
             )
             .map_err(|error| AppError::Database(error.to_string()))?;
         }
-        log::info!("v20 -> v21 迁移完成：已添加 Project Workspace 稳定身份");
+        log::info!("v21 -> v22 迁移完成：已添加 Project Workspace 稳定身份");
         Ok(())
     }
 
@@ -1629,9 +1651,9 @@ impl Database {
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
         Self::create_skill_activity_table(conn)?;
-        log::info!("v21 -> v22 迁移完成：已添加设备本地 Skills activity history");
+        log::info!("v22 -> v23 迁移完成：已添加设备本地 Skills activity history");
         Ok(())
     }
 
@@ -1759,14 +1781,14 @@ impl Database {
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
         Self::create_skills_migration_journal_tables(conn)?;
-        log::info!("v22 -> v23 迁移完成：已添加设备本地 Skills migration journal");
+        log::info!("v23 -> v24 迁移完成：已添加设备本地 Skills migration journal");
         Ok(())
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
         if !Self::table_exists(conn, "profiles")? {
             return Ok(());
         }
@@ -1804,12 +1826,12 @@ impl Database {
             .map_err(|error| AppError::Database(format!("更新 Profile payload 失败: {error}")))?;
         }
 
-        log::info!("v23 -> v24 迁移完成：Profiles 不再包含旧版 Skills 分配");
+        log::info!("v24 -> v25 迁移完成：Profiles 不再包含旧版 Skills 分配");
         Ok(())
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v25_to_v26(conn: &Connection) -> Result<(), AppError> {
         if !Self::table_exists(conn, "skill_deployments")? {
             Self::create_skill_deployments_table(conn)?;
             return Ok(());
@@ -1835,14 +1857,14 @@ impl Database {
         )
         .map_err(|error| AppError::Database(format!("重建 skill_deployments 表失败: {error}")))?;
 
-        log::info!("v24 -> v25 迁移完成：Deployment intent 可保留为可检查的 orphan 状态");
+        log::info!("v25 -> v26 迁移完成：Deployment intent 可保留为可检查的 orphan 状态");
         Ok(())
     }
 
     #[cfg(target_os = "macos")]
-    fn migrate_v25_to_v26(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v26_to_v27(conn: &Connection) -> Result<(), AppError> {
         Self::create_skills_migration_journal_tables(conn)?;
-        log::info!("v25 -> v26 迁移完成：已添加 Skills migration report 与 findings");
+        log::info!("v26 -> v27 迁移完成：已添加 Skills migration report 与 findings");
         Ok(())
     }
 
@@ -2191,7 +2213,28 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_session_usage_dedup_semantic
              ON session_usage_dedup(data_source, semantic_id, has_entry_id);",
         )
-        .map_err(|error| AppError::Database(format!("创建会话用量去重账本失败: {error}")))?;
+        .map_err(|error| AppError::Database(format!("创建会话用量去重账本失败: {error}")))
+    }
+
+    /// v17 -> v18: Claude 会话日志的字节游标列与尾部指纹列。
+    ///
+    /// 独立成版而非搭 v17 车：v17 已在开发库上执行过（迁移不会重跑，
+    /// `CREATE TABLE IF NOT EXISTS` 也不补列），追加进 v17 会让这些库
+    /// 永远缺列。存量行保持 NULL，首轮扫描按旧行号游标转换为字节位置
+    /// 后继续增量；之后写入字节偏移走 seek 增量，并记录游标边界前的
+    /// 尾部指纹用于识别外部重写（截断由 size 检测，同尺寸/更大的替换
+    /// 只有指纹能发现）。
+    fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+        // 缺表的库（异常/测试夹具）跳过：create_tables 会以含列的新 DDL 建表。
+        if Self::table_exists(conn, "session_log_sync")? {
+            Self::add_column_if_missing(conn, "session_log_sync", "last_byte_offset", "INTEGER")?;
+            Self::add_column_if_missing(
+                conn,
+                "session_log_sync",
+                "last_tail_fingerprint",
+                "INTEGER",
+            )?;
+        }
         Ok(())
     }
 
@@ -2200,6 +2243,24 @@ impl Database {
     /// 注意: model_id 使用短横线格式（如 claude-haiku-4-5），与 API 返回的模型名称标准化后一致
     fn seed_model_pricing(conn: &Connection) -> Result<(), AppError> {
         let pricing_data = [
+            // Claude Fable 5.1 / Mythos 5.1（2026-09-01 发布；同 Fable 5 价，
+            // 但缓存读为 0.025x = $0.25，非 Fable 5 的 $1）
+            (
+                "claude-fable-5-1",
+                "Claude Fable 5.1",
+                "10",
+                "50",
+                "0.25",
+                "12.50",
+            ),
+            (
+                "claude-mythos-5-1",
+                "Claude Mythos 5.1",
+                "10",
+                "50",
+                "0.25",
+                "12.50",
+            ),
             // Claude Fable 5（Opus 之上的新档）
             (
                 "claude-fable-5",
@@ -2228,14 +2289,15 @@ impl Database {
                 "0.50",
                 "6.25",
             ),
-            // Claude Sonnet 5（list 价，与 Sonnet 4.6 一致；促销 $2/$10 至 2026-08-31 不入表）
+            // Claude Sonnet 5（官方定价页 2026-09 确认：$2/$10 介绍价转为正式价，
+            // 原定 09-01 涨至 $3/$15 取消）
             (
                 "claude-sonnet-5",
                 "Claude Sonnet 5",
-                "3",
-                "15",
-                "0.30",
-                "3.75",
+                "2",
+                "10",
+                "0.20",
+                "2.50",
             ),
             // Claude 4.7 系列
             (
@@ -3193,6 +3255,20 @@ impl Database {
 
     fn repair_current_model_pricing(conn: &Connection) -> Result<(), AppError> {
         let pricing_fixes = [
+            // 2026-09-02 官方定价页确认 Sonnet 5 $2/$10 介绍价转为正式价、原定 09-01 涨至
+            // $3/$15 取消：早先按 list 价 seed 的行改回正式价（用户手改过的行不匹配旧值，不动）
+            (
+                "claude-sonnet-5",
+                "Claude Sonnet 5",
+                "2",
+                "10",
+                "0.20",
+                "2.50",
+                "3",
+                "15",
+                "0.30",
+                "3.75",
+            ),
             // 2026-08-13 models.dev 审计核价：grok-4.5 的 cached input 官方挂牌为 0.30
             // （docs.x.ai 现行价表），与 grok-4.5-build 的实测计费一致；早先按 0.50
             // 录入的行在此校正。注意 0.50 是 grok-4.6 的 cached 价，勿两者互串
@@ -3794,11 +3870,11 @@ impl Database {
         #[cfg(target_os = "macos")]
         {
             let version = Self::get_user_version(conn)?;
-            let has_dedup = Self::table_exists(conn, "session_usage_dedup")?;
-            if (18..=25).contains(&version) && !has_dedup {
-                return Ok(SchemaLineage::LegacyMacSkills);
-            }
-            if version == 17 && !has_dedup && Self::has_legacy_library_v17_fingerprint(conn)? {
+            if (17..=26).contains(&version)
+                && Self::has_legacy_library_v17_fingerprint(conn)?
+                && (!Self::table_exists(conn, "session_usage_dedup")?
+                    || !Self::has_column(conn, "session_log_sync", "last_byte_offset")?)
+            {
                 return Ok(SchemaLineage::LegacyMacSkills);
             }
         }
@@ -4086,6 +4162,15 @@ mod tests {
     #[test]
     fn canonical_upstream_v17_is_not_mistaken_for_legacy_library_v17() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE session_log_sync (
+                file_path TEXT PRIMARY KEY,
+                last_modified INTEGER NOT NULL,
+                last_line_offset INTEGER NOT NULL DEFAULT 0,
+                last_synced_at INTEGER NOT NULL
+             );
+             INSERT INTO session_log_sync VALUES ('/tmp/upstream-v17.jsonl', 5, 3, 1);",
+        )?;
         Database::migrate_v16_to_v17(&conn)?;
         Database::set_user_version(&conn, 17)?;
 
@@ -4095,17 +4180,73 @@ mod tests {
         );
         Database::apply_schema_migrations_on_conn(&conn)?;
         assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::has_column(
+            &conn,
+            "session_log_sync",
+            "last_byte_offset"
+        )?);
+        assert!(Database::table_exists(&conn, "library_skills")?);
         Ok(())
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn legacy_macos_v17_through_v25_normalize_without_losing_library_data() -> Result<(), AppError>
+    fn canonical_upstream_v18_advances_into_skill_library_lineage() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE session_log_sync (
+                file_path TEXT PRIMARY KEY,
+                last_modified INTEGER NOT NULL,
+                last_line_offset INTEGER NOT NULL DEFAULT 0,
+                last_synced_at INTEGER NOT NULL,
+                last_byte_offset INTEGER,
+                last_tail_fingerprint INTEGER
+             );
+             INSERT INTO session_log_sync VALUES ('/tmp/upstream-v18.jsonl', 5, 3, 1, 42, 7);",
+        )?;
+        Database::migrate_v16_to_v17(&conn)?;
+        Database::set_user_version(&conn, 18)?;
+
+        assert_eq!(
+            Database::detect_schema_lineage(&conn)?,
+            SchemaLineage::Canonical
+        );
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::table_exists(&conn, "library_skills")?);
+        assert_eq!(
+            conn.query_row(
+                "SELECT last_byte_offset FROM session_log_sync
+                 WHERE file_path = '/tmp/upstream-v18.jsonl'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            42
+        );
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn legacy_macos_v17_through_v26_normalize_without_losing_library_data() -> Result<(), AppError>
     {
-        for legacy_version in 17..=25 {
+        for legacy_version in 17..=26 {
             let conn = Connection::open_in_memory()?;
             Database::create_tables_on_conn(&conn)?;
-            conn.execute("DROP TABLE session_usage_dedup", [])?;
+            conn.execute_batch(
+                "DROP TABLE session_log_sync;
+                 CREATE TABLE session_log_sync (
+                    file_path TEXT PRIMARY KEY,
+                    last_modified INTEGER NOT NULL,
+                    last_line_offset INTEGER NOT NULL DEFAULT 0,
+                    last_synced_at INTEGER NOT NULL
+                 );
+                 INSERT INTO session_log_sync VALUES ('/tmp/local.jsonl', 5, 3, 1);",
+            )?;
+            if legacy_version < 26 {
+                conn.execute("DROP TABLE session_usage_dedup", [])?;
+            }
             conn.execute(
                 "INSERT INTO library_skills (
                     id, directory, display_name, source_json, compatibility_json,
@@ -4124,6 +4265,11 @@ mod tests {
 
             assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
             assert!(Database::table_exists(&conn, "session_usage_dedup")?);
+            assert!(Database::has_column(
+                &conn,
+                "session_log_sync",
+                "last_byte_offset"
+            )?);
             assert_eq!(
                 conn.query_row(
                     "SELECT display_name FROM library_skills WHERE id = 'legacy-library'",
@@ -4138,7 +4284,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v17_to_v18_adds_private_library_metadata_without_touching_legacy_skills(
+    fn migrate_v18_to_v19_adds_private_library_metadata_without_touching_legacy_skills(
     ) -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
@@ -4148,7 +4294,7 @@ mod tests {
              VALUES ('legacy', 'Legacy', 'legacy', 1, 0)",
             [],
         )?;
-        Database::set_user_version(&conn, 17)?;
+        Database::set_user_version(&conn, 18)?;
 
         Database::apply_schema_migrations_on_conn_with_lineage(&conn, SchemaLineage::Canonical)?;
 
@@ -4165,7 +4311,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v18_to_v19_adds_deployments_without_touching_library_metadata(
+    fn migrate_v19_to_v20_adds_deployments_without_touching_library_metadata(
     ) -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
@@ -4180,7 +4326,7 @@ mod tests {
              )",
             [],
         )?;
-        Database::set_user_version(&conn, 18)?;
+        Database::set_user_version(&conn, 19)?;
 
         Database::apply_schema_migrations_on_conn_with_lineage(&conn, SchemaLineage::Canonical)?;
 
@@ -4201,7 +4347,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v19_to_v20_adds_workspaces_without_touching_existing_deployments(
+    fn migrate_v20_to_v21_adds_workspaces_without_touching_existing_deployments(
     ) -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
@@ -4226,7 +4372,7 @@ mod tests {
              )",
             [],
         )?;
-        Database::set_user_version(&conn, 19)?;
+        Database::set_user_version(&conn, 20)?;
 
         Database::apply_schema_migrations_on_conn_with_lineage(&conn, SchemaLineage::Canonical)?;
 
@@ -4247,7 +4393,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v20_to_v21_backfills_reachable_identity_and_preserves_unavailable_rows(
+    fn migrate_v21_to_v22_backfills_reachable_identity_and_preserves_unavailable_rows(
     ) -> Result<(), AppError> {
         use std::fs;
         use std::process::Command;
@@ -4329,7 +4475,7 @@ mod tests {
                        'schema-skill', 'reachable', 7, 8)",
             [],
         )?;
-        Database::set_user_version(&conn, 20)?;
+        Database::set_user_version(&conn, 21)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
@@ -4367,13 +4513,13 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v21_to_v22_adds_device_local_skill_activity() -> Result<(), AppError> {
+    fn migrate_v22_to_v23_adds_device_local_skill_activity() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
         // `create_tables_on_conn` creates all current tables up front. Remove
-        // the v22 table so this test exercises the actual 21 -> 22 migration.
+        // the v23 table so this test exercises the actual 22 -> 23 migration.
         conn.execute("DROP TABLE skill_activity", [])?;
-        Database::set_user_version(&conn, 21)?;
+        Database::set_user_version(&conn, 22)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
@@ -4412,14 +4558,14 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v22_to_v23_adds_skills_migration_journal_idempotently() -> Result<(), AppError> {
+    fn migrate_v23_to_v24_adds_skills_migration_journal_idempotently() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
         // Current-table creation is intentionally ahead of the migration. Drop
-        // the journal so this exercises the actual v22 -> v23 step.
+        // the journal so this exercises the actual v23 -> v24 step.
         conn.execute("DROP TABLE skills_migration_items", [])?;
         conn.execute("DROP TABLE skills_migration_runs", [])?;
-        Database::set_user_version(&conn, 22)?;
+        Database::set_user_version(&conn, 23)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
@@ -4509,7 +4655,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v23_to_v24_removes_legacy_skill_assignments_from_profiles() -> Result<(), AppError> {
+    fn migrate_v24_to_v25_removes_legacy_skill_assignments_from_profiles() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
         conn.execute(
@@ -4528,7 +4674,7 @@ mod tests {
              VALUES ('invalid-profile', 'Invalid Profile', 'not-json', 1, 1)",
             [],
         )?;
-        Database::set_user_version(&conn, 23)?;
+        Database::set_user_version(&conn, 24)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
@@ -4556,7 +4702,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v24_to_v25_preserves_orphaned_deployment_intent() -> Result<(), AppError> {
+    fn migrate_v25_to_v26_preserves_orphaned_deployment_intent() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
         conn.execute(
@@ -4577,7 +4723,7 @@ mod tests {
             [],
         )?;
 
-        // Recreate the v24 foreign-key shape, then migrate it forward.
+        // Recreate the v25 foreign-key shape, then migrate it forward.
         conn.execute_batch(
             "ALTER TABLE skill_deployments RENAME TO skill_deployments_current;
              DROP INDEX IF EXISTS idx_skill_deployments_target;
@@ -4598,7 +4744,7 @@ mod tests {
              CREATE INDEX idx_skill_deployments_target
                  ON skill_deployments(consumer, workspace_kind, workspace_id);",
         )?;
-        Database::set_user_version(&conn, 24)?;
+        Database::set_user_version(&conn, 25)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
         conn.execute("DELETE FROM library_skills WHERE id = 'library-1'", [])?;
@@ -4623,12 +4769,12 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn migrate_v25_to_v26_adds_skills_migration_report_storage_idempotently() -> Result<(), AppError>
+    fn migrate_v26_to_v27_adds_skills_migration_report_storage_idempotently() -> Result<(), AppError>
     {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
 
-        // Recreate the v25 shape so this test exercises the compatibility
+        // Recreate the v26 shape so this test exercises the compatibility
         // path rather than only the current-table creation path.
         conn.execute("DROP TABLE skills_migration_findings", [])?;
         conn.execute("DROP TABLE skills_migration_runs", [])?;
@@ -4654,7 +4800,7 @@ mod tests {
              ) VALUES ('report-run', 'observation', 'resume', 'completed', 'plan', 1, 2)",
             [],
         )?;
-        Database::set_user_version(&conn, 25)?;
+        Database::set_user_version(&conn, 26)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
@@ -4689,6 +4835,46 @@ mod tests {
             1
         );
         assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v17_to_v18_adds_byte_cursor_to_existing_sync_table() -> Result<(), AppError> {
+        // 真实升级路径：v17 库带旧 DDL 的 session_log_sync（无字节游标列，
+        // 字节游标曾短暂搭 v17 车、已执行过 v17 的开发库正是这个形状）
+        // 与存量游标行，迁移后列补上、存量行保持 NULL（首轮按行号转换）
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE session_log_sync (
+                file_path TEXT PRIMARY KEY,
+                last_modified INTEGER NOT NULL,
+                last_line_offset INTEGER NOT NULL DEFAULT 0,
+                last_synced_at INTEGER NOT NULL
+             );
+             INSERT INTO session_log_sync VALUES ('/tmp/a.jsonl', 5, 3, 1);",
+        )?;
+        Database::set_user_version(&conn, 17)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert!(Database::has_column(
+            &conn,
+            "session_log_sync",
+            "last_byte_offset"
+        )?);
+        assert!(Database::has_column(
+            &conn,
+            "session_log_sync",
+            "last_tail_fingerprint"
+        )?);
+        let (byte_offset, fingerprint): (Option<i64>, Option<i64>) = conn.query_row(
+            "SELECT last_byte_offset, last_tail_fingerprint
+             FROM session_log_sync WHERE file_path = '/tmp/a.jsonl'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(byte_offset, None, "存量行的字节游标必须为 NULL");
+        assert_eq!(fingerprint, None, "存量行的尾部指纹必须为 NULL");
         Ok(())
     }
 }
