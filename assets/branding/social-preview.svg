@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">CC Switch Plus</title>
+  <desc id="desc">One library for Claude Code and Codex across every macOS workspace.</desc>
+
+  <rect width="1280" height="640" fill="#091827"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#53d8c2"/>
+  <rect x="0" y="634" width="1280" height="6" fill="#123247"/>
+
+  <g opacity="0.42" stroke="#28516a" stroke-width="1">
+    <path d="M0 224H1280"/>
+    <path d="M0 416H1280"/>
+    <path d="M744 6V634"/>
+    <path d="M808 6V634"/>
+    <path d="M872 6V634"/>
+    <path d="M936 6V634"/>
+    <path d="M1000 6V634"/>
+    <path d="M1064 6V634"/>
+    <path d="M1128 6V634"/>
+    <path d="M1192 6V634"/>
+  </g>
+
+  <g transform="translate(0 140)">
+  <g transform="translate(96 116)">
+    <rect width="42" height="42" rx="12" fill="#103548" stroke="#53d8c2" stroke-width="1.5"/>
+    <path d="M21 11V31M11 21H31" stroke="#72e6d4" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <text x="96" y="76" fill="#7ce2d2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="700" letter-spacing="3.2">CC SWITCH / PLUS</text>
+  <text x="160" y="151" fill="#f3f9fb" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="54" font-weight="760" letter-spacing="-1.6">CC Switch Plus</text>
+  <text x="160" y="202" fill="#b7cad5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="25" font-weight="450">One library. Every workspace.</text>
+
+  <g transform="translate(96 252)">
+    <rect width="316" height="34" rx="17" fill="#102d3e" stroke="#285a6a"/>
+    <circle cx="18" cy="17" r="4" fill="#53d8c2"/>
+    <text x="32" y="22" fill="#d3e5eb" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="600" letter-spacing="0.4">Claude Code  ·  Codex  ·  macOS</text>
+  </g>
+
+  <g transform="translate(800 72)">
+    <rect width="376" height="216" rx="18" fill="#0d2234" stroke="#285a6a" stroke-width="1.5"/>
+    <rect x="22" y="22" width="332" height="42" rx="10" fill="#122f42"/>
+    <circle cx="43" cy="43" r="8" fill="#53d8c2"/>
+    <path d="M43 37V49M37 43H49" stroke="#09202d" stroke-width="2" stroke-linecap="round"/>
+    <text x="63" y="48" fill="#edf8fa" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" font-weight="700">Private skill library</text>
+
+    <path d="M188 64V92M94 92H282M94 92V116M188 92V116M282 92V116" fill="none" stroke="#3f8f91" stroke-width="1.5"/>
+    <circle cx="188" cy="92" r="4" fill="#53d8c2"/>
+
+    <g transform="translate(30 116)">
+      <rect width="112" height="60" rx="10" fill="#102d3e" stroke="#2e6975"/>
+      <text x="14" y="26" fill="#7ce2d2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="700">CLAUDE CODE</text>
+      <text x="14" y="45" fill="#b7cad5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11">Global link</text>
+    </g>
+    <g transform="translate(132 116)">
+      <rect width="112" height="60" rx="10" fill="#102d3e" stroke="#2e6975"/>
+      <text x="14" y="26" fill="#7ce2d2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="700">CODEX</text>
+      <text x="14" y="45" fill="#b7cad5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11">Global link</text>
+    </g>
+    <g transform="translate(234 116)">
+      <rect width="112" height="60" rx="10" fill="#102d3e" stroke="#2e6975"/>
+      <text x="14" y="26" fill="#7ce2d2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="700">WORKSPACE</text>
+      <text x="14" y="45" fill="#b7cad5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11">Project links</text>
+    </g>
+  </g>
+  </g>
+  <text x="96" y="566" fill="#7ce2d2" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="600" letter-spacing="2">MIT OPEN SOURCE · MACOS PREVIEW</text>
+</svg>
