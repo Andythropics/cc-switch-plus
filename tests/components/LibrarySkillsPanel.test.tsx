@@ -1,4 +1,5 @@
 import { createRef } from "react";
+import { toast } from "sonner";
 import {
   act,
   fireEvent,
@@ -18,6 +19,23 @@ import type { LibrarySkill } from "@/lib/api/skills";
 
 vi.mock("@/components/skills/ExternalSkillUpdatesPanel", () => ({
   ExternalSkillUpdatesPanel: () => null,
+}));
+
+vi.mock("@/components/skills/AvailableSkillUpdatesDialog", () => ({
+  AvailableSkillUpdatesDialog: ({
+    open,
+    items,
+  }: {
+    open: boolean;
+    items: Array<{ skill: LibrarySkill }>;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="available-updates">
+        {items.map(({ skill }) => (
+          <p key={skill.id}>{skill.directory}</p>
+        ))}
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/components/skills/LinkSkillSourceDialog", () => ({
@@ -227,6 +245,58 @@ describe("LibrarySkillsPanel", () => {
       "linked2",
     ]);
     expect(applyLibraryUpdateMock).not.toHaveBeenCalled();
+  });
+  it("shows a green up-to-date notification only when all linked checks are current", async () => {
+    checkLibraryUpdateMock.mockResolvedValue({
+      outcome: "up_to_date",
+      affectedDeployments: [],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
+    );
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "skills.library.update.allUpToDate",
+        expect.objectContaining({
+          className: expect.stringContaining("green"),
+        }),
+      ),
+    );
+  });
+  it("turns available updates into a warning button that opens the update list", async () => {
+    checkLibraryUpdateMock.mockResolvedValue({
+      outcome: "update_available",
+      stageToken: "stage",
+      affectedDeployments: [],
+    });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
+    );
+    const button = await screen.findByRole("button", {
+      name: "skills.library.update.availableCount",
+    });
+    expect(button).toHaveClass("border-amber-500", "text-amber-700");
+    expect(toast.success).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(
+      screen.getByRole("dialog", { name: "available-updates" }),
+    ).toHaveTextContent(librarySkill.directory);
+    expect(applyLibraryUpdateMock).not.toHaveBeenCalled();
+  });
+  it("does not claim up to date after a failed check", async () => {
+    checkLibraryUpdateMock.mockRejectedValue(new Error("network"));
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
+    );
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "skills.library.update.checkAllFailed",
+      ),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
   });
   it("disables all-Skill checks when no source is linked", () => {
     libraryRows.data = [{ ...librarySkill, source: { kind: "zip" } }];

@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
 import { ExternalSkillUpdatesPanel } from "@/components/skills/ExternalSkillUpdatesPanel";
+import { AvailableSkillUpdatesDialog } from "@/components/skills/AvailableSkillUpdatesDialog";
 import { LinkSkillSourceDialog } from "@/components/skills/LinkSkillSourceDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -308,6 +309,11 @@ export const LibrarySkillsPanel = forwardRef<
       total: number;
     } | null>(null);
     const allChecksRunning = useRef(false);
+    const [availableUpdatesOpen, setAvailableUpdatesOpen] = useState(false);
+    const availableUpdates = skills.flatMap((skill) => {
+      const check = updateChecks[skill.id];
+      return check?.outcome === "update_available" ? [{ skill, check }] : [];
+    });
     const linkedSkills = skills.filter(hasLinkedSource);
     const [pendingGlobalDeployments, setPendingGlobalDeployments] = useState(
       new Set<string>(),
@@ -341,6 +347,7 @@ export const LibrarySkillsPanel = forwardRef<
       zipCollision !== null ||
       updateConfirmation !== null;
     const navigationBlocked =
+      availableUpdatesOpen ||
       blocked ||
       deletionInspection !== null ||
       deployedProjectsDialog !== null ||
@@ -414,13 +421,15 @@ export const LibrarySkillsPanel = forwardRef<
         const result = await checkLibraryUpdate.mutateAsync(skill.id);
         setUpdateChecks((current) => ({ ...current, [skill.id]: result }));
         setUpdateResult(null);
-        return (
-          result.outcome === "update_available" ||
-          result.outcome === "up_to_date"
-        );
+        return result;
       } catch {
+        setUpdateChecks((current) => {
+          const next = { ...current };
+          delete next[skill.id];
+          return next;
+        });
         toast.error(t("skills.library.update.checkFailed"));
-        return false;
+        return null;
       } finally {
         setPendingUpdateChecks((current) => {
           const next = new Set(current);
@@ -714,21 +723,22 @@ export const LibrarySkillsPanel = forwardRef<
       allChecksRunning.current = true;
       setAllChecksProgress({ done: 0, total: linkedSkills.length });
       let failed = 0;
+      let updates = 0;
       try {
         for (const [index, skill] of linkedSkills.entries()) {
-          if (!(await checkForLibraryUpdate(skill))) failed++;
+          const result = await checkForLibraryUpdate(skill);
+          if (result?.outcome === "update_available") updates++;
+          else if (result?.outcome !== "up_to_date") failed++;
           setAllChecksProgress({ done: index + 1, total: linkedSkills.length });
         }
         if (failed)
           toast.error(
             t("skills.library.update.checkAllFailed", { count: failed }),
           );
-        else
-          toast.success(
-            t("skills.library.update.checkAllDone", {
-              count: linkedSkills.length,
-            }),
-          );
+        else if (updates === 0)
+          toast.success(t("skills.library.update.allUpToDate"), {
+            className: "border-green-500 text-green-700 dark:text-green-400",
+          });
       } finally {
         allChecksRunning.current = false;
         setAllChecksProgress(null);
@@ -883,23 +893,40 @@ export const LibrarySkillsPanel = forwardRef<
           <Button
             variant="outline"
             size="sm"
-            className="shrink-0 gap-2"
-            aria-label={t("skills.library.update.checkAll")}
+            className={`shrink-0 gap-2${availableUpdates.length && !allChecksProgress ? " border-amber-500 text-amber-700 hover:border-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300" : ""}`}
+            aria-label={t(
+              availableUpdates.length && !allChecksProgress
+                ? "skills.library.update.availableCount"
+                : "skills.library.update.checkAll",
+              { count: availableUpdates.length },
+            )}
             aria-busy={allChecksProgress !== null}
-            title={t("skills.library.update.checkAllHint")}
+            title={t(
+              availableUpdates.length && !allChecksProgress
+                ? "skills.library.update.availableTitle"
+                : "skills.library.update.checkAllHint",
+            )}
             disabled={
               blocked ||
               pendingUpdateChecks.size > 0 ||
               linkedSkills.length === 0
             }
-            onClick={() => void checkAllUpdates()}
+            onClick={() =>
+              availableUpdates.length
+                ? setAvailableUpdatesOpen(true)
+                : void checkAllUpdates()
+            }
           >
             <RefreshCw
               className={`h-4 w-4${allChecksProgress ? " animate-spin" : ""}`}
             />
             {allChecksProgress
               ? t("skills.library.update.checkAllProgress", allChecksProgress)
-              : t("skills.library.update.checkAll")}
+              : availableUpdates.length
+                ? t("skills.library.update.availableCount", {
+                    count: availableUpdates.length,
+                  })
+                : t("skills.library.update.checkAll")}
           </Button>
         </div>
 
@@ -911,6 +938,20 @@ export const LibrarySkillsPanel = forwardRef<
             {t("skills.global.loadError")}
           </p>
         )}
+
+        <AvailableSkillUpdatesDialog
+          open={availableUpdatesOpen}
+          onOpenChange={setAvailableUpdatesOpen}
+          items={availableUpdates}
+          onUpdated={(id) =>
+            setUpdateChecks((current) => {
+              const next = { ...current };
+              delete next[id];
+              return next;
+            })
+          }
+          onRecheck={checkAllUpdates}
+        />
 
         {sourceLinkSkill && (
           <LinkSkillSourceDialog
