@@ -16,10 +16,21 @@ import {
 } from "@/components/skills/LibrarySkillsPanel";
 import type { LibrarySkill } from "@/lib/api/skills";
 
+vi.mock("@/components/skills/ExternalSkillUpdatesPanel", () => ({
+  ExternalSkillUpdatesPanel: () => null,
+}));
+
+vi.mock("@/components/skills/LinkSkillSourceDialog", () => ({
+  LinkSkillSourceDialog: ({ skill }: { skill: LibrarySkill }) => (
+    <div data-testid="link-source-for">{skill.id}</div>
+  ),
+}));
+
 const {
   updateMetadataMock,
   acquireZipMock,
   openZipMock,
+  revealLibraryMock,
   applyDeploymentsMock,
   refreshDeploymentsMock,
   checkLibraryUpdateMock,
@@ -33,10 +44,12 @@ const {
   refreshState,
   readPendingState,
   queryErrorState,
+  libraryRows,
 } = vi.hoisted(() => ({
   updateMetadataMock: vi.fn(),
   acquireZipMock: vi.fn(),
   openZipMock: vi.fn(),
+  revealLibraryMock: vi.fn().mockResolvedValue(undefined),
   applyDeploymentsMock: vi.fn(),
   refreshDeploymentsMock: vi.fn(),
   checkLibraryUpdateMock: vi.fn(),
@@ -50,6 +63,7 @@ const {
   refreshState: { isFetching: false },
   readPendingState: { checkUpdate: false, inspect: false },
   queryErrorState: { project: false },
+  libraryRows: { data: null as LibrarySkill[] | null },
 }));
 
 const librarySkill: LibrarySkill = {
@@ -76,7 +90,7 @@ const librarySkill: LibrarySkill = {
 
 vi.mock("@/hooks/useSkills", () => ({
   useLibrarySkills: () => ({
-    data: [librarySkill],
+    data: libraryRows.data ?? [librarySkill],
     isLoading: false,
     isFetching: refreshState.isFetching,
   }),
@@ -130,7 +144,10 @@ vi.mock("@/hooks/useSkills", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  skillsApi: { openZipFileDialog: openZipMock },
+  skillsApi: {
+    openZipFileDialog: openZipMock,
+    revealLibrarySkill: revealLibraryMock,
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -138,6 +155,86 @@ vi.mock("sonner", () => ({
 }));
 
 describe("LibrarySkillsPanel", () => {
+  it("keeps manual linking on unlinked cards beside their update action", () => {
+    libraryRows.data = [{ ...librarySkill, source: { kind: "local_import" } }];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const card = screen.getByTestId(`library-skill-summary-${librarySkill.id}`);
+    expect(
+      within(card).getAllByRole("button", {
+        name: "skills.library.update.check",
+      }),
+    ).toHaveLength(1);
+    fireEvent.click(
+      within(card).getByRole("button", { name: "skills.external.manual" }),
+    );
+    expect(screen.getByTestId("link-source-for")).toHaveTextContent(
+      librarySkill.id,
+    );
+    expect(checkLibraryUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("reveals the exact Library Skill from the card icon with a hover label", async () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const card = screen.getByTestId(`library-skill-${librarySkill.id}`);
+    const reveal = within(card).getByRole("button", {
+      name: "skills.library.reveal",
+    });
+    expect(reveal).toHaveAttribute("title", "skills.library.reveal");
+    expect(reveal.parentElement).toContainElement(
+      within(card).getByRole("button", { name: "skills.library.edit" }),
+    );
+    fireEvent.click(reveal);
+    expect(revealLibraryMock).toHaveBeenCalledWith(librarySkill.id);
+  });
+  it("hides manual association for linked Skills and removes the refresh button", () => {
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    expect(
+      screen.queryByRole("button", { name: "skills.external.manual" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.refresh" }),
+    ).not.toBeInTheDocument();
+  });
+  it("checks all linked Skills despite search filters and continues after failures", async () => {
+    libraryRows.data = [
+      librarySkill,
+      { ...librarySkill, id: "local", source: { kind: "local_import" } },
+      {
+        ...librarySkill,
+        id: "linked2",
+        displayName: "Another",
+        source: { kind: "git", repoOwner: "owner", repoName: "repo2" },
+      },
+    ];
+    checkLibraryUpdateMock
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({
+        outcome: "up_to_date",
+        affectedDeployments: [],
+      });
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("skills.searchPlaceholder"), {
+      target: { value: "Careful" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
+    );
+    await waitFor(() =>
+      expect(checkLibraryUpdateMock).toHaveBeenCalledTimes(2),
+    );
+    expect(checkLibraryUpdateMock.mock.calls.map(([id]) => id)).toEqual([
+      librarySkill.id,
+      "linked2",
+    ]);
+    expect(applyLibraryUpdateMock).not.toHaveBeenCalled();
+  });
+  it("disables all-Skill checks when no source is linked", () => {
+    libraryRows.data = [{ ...librarySkill, source: { kind: "zip" } }];
+    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    expect(
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
+    ).toBeDisabled();
+  });
   it("leaves the Library view title to the shared Skills header", () => {
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
@@ -156,10 +253,10 @@ describe("LibrarySkillsPanel", () => {
     );
     expect(within(toolbar).getByRole("search")).toBeInTheDocument();
     expect(toolbar).toContainElement(
-      screen.getByRole("button", { name: "skills.batch.deploy" }),
+      screen.getByRole("button", { name: "skills.batch.open" }),
     );
     expect(toolbar).toContainElement(
-      screen.getByRole("button", { name: "skills.refresh" }),
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     );
     expect(toolbar).not.toHaveClass("border-b");
     expect(toolbar.nextElementSibling).toHaveClass("pt-3");
@@ -192,6 +289,7 @@ describe("LibrarySkillsPanel", () => {
       items: [{ outcome: "applied" }],
     });
     refreshDeploymentsMock.mockReset().mockResolvedValue(undefined);
+    libraryRows.data = null;
     checkLibraryUpdateMock.mockReset();
     applyLibraryUpdateMock.mockReset().mockResolvedValue({
       librarySkillId: "library-1",
@@ -340,29 +438,32 @@ describe("LibrarySkillsPanel", () => {
     );
   });
 
-  it("limits manual refresh feedback to the refresh control", async () => {
+  it("shows progress while checking all linked Skills", async () => {
     let resolveRefresh: (() => void) | undefined;
-    refreshDeploymentsMock.mockImplementationOnce(
+    checkLibraryUpdateMock.mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          resolveRefresh = resolve;
+        new Promise((resolve) => {
+          resolveRefresh = () =>
+            resolve({ outcome: "up_to_date", affectedDeployments: [] });
         }),
     );
     render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "skills.refresh" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
+    );
 
-    expect(refreshDeploymentsMock).toHaveBeenCalledTimes(1);
+    expect(checkLibraryUpdateMock).toHaveBeenCalledWith(librarySkill.id);
     const refreshButton = screen.getByRole("button", {
-      name: "skills.refresh",
+      name: "skills.library.update.checkAll",
     });
     expect(refreshButton).toHaveAttribute("aria-busy", "true");
     expect(refreshButton).toBeDisabled();
     expect(refreshButton.querySelector("svg")).toHaveClass("animate-spin");
     expect(
-      screen.getByRole("button", { name: "skills.batch.deploy" }),
-    ).toBeEnabled();
+      screen.getByRole("button", { name: "skills.batch.open" }),
+    ).toBeDisabled();
 
     await act(async () => resolveRefresh?.());
     await waitFor(() =>
@@ -376,13 +477,13 @@ describe("LibrarySkillsPanel", () => {
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     const refreshButton = screen.getByRole("button", {
-      name: "skills.refresh",
+      name: "skills.library.update.checkAll",
     });
     expect(refreshButton).toHaveAttribute("aria-busy", "false");
     expect(refreshButton).toBeEnabled();
     expect(refreshButton.querySelector("svg")).not.toHaveClass("animate-spin");
     expect(
-      screen.getByRole("button", { name: "skills.batch.deploy" }),
+      screen.getByRole("button", { name: "skills.batch.open" }),
     ).toBeEnabled();
   });
 
@@ -401,10 +502,10 @@ describe("LibrarySkillsPanel", () => {
       screen.queryByRole("button", { name: "skills.global.title" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "skills.batch.deploy" }),
+      screen.getByRole("button", { name: "skills.batch.open" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "skills.refresh" }),
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     ).toBeInTheDocument();
   });
 
@@ -695,9 +796,7 @@ describe("LibrarySkillsPanel", () => {
     const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
 
     const user = userEvent.setup();
-    await user.click(
-      screen.getByRole("button", { name: "skills.batch.deploy" }),
-    );
+    await user.click(screen.getByRole("button", { name: "skills.batch.open" }));
     await user.click(
       screen.getByRole("combobox", { name: "skills.batch.target" }),
     );
@@ -823,7 +922,7 @@ describe("LibrarySkillsPanel", () => {
       screen.getByRole("button", { name: "skills.library.deployClaude" }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "skills.refresh" }),
+      screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     ).toBeEnabled();
 
     await act(async () => resolveApply?.());
@@ -852,10 +951,10 @@ describe("LibrarySkillsPanel", () => {
     });
     const summary = screen.getByTestId("library-skill-summary-library-1");
     expect(summary).toContainElement(checkButton);
-    expect(summary).toHaveClass("mt-auto", "flex-nowrap");
+    expect(summary).toHaveClass("mt-auto", "flex-wrap");
     expect(checkButton).toHaveClass("h-7", "shrink-0", "whitespace-nowrap");
-    expect(checkButton).toHaveClass("ml-auto");
-    expect(summary.lastElementChild).toBe(checkButton);
+    expect(checkButton.parentElement).toHaveClass("ml-auto");
+    expect(summary.lastElementChild).toContainElement(checkButton);
     expect(card.querySelectorAll(".border-t")).toHaveLength(1);
     expect(
       within(footer).getByRole("button", {

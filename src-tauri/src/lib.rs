@@ -1534,6 +1534,7 @@ pub fn run() {
             commands::restoreSkillsMigrationBackup,
             #[cfg(target_os = "macos")]
             commands::getLibrarySkills,
+            commands::revealLibrarySkill,
             #[cfg(target_os = "macos")]
             commands::listSkillActivity,
             #[cfg(target_os = "macos")]
@@ -1562,6 +1563,14 @@ pub fn run() {
             commands::applyGlobalSkillImport,
             #[cfg(target_os = "macos")]
             commands::checkLibrarySkillUpdate,
+            #[cfg(target_os = "macos")]
+            commands::inspectExternalSkillUpdates,
+            #[cfg(target_os = "macos")]
+            commands::linkExternalSkillSource,
+            #[cfg(target_os = "macos")]
+            commands::applyExternalSkillUpdate,
+            #[cfg(target_os = "macos")]
+            commands::linkLibrarySkillSource,
             #[cfg(target_os = "macos")]
             commands::applyLibrarySkillUpdate,
             #[cfg(target_os = "macos")]
@@ -2460,3 +2469,9 @@ mod tests {
         assert_eq!(apps, vec!["grokbuild"]);
     }
 }
+
+#[cfg(target_os = "macos")]
+pub use services::external_skills::{
+    ExternalSkillCandidate, ExternalSkillInspection, ExternalSkillIntent, ExternalSkillService,
+    LinkLibrarySkillSourceIntent,
+};

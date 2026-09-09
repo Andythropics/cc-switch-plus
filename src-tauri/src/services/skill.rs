@@ -20,6 +20,11 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
 
+#[cfg(debug_assertions)]
+thread_local! {
+    static LIBRARY_HASH_TRACE: std::cell::RefCell<Option<Vec<PathBuf>>> = const { std::cell::RefCell::new(None) };
+}
+
 use crate::app_config::AppType;
 #[cfg(not(target_os = "macos"))]
 use crate::app_config::InstalledSkill;
@@ -3944,7 +3949,25 @@ impl LibrarySkillAcquisitionService {
         Ok(())
     }
 
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn start_hash_trace_for_test() {
+        LIBRARY_HASH_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn take_hash_trace_for_test() -> Vec<PathBuf> {
+        LIBRARY_HASH_TRACE.with(|trace| trace.borrow_mut().take().unwrap_or_default())
+    }
+
     pub(crate) fn compute_library_hash(root: &Path) -> Result<String> {
+        #[cfg(debug_assertions)]
+        LIBRARY_HASH_TRACE.with(|trace| {
+            if let Some(paths) = trace.borrow_mut().as_mut() {
+                paths.push(root.to_path_buf());
+            }
+        });
         use sha2::{Digest, Sha256};
 
         fn collect(root: &Path, current: &Path, entries: &mut Vec<PathBuf>) -> Result<()> {

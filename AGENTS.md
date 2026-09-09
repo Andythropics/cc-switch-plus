@@ -1,8 +1,3 @@
-# Working agreements
-
-- When a task is well-suited to a narrowly scoped, independent worker, prefer delegating it to a `luna_worker`.
-
-## Agent skills
 
 ### Issue tracker
 

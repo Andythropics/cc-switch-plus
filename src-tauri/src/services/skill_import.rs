@@ -1776,19 +1776,54 @@ impl GlobalSkillImportService {
     }
 
     fn current_records(&self) -> Result<(Vec<GlobalFindingRecord>, String)> {
+        self.current_records_for(None)
+    }
+
+    pub(crate) fn inspect_external(&self, directory: &str) -> Result<GlobalSkillImportInspection> {
+        LibrarySkillAcquisitionService::ensure_supported_platform()?;
+        let (records, observation_token) =
+            self.current_records_for(Some((DeploymentConsumer::Codex, directory)))?;
+        Ok(GlobalSkillImportInspection {
+            observation_token,
+            findings: records.into_iter().map(|record| record.finding).collect(),
+        })
+    }
+
+    fn current_records_for(
+        &self,
+        scope: Option<(DeploymentConsumer, &str)>,
+    ) -> Result<(Vec<GlobalFindingRecord>, String)> {
+        if let Some((_, directory)) = scope {
+            validate_import_directory(directory)?;
+        }
         let mut records = Vec::new();
         for consumer in [DeploymentConsumer::Claude, DeploymentConsumer::Codex] {
+            if scope.is_some_and(|(selected, _)| selected != consumer) {
+                continue;
+            }
             let Some(root) = existing_real_global_target_root(consumer)? else {
                 continue;
             };
-            for entry in fs::read_dir(&root)? {
-                let entry = entry?;
-                let directory = entry.file_name().to_string_lossy().to_string();
+            let sources = match scope {
+                Some((_, directory)) => vec![root.join(directory)],
+                None => fs::read_dir(&root)?
+                    .map(|entry| entry.map(|entry| entry.path()))
+                    .collect::<std::io::Result<Vec<_>>>()?,
+            };
+            for source in sources {
+                let directory = source
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 if directory.starts_with('.') {
                     continue;
                 }
-                let source = entry.path();
-                let metadata = fs::symlink_metadata(&source)?;
+                let metadata = match fs::symlink_metadata(&source) {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error.into()),
+                };
                 if !metadata.is_dir() || metadata.file_type().is_symlink() {
                     continue;
                 }
@@ -1888,12 +1923,26 @@ impl GlobalSkillImportService {
                 .map(|record| record.finding.consumer)
         });
         let mode = intent.mode;
-        let result = self.apply_inner(intent);
+        let result = self.apply_inner(intent, None);
         self.record_import_activity(consumer, mode, &result);
         result
     }
 
-    fn apply_inner(&self, intent: GlobalSkillImportIntent) -> Result<GlobalSkillImportResult> {
+    pub(crate) fn replace_external(
+        &self,
+        intent: GlobalSkillImportIntent,
+        id: &str,
+        directory: &str,
+        was_desired: bool,
+    ) -> Result<GlobalSkillImportResult> {
+        self.apply_inner(intent, Some((id, directory, was_desired)))
+    }
+
+    fn apply_inner(
+        &self,
+        intent: GlobalSkillImportIntent,
+        required: Option<(&str, &str, bool)>,
+    ) -> Result<GlobalSkillImportResult> {
         LibrarySkillAcquisitionService::ensure_supported_platform()?;
         let _library_guard = LibrarySkillAcquisitionService::lock_for_composite()?;
         let needs_deployment_lock = intent.mode == GlobalSkillImportMode::ImportAndReplace
@@ -1905,7 +1954,18 @@ impl GlobalSkillImportService {
             .then(SkillDeploymentService::lock_for_composite)
             .transpose()?;
 
-        let (records, observation_token) = self.current_records()?;
+        if let Some((id, directory, was_desired)) = required {
+            let target = DeploymentTarget::global(DeploymentConsumer::Codex);
+            let is_desired = self.db.list_skill_deployments()?.iter().any(|d| {
+                d.library_skill_id == id && d.library_directory == directory && d.target == target
+            });
+            if is_desired != was_desired {
+                return Err(anyhow!("Desired deployment changed before CLI replacement"));
+            }
+        }
+        let (records, observation_token) = self.current_records_for(
+            required.map(|(_, directory, _)| (DeploymentConsumer::Codex, directory)),
+        )?;
         if observation_token != intent.observation_token {
             return Ok(GlobalSkillImportResult::stale(
                 &intent.finding_id,

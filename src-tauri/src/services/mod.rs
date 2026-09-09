@@ -10,6 +10,8 @@ pub mod config;
 pub mod deployment_recovery;
 pub mod env_checker;
 pub mod env_manager;
+#[cfg(target_os = "macos")]
+pub mod external_skills;
 pub mod mcp;
 pub mod model_fetch;
 pub mod model_pricing;

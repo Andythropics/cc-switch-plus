@@ -744,6 +744,10 @@ export const skillsApi = {
     return await invoke("getLibrarySkills");
   },
 
+  async revealLibrarySkill(librarySkillId: string): Promise<void> {
+    await invoke("revealLibrarySkill", { librarySkillId });
+  },
+
   /** List redacted, device-local Skills activity in newest-first order. */
   async listActivity(query?: SkillActivityQuery): Promise<SkillActivityPage> {
     return await invoke("listSkillActivity", { query: query ?? null });

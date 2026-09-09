@@ -13,6 +13,7 @@ import {
   FileArchive,
   FolderOpen,
   Library,
+  Layers,
   Link2,
   Loader2,
   Pencil,
@@ -36,6 +37,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
+import { ExternalSkillUpdatesPanel } from "@/components/skills/ExternalSkillUpdatesPanel";
+import { LinkSkillSourceDialog } from "@/components/skills/LinkSkillSourceDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,7 +56,7 @@ import {
   useSkillDeployments,
   useUpdateLibrarySkillMetadata,
 } from "@/hooks/useSkills";
-import { skillsApi } from "@/lib/api";
+import { settingsApi, skillsApi } from "@/lib/api";
 import {
   deploymentOutcomeLabelKeys,
   successfulDeploymentOutcomes,
@@ -85,6 +88,13 @@ import {
   ProgressiveSkillListFooter,
   useProgressiveSkillList,
 } from "@/components/skills/ProgressiveSkillList";
+
+function hasLinkedSource(skill: LibrarySkill) {
+  return (
+    (skill.source.kind === "git" || skill.source.kind === "marketplace") &&
+    Boolean(skill.source.repoOwner && skill.source.repoName)
+  );
+}
 
 interface LibrarySkillsPanelProps {
   onOpenDiscovery: () => void;
@@ -169,6 +179,10 @@ export const LibrarySkillsPanel = forwardRef<
     ref,
   ) => {
     const { t } = useTranslation();
+    const [externalInteraction, setExternalInteraction] = useState(false);
+    const [sourceLinkSkill, setSourceLinkSkill] = useState<LibrarySkill | null>(
+      null,
+    );
     const libraryQuery = useLibrarySkills();
     const {
       data: skills = [],
@@ -289,7 +303,12 @@ export const LibrarySkillsPanel = forwardRef<
       } | null;
     } | null>(null);
     const [batchDialogOpen, setBatchDialogOpen] = useState(false);
-    const [manualRefreshPending, setManualRefreshPending] = useState(false);
+    const [allChecksProgress, setAllChecksProgress] = useState<{
+      done: number;
+      total: number;
+    } | null>(null);
+    const allChecksRunning = useRef(false);
+    const linkedSkills = skills.filter(hasLinkedSource);
     const [pendingGlobalDeployments, setPendingGlobalDeployments] = useState(
       new Set<string>(),
     );
@@ -311,6 +330,9 @@ export const LibrarySkillsPanel = forwardRef<
     );
 
     const blocked =
+      allChecksProgress !== null ||
+      externalInteraction ||
+      sourceLinkSkill !== null ||
       updateMetadata.isPending ||
       acquireZip.isPending ||
       applyLibraryUpdate.isPending ||
@@ -392,8 +414,13 @@ export const LibrarySkillsPanel = forwardRef<
         const result = await checkLibraryUpdate.mutateAsync(skill.id);
         setUpdateChecks((current) => ({ ...current, [skill.id]: result }));
         setUpdateResult(null);
+        return (
+          result.outcome === "update_available" ||
+          result.outcome === "up_to_date"
+        );
       } catch {
         toast.error(t("skills.library.update.checkFailed"));
+        return false;
       } finally {
         setPendingUpdateChecks((current) => {
           const next = new Set(current);
@@ -669,15 +696,42 @@ export const LibrarySkillsPanel = forwardRef<
     };
 
     const refreshAll = async () => {
-      setManualRefreshPending(true);
+      await Promise.all([
+        refreshDeployments(),
+        refetchLibrary(),
+        refetchProjects(),
+      ]);
+    };
+
+    const checkAllUpdates = async () => {
+      if (
+        allChecksRunning.current ||
+        blocked ||
+        pendingUpdateChecks.size ||
+        !linkedSkills.length
+      )
+        return;
+      allChecksRunning.current = true;
+      setAllChecksProgress({ done: 0, total: linkedSkills.length });
+      let failed = 0;
       try {
-        await Promise.all([
-          refreshDeployments(),
-          refetchLibrary(),
-          refetchProjects(),
-        ]);
+        for (const [index, skill] of linkedSkills.entries()) {
+          if (!(await checkForLibraryUpdate(skill))) failed++;
+          setAllChecksProgress({ done: index + 1, total: linkedSkills.length });
+        }
+        if (failed)
+          toast.error(
+            t("skills.library.update.checkAllFailed", { count: failed }),
+          );
+        else
+          toast.success(
+            t("skills.library.update.checkAllDone", {
+              count: linkedSkills.length,
+            }),
+          );
       } finally {
-        setManualRefreshPending(false);
+        allChecksRunning.current = false;
+        setAllChecksProgress(null);
       }
     };
 
@@ -738,11 +792,11 @@ export const LibrarySkillsPanel = forwardRef<
           }}
         >
           {isPending ? (
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : isSelected ? (
-            <Check className="mr-1.5 h-3.5 w-3.5" />
+            <Check className="h-3.5 w-3.5" />
           ) : (
-            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+            <Link2 className="h-3.5 w-3.5" />
           )}
           <span className="truncate">
             {isSelected ? deployedLabel : deployLabel}
@@ -811,6 +865,11 @@ export const LibrarySkillsPanel = forwardRef<
               className="mb-0"
             />
           </div>
+          <ExternalSkillUpdatesPanel
+            skills={skills}
+            disabled={navigationBlocked}
+            onInteractionBlockedChange={setExternalInteraction}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -818,21 +877,29 @@ export const LibrarySkillsPanel = forwardRef<
             disabled={blocked || skills.length === 0}
             onClick={() => setBatchDialogOpen(true)}
           >
-            {t("skills.batch.deploy")}
+            <Layers className="h-4 w-4" />
+            {t("skills.batch.open")}
           </Button>
           <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            aria-label={t("skills.refresh")}
-            aria-busy={manualRefreshPending}
-            title={t("skills.refresh")}
-            disabled={blocked || manualRefreshPending}
-            onClick={() => void refreshAll()}
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2"
+            aria-label={t("skills.library.update.checkAll")}
+            aria-busy={allChecksProgress !== null}
+            title={t("skills.library.update.checkAllHint")}
+            disabled={
+              blocked ||
+              pendingUpdateChecks.size > 0 ||
+              linkedSkills.length === 0
+            }
+            onClick={() => void checkAllUpdates()}
           >
             <RefreshCw
-              className={`h-4 w-4${manualRefreshPending ? " animate-spin" : ""}`}
+              className={`h-4 w-4${allChecksProgress ? " animate-spin" : ""}`}
             />
+            {allChecksProgress
+              ? t("skills.library.update.checkAllProgress", allChecksProgress)
+              : t("skills.library.update.checkAll")}
           </Button>
         </div>
 
@@ -845,6 +912,13 @@ export const LibrarySkillsPanel = forwardRef<
           </p>
         )}
 
+        {sourceLinkSkill && (
+          <LinkSkillSourceDialog
+            key={sourceLinkSkill.id}
+            skill={sourceLinkSkill}
+            onClose={() => setSourceLinkSkill(null)}
+          />
+        )}
         <ScrollArea className="min-h-0 flex-1 px-5 pb-5 pt-3">
           {isLoading ? (
             <div className="flex justify-center py-16">
@@ -892,12 +966,41 @@ export const LibrarySkillsPanel = forwardRef<
                           skill.source.skillPath) && (
                           <div className="mt-1.5 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground">
                             {sourceSummary(skill) && (
-                              <span
-                                className="min-w-0 truncate"
+                              <button
+                                type="button"
+                                className="min-w-0 truncate text-left hover:underline"
                                 title={sourceSummary(skill)}
+                                disabled={
+                                  !skill.source.repoOwner ||
+                                  !skill.source.repoName
+                                }
+                                onClick={() => {
+                                  if (
+                                    !skill.source.repoOwner ||
+                                    !skill.source.repoName
+                                  )
+                                    return;
+                                  const root = `https://github.com/${encodeURIComponent(skill.source.repoOwner)}/${encodeURIComponent(skill.source.repoName)}`;
+                                  const path = skill.source.skillPath
+                                    ?.split("/")
+                                    .map(encodeURIComponent)
+                                    .join("/");
+                                  const url = path
+                                    ? `${root}/tree/${encodeURIComponent(skill.source.repoBranch || "HEAD")}/${path}`
+                                    : root;
+                                  void settingsApi
+                                    .openExternal(url)
+                                    .catch((error) =>
+                                      showSkillErrorToast(
+                                        t,
+                                        "skills.external.openError",
+                                        error,
+                                      ),
+                                    );
+                                }}
                               >
                                 {sourceSummary(skill)}
-                              </span>
+                              </button>
                             )}
                             {skill.source.marketplace && (
                               <span
@@ -938,7 +1041,27 @@ export const LibrarySkillsPanel = forwardRef<
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={t("skills.library.reveal")}
+                          title={t("skills.library.reveal")}
+                          onClick={() =>
+                            void skillsApi
+                              .revealLibrarySkill(skill.id)
+                              .catch((error) =>
+                                showSkillErrorToast(
+                                  t,
+                                  "skills.library.revealFailed",
+                                  error,
+                                ),
+                              )
+                          }
+                        >
+                          <FolderOpen className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           aria-label={t("skills.library.edit")}
+                          title={t("skills.library.edit")}
                           onClick={() => beginEdit(skill)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -1000,7 +1123,7 @@ export const LibrarySkillsPanel = forwardRef<
                                   )
                                 }
                               >
-                                <Upload className="mr-2 h-4 w-4" />
+                                <Upload className="h-4 w-4" />
                                 {t("skills.library.update.apply")}
                               </Button>
                             )}
@@ -1132,7 +1255,7 @@ export const LibrarySkillsPanel = forwardRef<
                       </div>
                     )}
                     <div
-                      className="mt-auto flex min-w-0 flex-nowrap items-center gap-2 pt-3 text-xs text-muted-foreground"
+                      className="mt-auto flex min-w-0 flex-wrap items-center gap-2 pt-3 text-xs text-muted-foreground"
                       data-testid={`library-skill-summary-${skill.id}`}
                     >
                       <div className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -1159,19 +1282,36 @@ export const LibrarySkillsPanel = forwardRef<
                           result={skill.compatibility.codex}
                         />
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="ml-auto h-7 shrink-0 gap-1 px-2 text-[11px]"
-                        aria-busy={pendingUpdateChecks.has(skill.id)}
-                        disabled={blocked || pendingUpdateChecks.has(skill.id)}
-                        onClick={() => void checkForLibraryUpdate(skill)}
-                      >
-                        <RefreshCw
-                          className={`h-3.5 w-3.5${pendingUpdateChecks.has(skill.id) ? " animate-spin" : ""}`}
-                        />
-                        {t("skills.library.update.check")}
-                      </Button>
+                      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                        {!hasLinkedSource(skill) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                            disabled={blocked}
+                            onClick={() => setSourceLinkSkill(skill)}
+                          >
+                            <Link2 className="h-3.5 w-3.5" />
+                            {t("skills.external.manual")}
+                          </Button>
+                        )}
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                          aria-busy={pendingUpdateChecks.has(skill.id)}
+                          disabled={
+                            blocked || pendingUpdateChecks.has(skill.id)
+                          }
+                          onClick={() => void checkForLibraryUpdate(skill)}
+                        >
+                          <RefreshCw
+                            className={`h-3.5 w-3.5${pendingUpdateChecks.has(skill.id) ? " animate-spin" : ""}`}
+                          />
+                          {t("skills.library.update.check")}
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                   <CardFooter
@@ -1203,7 +1343,7 @@ export const LibrarySkillsPanel = forwardRef<
                         void inspectDeployedProjectsForSkill(skill)
                       }
                     >
-                      <FolderOpen className="mr-1.5 h-4 w-4" />
+                      <FolderOpen className="h-4 w-4" />
                       <span className="truncate">
                         {t("skills.library.deployedProjects.action")}
                       </span>
@@ -1501,7 +1641,7 @@ export const LibrarySkillsPanel = forwardRef<
                 }
               >
                 {applyLibraryUpdate.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 )}
                 {t("skills.library.update.confirmApply")}
               </Button>
@@ -1658,7 +1798,7 @@ export const LibrarySkillsPanel = forwardRef<
                 disabled={deleteLibrary.isPending}
               >
                 {deleteLibrary.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 )}
                 {t("skills.library.delete.confirm")}
               </Button>
@@ -1719,7 +1859,7 @@ export const LibrarySkillsPanel = forwardRef<
                 disabled={!displayName.trim() || updateMetadata.isPending}
               >
                 {updateMetadata.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 )}
                 {t("skills.library.save")}
               </Button>
@@ -1773,7 +1913,7 @@ export const LibrarySkillsPanel = forwardRef<
                   });
                 }}
               >
-                <FileArchive className="mr-2 h-4 w-4" />
+                <FileArchive className="h-4 w-4" />
                 {t("skills.library.acquire")}
               </Button>
             </DialogFooter>

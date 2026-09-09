@@ -21,7 +21,8 @@ use crate::services::activity::{
     ActivityOutcome, ActivityReason, ActivityRecorder, ActivityTarget, ActivityTrigger,
 };
 use crate::services::skill::{
-    LibrarySkill, LibrarySkillAcquisitionService, LibrarySkillCompatibility, LibrarySourceKind,
+    LibrarySkill, LibrarySkillAcquisitionService, LibrarySkillCompatibility, LibrarySkillSource,
+    LibrarySourceKind,
 };
 use crate::services::skill_deployment::{
     DeploymentInspection, DeploymentItemResult, DeploymentMutationOutcome, DeploymentQuery,
@@ -165,6 +166,12 @@ struct StageManifest {
     observation_token: String,
     upstream_hash: String,
     compatibility: LibrarySkillCompatibility,
+    #[serde(default)]
+    source: Option<LibrarySkillSource>,
+    #[serde(default)]
+    external_observation: Option<(PathBuf, String)>,
+    #[serde(default)]
+    external_candidate_id: Option<String>,
 }
 
 enum LibraryDeletionSnapshot {
@@ -372,6 +379,9 @@ impl LibrarySkillUpdateService {
             observation_token: inspection.observation_token.clone(),
             upstream_hash: upstream_hash.clone(),
             compatibility: compatibility.clone(),
+            source: None,
+            external_observation: None,
+            external_candidate_id: None,
         };
         let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
         if let Err(error) = fs::write(stage_root.join("manifest.json"), manifest_bytes) {
@@ -387,6 +397,80 @@ impl LibrarySkillUpdateService {
         }
         inspection.stage_token = Some(token);
         Ok(inspection)
+    }
+
+    /// Stage an explicitly selected external snapshot without changing the Library row.
+    pub(crate) fn stage_external(
+        db: &Arc<Database>,
+        skill: &LibrarySkill,
+        path: &Path,
+        source: LibrarySkillSource,
+        external_root: &Path,
+        external_token: &str,
+        external_candidate_id: &str,
+    ) -> Result<LibrarySkillUpdateCheck> {
+        let metadata = LibrarySkillAcquisitionService::inspect_source_directory(path)?;
+        let live =
+            LibrarySkillAcquisitionService::compute_library_hash(&Self::library_path(skill)?)?;
+        let impacts = Self::deployment_impacts(db, skill, Some(&metadata.compatibility))?;
+        let observation_token =
+            Self::observation_token(skill, Some(&live), Some(&metadata.content_hash), &impacts);
+        let token = uuid::Uuid::new_v4().to_string();
+        let stage_root = Self::stage_root()?.join(&token);
+        let stage = stage_root.join("skill");
+        let staged = (|| -> Result<()> {
+            LibrarySkillAcquisitionService::copy_tree_preserving_links(path, &stage)?;
+            if LibrarySkillAcquisitionService::compute_library_hash(&stage)?
+                != metadata.content_hash
+            {
+                return Err(anyhow!(
+                    "External Skill changed while staging; inspect again"
+                ));
+            }
+            fs::write(
+                stage_root.join("manifest.json"),
+                serde_json::to_vec(&StageManifest {
+                    library_skill_id: skill.id.clone(),
+                    observation_token: observation_token.clone(),
+                    upstream_hash: metadata.content_hash.clone(),
+                    compatibility: metadata.compatibility.clone(),
+                    source: Some(source),
+                    external_observation: Some((
+                        external_root.to_path_buf(),
+                        external_token.to_string(),
+                    )),
+                    external_candidate_id: Some(external_candidate_id.to_string()),
+                })?,
+            )?;
+            Ok(())
+        })();
+        if let Err(error) = staged {
+            let _ = fs::remove_dir_all(&stage_root);
+            return Err(error);
+        }
+        Ok(LibrarySkillUpdateCheck {
+            library_skill_id: skill.id.clone(),
+            outcome: LibrarySkillUpdateCheckOutcome::UpdateAvailable,
+            observation_token,
+            stage_token: Some(token),
+            recorded_content_hash: skill.content_hash.clone(),
+            live_content_hash: Some(live.clone()),
+            staged_content_hash: Some(metadata.content_hash),
+            local_modified: live != skill.content_hash,
+            compatibility: Some(metadata.compatibility),
+            affected_deployments: impacts,
+            message: None,
+        })
+    }
+
+    pub(crate) fn discard_external_stage(token: &str) -> Result<()> {
+        let token =
+            Self::validate_stage_token(token).ok_or_else(|| anyhow!("Invalid stage token"))?;
+        let path = Self::stage_root()?.join(token);
+        if path.exists() {
+            fs::remove_dir_all(path)?;
+        }
+        Ok(())
     }
 
     /// Apply a previously staged snapshot.  The Library lock is acquired
@@ -529,6 +613,19 @@ impl LibrarySkillUpdateService {
             ));
         }
 
+        if let Some((root, expected)) = &manifest.external_observation {
+            let fresh = super::external_skills::ExternalSkillService::inspect_for_observation(
+                db,
+                root,
+                manifest.external_candidate_id.as_deref(),
+                &skill.id,
+                expected,
+            )?;
+            if !fresh.accepts_target_observation(expected, &skill.id) {
+                let _ = fs::remove_dir_all(&stage_root);
+                return Err(anyhow!("External Skill observation changed; inspect again"));
+            }
+        }
         let destination = Self::library_path(&skill)?;
         let live_hash = match fs::symlink_metadata(&destination) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => Some(
@@ -577,6 +674,11 @@ impl LibrarySkillUpdateService {
         }
         if live_hash.as_deref() == Some(manifest.upstream_hash.as_str())
             && live_hash.as_deref() == Some(skill.content_hash.as_str())
+            && manifest
+                .source
+                .as_ref()
+                .map(|source| source == &skill.source)
+                .unwrap_or(true)
         {
             let cleanup = fs::remove_dir_all(&stage_root).err();
             return Ok(Self::update_result(
@@ -734,6 +836,9 @@ impl LibrarySkillUpdateService {
         }
 
         let mut replacement = skill.clone();
+        if let Some(source) = manifest.source {
+            replacement.source = source;
+        }
         replacement.display_name = metadata.display_name;
         replacement.description = metadata.description;
         replacement.compatibility = metadata.compatibility;
@@ -1552,6 +1657,8 @@ impl LibrarySkillUpdateService {
         targets: &[LibrarySkillDeletionTarget],
     ) -> String {
         let mut hasher = Sha256::new();
+        hasher.update(serde_json::to_vec(&skill.source).unwrap_or_default());
+        hasher.update([0]);
         hasher.update(skill.id.as_bytes());
         hasher.update([0]);
         hasher.update(skill.directory.as_bytes());
@@ -1752,6 +1859,8 @@ impl LibrarySkillUpdateService {
         blocked: &[UpdateDeploymentImpact],
     ) -> String {
         let mut hasher = Sha256::new();
+        hasher.update(serde_json::to_vec(&skill.source).unwrap_or_default());
+        hasher.update([0]);
         hasher.update(skill.id.as_bytes());
         hasher.update([0]);
         hasher.update(skill.content_hash.as_bytes());

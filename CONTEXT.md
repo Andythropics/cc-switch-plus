@@ -13,7 +13,7 @@ A managed Skill stored as a direct child of the Skill Library, with one stable i
 _Avoid_: Project variant, deployment alias
 
 **Upstream Source**:
-The remote Git or marketplace origin from which a Library Skill may check for updates. A local import has no continuing external source after the Library assumes ownership.
+The remote Git or marketplace origin from which a Library Skill may check for updates. A local import initially has no upstream; an explicit association may later attach a verified remote origin while preserving its Library identity and contents.
 _Avoid_: Local source directory, live source
 
 **Local Modification**:

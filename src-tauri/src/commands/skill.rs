@@ -53,6 +53,38 @@ pub fn getLibrarySkills(app_state: State<'_, AppState>) -> Result<Vec<LibrarySki
         .map_err(|error| error.to_string())
 }
 
+/// Reveal the authoritative Library directory, resolved from its stable ID.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn revealLibrarySkill(
+    library_skill_id: String,
+    app_state: State<'_, AppState>,
+    handle: AppHandle,
+) -> Result<(), String> {
+    let skill = app_state
+        .db
+        .get_library_skill_by_id(&library_skill_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Library Skill not found".to_string())?;
+    let root = LibrarySkillAcquisitionService::library_directory_path()
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let path = root.join(&skill.directory);
+    let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+    let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || canonical.parent() != Some(root.as_path())
+    {
+        return Err("Library Skill directory is not a valid Library child".into());
+    }
+    handle
+        .opener()
+        .reveal_item_in_dir(canonical)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
@@ -341,10 +373,22 @@ pub async fn checkLibrarySkillUpdate(
         return LibrarySkillUpdateService::check_not_updatable(&app_state.db, &librarySkillId)
             .map_err(|error| error.to_string());
     }
+    let mut source = skill.source.clone();
+    crate::services::external_skills::resolve_branch(&mut source)
+        .await
+        .map_err(|e| e.to_string())?;
     let (_snapshot, repository_root) =
-        LibrarySkillAcquisitionService::download_repository_snapshot_exact(&skill.source)
+        LibrarySkillAcquisitionService::download_repository_snapshot_exact(&source)
             .await
             .map_err(|error| error.to_string())?;
+    let _guard = LibrarySkillAcquisitionService::lock_for_composite().map_err(|e| e.to_string())?;
+    let current = app_state
+        .db
+        .get_library_skill_by_id(&librarySkillId)
+        .map_err(|e| e.to_string())?;
+    if current.as_ref().map(|s| &s.source) != Some(&skill.source) {
+        return Err("Library source changed while checking updates; check again".into());
+    }
     LibrarySkillUpdateService::stage_from_repository_snapshot(
         &app_state.db,
         &librarySkillId,
@@ -451,4 +495,60 @@ pub fn remove_skill_repo(
         .delete_skill_repo(&owner, &name)
         .map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn inspectExternalSkillUpdates(
+    app_state: State<'_, AppState>,
+) -> Result<crate::services::external_skills::ExternalSkillInspection, String> {
+    let db = app_state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::external_skills::ExternalSkillService::inspect(&db)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("External Skill task failed: {e}"))?
+}
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn linkExternalSkillSource(
+    intent: crate::services::external_skills::ExternalSkillIntent,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkill, String> {
+    let db = app_state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::external_skills::ExternalSkillService::link_external(&db, intent)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("External Skill task failed: {e}"))?
+}
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn applyExternalSkillUpdate(
+    intent: crate::services::external_skills::ExternalSkillIntent,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkillUpdateResult, String> {
+    let db = app_state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::external_skills::ExternalSkillService::apply(&db, intent)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("External Skill task failed: {e}"))?
+}
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn linkLibrarySkillSource(
+    intent: crate::services::external_skills::LinkLibrarySkillSourceIntent,
+    app_state: State<'_, AppState>,
+) -> Result<LibrarySkill, String> {
+    crate::services::external_skills::ExternalSkillService::link_source(&app_state.db, intent)
+        .await
+        .map_err(|e| e.to_string())
 }
