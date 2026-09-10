@@ -529,10 +529,13 @@ fn active_project_recovery_adds_git_exclude_without_replacing_the_link() {
         .unwrap();
     assert_eq!(result.items[0].outcome, DeploymentMutationOutcome::Applied);
     assert_eq!(fs::symlink_metadata(&link).unwrap().ino(), inode);
-    assert!(
-        fs::read_to_string(repository.path().join(".git/info/exclude"))
-            .unwrap()
-            .contains("/.agents/skills/project-recovery # cc-switch managed")
+    run_git(
+        repository.path(),
+        &[
+            "check-ignore",
+            "--no-index",
+            ".agents/skills/project-recovery",
+        ],
     );
 }
 
