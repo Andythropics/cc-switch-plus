@@ -2522,10 +2522,10 @@
       "replaceForeignLinkDescription": "This removes only the foreign symbolic link at the deployment path and creates a link to the selected Library Skill. The foreign link's target is not deleted.",
       "replaceForeignLinkConfirm": "Replace link",
       "replaceForeignLinkSuccess": "Foreign link replaced",
-      "forget": "Forget record",
-      "forgetTitle": "Forget deployment record?",
+      "forget": "Clear deployment record",
+      "forgetTitle": "Clear deployment record?",
       "forgetDescription": "This removes only CC Switch Plus's desired deployment record. It does not delete or change anything on disk.",
-      "forgetConfirm": "Forget record",
+      "forgetConfirm": "Clear record",
       "forgetSuccess": "Deployment record forgotten",
       "resolutionCancel": "Cancel",
       "incompatibleConsumer": "This skill is incompatible with {{consumer}}",
@@ -3370,6 +3370,23 @@
         "directory": "Recommended because the directory name matches. You can choose another Skill before linking.",
         "name": "Recommended because this is the only matching Skill name. You can choose another Skill before linking.",
         "ambiguous": "Several possible matches were found. They appear first in the list; choose the correct Skill."
+      }
+    },
+    "workspaceCard": {
+      "resolve": "Resolve Issues",
+      "issueCount": "{{count}} deployment issues",
+      "unavailable": "Workspace unavailable",
+      "missingLink": "Deployment link missing",
+      "resolved": "All issues resolved",
+      "guidance": {
+        "missing": "The expected link is missing. Repair recreates it without changing the Skill’s contents.",
+        "foreign": "The link is broken or points elsewhere. Replace it only if this Skill should own the path; the linked files will not be deleted.",
+        "occupied": "A file or folder occupies this path. Move it or import its contents before trying again. Nothing will be overwritten.",
+        "unavailable": "The workspace cannot be reached. Restore access or relocate it from the workspace settings.",
+        "archived": "Restore this workspace before repairing its links. You can clear an obsolete record without changing any files.",
+        "unsupported": "This platform does not support these operations. Resolve the issue on a supported platform.",
+        "incompatible": "This Skill does not meet this tool’s requirements. Correct the reported Skill issues, then refresh.",
+        "inspect": "Review the path details below and correct the underlying issue, then refresh. Clear the record only if it is no longer needed."
       }
     }
   },

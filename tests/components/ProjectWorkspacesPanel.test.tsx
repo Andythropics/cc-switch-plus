@@ -630,6 +630,12 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     const user = userEvent.setup();
+    expect(
+      screen.queryByRole("button", { name: "skills.library.repair" }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "skills.workspaceCard.resolve" }),
+    );
     await user.click(
       screen.getAllByRole("button", { name: "skills.library.repair" })[0],
     );
@@ -652,7 +658,7 @@ describe("ProjectWorkspacesPanel", () => {
     );
   });
 
-  it("disables an incompatible undeployed consumer on a visible project skill", () => {
+  it("disables an incompatible undeployed consumer on a visible project skill", async () => {
     librarySkill.compatibility.codex = {
       compatible: false,
       issues: ["Codex does not support this skill"],
@@ -677,6 +683,11 @@ describe("ProjectWorkspacesPanel", () => {
         name: /^skills\.library\.undeploy(Claude|Codex)$/,
       }),
     ).toBeEnabled();
+    await userEvent
+      .setup()
+      .click(
+        screen.getByRole("button", { name: "skills.workspaceCard.resolve" }),
+      );
     expect(
       screen.getByText("Codex does not support this skill"),
     ).toBeInTheDocument();
@@ -932,12 +943,17 @@ describe("ProjectWorkspacesPanel", () => {
         name: /^skills\.library\.undeploy(Claude|Codex)$/,
       })[0],
     ).toBeEnabled();
+    await userEvent
+      .setup()
+      .click(
+        screen.getByRole("button", { name: "skills.workspaceCard.resolve" }),
+      );
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
     ).toBeEnabled();
   });
 
-  it("keeps DB-only Forget reachable for an Unavailable workspace but blocks Undeploy", () => {
+  it("keeps DB-only Forget reachable for an Unavailable workspace but blocks Undeploy", async () => {
     workspaceRows.length = 0;
     workspaceRows.push(unavailableWorkspace);
     claudeState.items = [
@@ -956,12 +972,17 @@ describe("ProjectWorkspacesPanel", () => {
         name: /^skills\.library\.undeploy(Claude|Codex)$/,
       })[0],
     ).toBeDisabled();
+    await userEvent
+      .setup()
+      .click(
+        screen.getByRole("button", { name: "skills.workspaceCard.resolve" }),
+      );
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
     ).toBeEnabled();
   });
 
-  it("keeps Active blocked/incompatible cleanup available", () => {
+  it("keeps Active blocked/incompatible cleanup available", async () => {
     workspaceRows.length = 0;
     workspaceRows.push(workspace);
     librarySkill.compatibility.claude = {
@@ -984,12 +1005,17 @@ describe("ProjectWorkspacesPanel", () => {
         name: /^skills\.library\.undeploy(Claude|Codex)$/,
       })[0],
     ).toBeEnabled();
+    await userEvent
+      .setup()
+      .click(
+        screen.getByRole("button", { name: "skills.workspaceCard.resolve" }),
+      );
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
     ).toBeEnabled();
   });
 
-  it("keeps unsupported cleanup controls disabled and resolution actions hidden", () => {
+  it("keeps unsupported cleanup controls disabled and resolution actions hidden", async () => {
     workspaceRows.length = 0;
     workspaceRows.push(workspace);
     claudeState.items = [
@@ -1008,6 +1034,11 @@ describe("ProjectWorkspacesPanel", () => {
         name: /^skills\.library\.undeploy(Claude|Codex)$/,
       })[0],
     ).toBeDisabled();
+    await userEvent
+      .setup()
+      .click(
+        screen.getByRole("button", { name: "skills.workspaceCard.resolve" }),
+      );
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
     ).toBeDisabled();

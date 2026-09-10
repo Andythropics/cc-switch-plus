@@ -30,6 +30,10 @@ import type { WorkspaceLifecycle } from "@/lib/api/projectWorkspaces";
 
 interface DeploymentResolutionActionsProps {
   iconToggle?: boolean;
+  /** Render only the stable platform toggle; resolution actions live in details. */
+  toggleOnly?: boolean;
+  /** Issue dialogs exclude routine deploy and undeploy controls. */
+  resolutionOnly?: boolean;
   skill: LibrarySkill;
   target: DeploymentTarget;
   deployment?: DeploymentInspection;
@@ -60,6 +64,8 @@ const lifecycleBlockedStatuses = new Set([
  */
 export function DeploymentResolutionActions({
   iconToggle = false,
+  toggleOnly = false,
+  resolutionOnly = false,
   skill,
   target,
   deployment,
@@ -132,7 +138,7 @@ export function DeploymentResolutionActions({
 
   return (
     <>
-      {iconToggle && (
+      {iconToggle && !resolutionOnly && (
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -187,7 +193,7 @@ export function DeploymentResolutionActions({
           </Tooltip>
         </TooltipProvider>
       )}
-      {!iconToggle && canDeploy && (
+      {!iconToggle && !resolutionOnly && canDeploy && (
         <Button
           variant="outline"
           size="sm"
@@ -210,7 +216,7 @@ export function DeploymentResolutionActions({
         </Button>
       )}
 
-      {!iconToggle && canUndeploy && (
+      {!iconToggle && !resolutionOnly && canUndeploy && (
         <Button
           variant="outline"
           size="sm"
@@ -282,7 +288,7 @@ export function DeploymentResolutionActions({
         </SkillsDialogContent>
       </Dialog>
 
-      {canRepair && (
+      {!toggleOnly && canRepair && (
         <Button
           variant="outline"
           size="sm"
@@ -306,7 +312,7 @@ export function DeploymentResolutionActions({
         </Button>
       )}
 
-      {canReplaceForeignLink && (
+      {!toggleOnly && canReplaceForeignLink && (
         <Button
           variant="destructive"
           size="sm"
@@ -323,7 +329,7 @@ export function DeploymentResolutionActions({
         </Button>
       )}
 
-      {canForget && (
+      {!toggleOnly && canForget && (
         <Button
           variant="ghost"
           size="sm"
@@ -337,7 +343,7 @@ export function DeploymentResolutionActions({
       )}
 
       <Dialog open={replaceDialogOpen} onOpenChange={setReplaceDialogOpen}>
-        <SkillsDialogContent closeBlocked={isPending}>
+        <SkillsDialogContent zIndex="alert" closeBlocked={isPending}>
           <DialogHeader>
             <DialogTitle>
               {t("skills.library.replaceForeignLinkTitle")}
@@ -376,7 +382,7 @@ export function DeploymentResolutionActions({
       </Dialog>
 
       <Dialog open={forgetDialogOpen} onOpenChange={setForgetDialogOpen}>
-        <SkillsDialogContent closeBlocked={isPending}>
+        <SkillsDialogContent zIndex="alert" closeBlocked={isPending}>
           <DialogHeader>
             <DialogTitle>{t("skills.library.forgetTitle")}</DialogTitle>
             <DialogDescription>

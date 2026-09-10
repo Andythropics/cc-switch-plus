@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import {
   WorkspaceSkillCard,
+  type WorkspaceDeploymentControl,
   workspaceSkillGridClassName,
 } from "@/components/skills/WorkspaceSkillCard";
 import { Badge } from "@/components/ui/badge";
@@ -59,8 +60,6 @@ import {
   useRestoreProjectWorkspace,
   useSkillDeployments,
 } from "@/hooks/useSkills";
-import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
-import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import {
   DeploymentRecoveryPanel,
   isActionableDeploymentRecoveryFinding,
@@ -220,60 +219,30 @@ function ProjectWorkspaceDeployments({
     }
   };
 
-  const renderControl = (skill: LibrarySkill, consumer: DeploymentConsumer) => {
+  const getDeploymentControl = (
+    skill: LibrarySkill,
+    consumer: DeploymentConsumer,
+  ): WorkspaceDeploymentControl => {
     const state = consumer === "claude" ? claudeState : codexState;
-    const deployment = state?.items.find(
-      (item) => item.librarySkillId === skill.id,
-    );
-    const status = deployment?.status ?? "not_deployed";
-    const compatible = skill.compatibility[consumer].compatible;
-    const isPending = pendingDeployments.has(`${skill.id}:${consumer}`);
-    const label =
-      consumer === "claude"
-        ? t("skills.library.consumerClaude")
-        : t("skills.library.consumerCodex");
-    const incompatibilityMessage =
-      skill.compatibility[consumer].issues.join("; ") ||
-      t("skills.library.incompatibleConsumer", { consumer: label });
-    return (
-      <div key={consumer} className="flex min-w-0 flex-wrap items-center gap-2">
-        {deployment && !["in_sync", "not_deployed"].includes(status) && (
-          <DeploymentStatusBadge
-            status={status}
-            observed={deployment.observed}
-          />
-        )}
-        <DeploymentResolutionActions
-          iconToggle
-          skill={skill}
-          target={{
-            consumer,
-            workspace: "project",
-            workspaceId: workspace.id,
-          }}
-          deployment={deployment}
-          compatible={compatible}
-          workspaceLifecycle={workspace.lifecycle}
-          isPending={isPending}
-          deployLabel={
-            consumer === "claude"
-              ? t("skills.library.deployClaude")
-              : t("skills.library.deployCodex")
-          }
-          undeployLabel={
-            consumer === "claude"
-              ? t("skills.library.undeployClaude")
-              : t("skills.library.undeployCodex")
-          }
-          onApply={applyDeployment}
-        />
-        {!compatible && (
-          <span className="basis-full text-xs text-destructive">
-            {incompatibilityMessage}
-          </span>
-        )}
-      </div>
-    );
+    return {
+      skill,
+      target: { consumer, workspace: "project", workspaceId: workspace.id },
+      deployment: state?.items.find((item) => item.librarySkillId === skill.id),
+      compatible: skill.compatibility[consumer].compatible,
+      workspaceLifecycle: workspace.lifecycle,
+      isPending: pendingDeployments.has(`${skill.id}:${consumer}`),
+      deployLabel: t(
+        consumer === "claude"
+          ? "skills.library.deployClaude"
+          : "skills.library.deployCodex",
+      ),
+      undeployLabel: t(
+        consumer === "claude"
+          ? "skills.library.undeployClaude"
+          : "skills.library.undeployCodex",
+      ),
+      onApply: applyDeployment,
+    };
   };
 
   return (
@@ -331,10 +300,14 @@ function ProjectWorkspaceDeployments({
       ) : (
         <div className={workspaceSkillGridClassName}>
           {progressiveSkills.visibleItems.map((skill) => (
-            <WorkspaceSkillCard key={skill.id} skill={skill}>
-              {renderControl(skill, "claude")}
-              {renderControl(skill, "codex")}
-            </WorkspaceSkillCard>
+            <WorkspaceSkillCard
+              key={skill.id}
+              skill={skill}
+              controls={[
+                getDeploymentControl(skill, "claude"),
+                getDeploymentControl(skill, "codex"),
+              ]}
+            />
           ))}
         </div>
       )}

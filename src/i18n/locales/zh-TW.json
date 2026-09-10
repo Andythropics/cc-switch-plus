@@ -2523,10 +2523,10 @@
       "replaceForeignLinkDescription": "這只會移除部署路徑上的外部符號連結，並建立指向所選技能庫技能的連結；不會刪除外部連結所指向的內容。",
       "replaceForeignLinkConfirm": "替換連結",
       "replaceForeignLinkSuccess": "外部連結已替換",
-      "forget": "忘記記錄",
-      "forgetTitle": "要忘記部署記錄嗎？",
+      "forget": "清除部署記錄",
+      "forgetTitle": "清除部署記錄？",
       "forgetDescription": "這只會移除 CC Switch Plus 的期望部署記錄，不會刪除或變更檔案系統中的任何內容。",
-      "forgetConfirm": "忘記記錄",
+      "forgetConfirm": "清除記錄",
       "forgetSuccess": "部署記錄已忘記",
       "resolutionCancel": "取消",
       "incompatibleConsumer": "此技能與 {{consumer}} 不相容",
@@ -3371,6 +3371,23 @@
         "directory": "目錄名稱一致，已為你預選。關聯前可以更換為其他 Skill。",
         "name": "只有一個名稱相符的 Skill，已為你預選。關聯前可以更換。",
         "ambiguous": "找到多個可能相符的 Skill，已排在清單前面，請選擇正確的項目。"
+      }
+    },
+    "workspaceCard": {
+      "resolve": "處理問題",
+      "issueCount": "{{count}} 項部署異常",
+      "unavailable": "工作區無法存取",
+      "missingLink": "部署連結遺失",
+      "resolved": "所有問題已解決",
+      "guidance": {
+        "missing": "預期的連結已遺失。修復會重新建立連結，不會變更 Skill 內容。",
+        "foreign": "連結已損壞或指向其他位置。僅在此路徑應屬於目前 Skill 時取代連結；不會刪除連結指向的檔案。",
+        "occupied": "目標路徑被檔案或資料夾佔用。請先移動它或匯入其中的內容，再重試。不會覆寫現有內容。",
+        "unavailable": "無法存取工作區。請恢復存取，或在工作區設定中重新定位。",
+        "archived": "請先還原此工作區，再修復連結。清除過時記錄不會變更任何檔案。",
+        "unsupported": "目前平台不支援這些操作。請在支援的平台上處理此問題。",
+        "incompatible": "此 Skill 不符合該工具的要求。請修正下方列出的問題，然後重新整理。",
+        "inspect": "請查看下方路徑詳細資訊，修正問題後重新整理。僅在不再需要此記錄時清除它。"
       }
     }
   },

@@ -303,10 +303,12 @@ describe("GlobalSkillsPanel", () => {
   });
 
   it("keeps background reconciliation from shifting the Global view", () => {
+    const view = render(<GlobalSkillsPanel />);
+    const statusBeforeRefresh = screen.queryByRole("status")?.textContent;
     state.refreshing = true;
-    render(<GlobalSkillsPanel />);
+    view.rerender(<GlobalSkillsPanel />);
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")?.textContent).toBe(statusBeforeRefresh);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
 

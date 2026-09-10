@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import {
   WorkspaceSkillCard,
+  type WorkspaceDeploymentControl,
   workspaceSkillGridClassName,
   sourceSummary,
 } from "@/components/skills/WorkspaceSkillCard";
@@ -24,8 +25,6 @@ import {
 } from "@/components/ui/select";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
 import { GlobalSkillImportPanel } from "@/components/skills/GlobalSkillImportPanel";
-import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
-import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import {
   showSkillErrorToast,
   skillDiagnosticToastOptions,
@@ -238,57 +237,30 @@ export const GlobalSkillsPanel = forwardRef<
     openBatchUndeploy: () => setBatchOpen(true),
   }));
 
-  const renderConsumer = (
+  const getDeploymentControl = (
     skill: LibrarySkill,
     consumer: DeploymentConsumer,
-  ) => {
+  ): WorkspaceDeploymentControl => {
     const state = consumer === "claude" ? claudeQuery.data : codexQuery.data;
-    const deployment = state?.items.find(
-      (item) => item.librarySkillId === skill.id,
-    );
-    const compatible = skill.compatibility[consumer];
-    const isPending = pendingDeployments.has(`${skill.id}:${consumer}`);
-    return (
-      <div
-        key={consumer}
-        className="flex min-w-0 flex-wrap items-center gap-2"
-        data-testid={`global-deployment-${skill.id}-${consumer}`}
-      >
-        {deployment &&
-          !["in_sync", "not_deployed"].includes(deployment.status) && (
-            <DeploymentStatusBadge
-              status={deployment.status}
-              observed={deployment.observed}
-            />
-          )}
-        <DeploymentResolutionActions
-          iconToggle
-          skill={skill}
-          target={{ consumer, workspace: "global" }}
-          deployment={deployment}
-          compatible={compatible.compatible}
-          workspaceLifecycle="active"
-          isPending={isPending}
-          deployLabel={
-            consumer === "claude"
-              ? t("skills.library.deployClaude")
-              : t("skills.library.deployCodex")
-          }
-          undeployLabel={
-            consumer === "claude"
-              ? t("skills.library.undeployClaude")
-              : t("skills.library.undeployCodex")
-          }
-          onApply={applyDeployment}
-        />
-        {!compatible.compatible && (
-          <span className="basis-full text-xs text-destructive">
-            {compatible.issues.join("; ") ||
-              t("skills.library.incompatibleConsumer", { consumer })}
-          </span>
-        )}
-      </div>
-    );
+    return {
+      skill,
+      target: { consumer, workspace: "global" },
+      deployment: state?.items.find((item) => item.librarySkillId === skill.id),
+      compatible: skill.compatibility[consumer].compatible,
+      workspaceLifecycle: "active",
+      isPending: pendingDeployments.has(`${skill.id}:${consumer}`),
+      deployLabel: t(
+        consumer === "claude"
+          ? "skills.library.deployClaude"
+          : "skills.library.deployCodex",
+      ),
+      undeployLabel: t(
+        consumer === "claude"
+          ? "skills.library.undeployClaude"
+          : "skills.library.undeployCodex",
+      ),
+      onApply: applyDeployment,
+    };
   };
 
   return (
@@ -370,10 +342,14 @@ export const GlobalSkillsPanel = forwardRef<
         ) : (
           <div className={workspaceSkillGridClassName}>
             {progressiveSkills.visibleItems.map((skill) => (
-              <WorkspaceSkillCard key={skill.id} skill={skill}>
-                {renderConsumer(skill, "claude")}
-                {renderConsumer(skill, "codex")}
-              </WorkspaceSkillCard>
+              <WorkspaceSkillCard
+                key={skill.id}
+                skill={skill}
+                controls={[
+                  getDeploymentControl(skill, "claude"),
+                  getDeploymentControl(skill, "codex"),
+                ]}
+              />
             ))}
             <div className="col-span-full">
               <ProgressiveSkillListFooter
