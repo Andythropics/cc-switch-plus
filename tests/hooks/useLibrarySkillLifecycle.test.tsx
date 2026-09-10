@@ -32,7 +32,7 @@ describe("Library update and deletion hooks", () => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset());
   });
 
-  it("caches a check/stage result by Library Skill identity", async () => {
+  it("returns a check/stage result without creating an unused mirror cache", async () => {
     const result = {
       librarySkillId: "library-1",
       outcome: "update_available",
@@ -52,15 +52,15 @@ describe("Library update and deletion hooks", () => {
     });
 
     await act(async () => {
-      await hook.current.mutateAsync("library-1");
+      expect(await hook.current.mutateAsync("library-1")).toEqual(result);
     });
 
     expect(
       queryClient.getQueryData(["skills", "libraryUpdate", "library-1"]),
-    ).toEqual(result);
+    ).toBeUndefined();
   });
 
-  it("invalidates Library, deployments, and the staged check after update apply", async () => {
+  it("invalidates Library and deployments after update apply", async () => {
     apiMocks.applyLibrarySkillUpdate.mockResolvedValueOnce({
       librarySkillId: "library-1",
       outcome: "updated",
@@ -89,9 +89,7 @@ describe("Library update and deletion hooks", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "deployments"],
     });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ["skills", "libraryUpdate", "library-1"],
-    });
+
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["skills", "activity"],
     });

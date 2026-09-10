@@ -40,6 +40,7 @@ const {
   codexState: { items: [] as unknown[] },
   workspaceRows: [] as unknown[],
   queryState: {
+    projectLoading: false,
     projectError: false,
     libraryError: false,
     projectFetching: false,
@@ -93,7 +94,11 @@ const librarySkills = [librarySkill];
 
 vi.mock("@/hooks/useSkills", () => ({
   useProjectWorkspaces: () => ({
-    data: workspaceRows.length ? workspaceRows : [workspace],
+    data: queryState.projectLoading
+      ? []
+      : workspaceRows.length
+        ? workspaceRows
+        : [workspace],
     isLoading: false,
     isError: queryState.projectError,
     isFetching: queryState.projectFetching,
@@ -243,6 +248,7 @@ describe("ProjectWorkspacesPanel", () => {
     workspaceRows.length = 0;
     librarySkills.length = 0;
     librarySkills.push(librarySkill);
+    queryState.projectLoading = false;
     queryState.projectError = false;
     queryState.libraryError = false;
     queryState.projectFetching = false;
@@ -963,5 +969,20 @@ describe("ProjectWorkspacesPanel", () => {
         name: "skills.library.replaceForeignLink",
       }),
     ).not.toBeInTheDocument();
+  });
+  it("reveals an archived Activity target once its query finishes loading", () => {
+    queryState.projectLoading = true;
+    const view = render(
+      <ProjectWorkspacesPanel focusWorkspaceId={archivedWorkspace.id} />,
+    );
+    workspaceRows.push(archivedWorkspace);
+    queryState.projectLoading = false;
+    view.rerender(
+      <ProjectWorkspacesPanel focusWorkspaceId={archivedWorkspace.id} />,
+    );
+    expect(screen.getByText("Archived workspace")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.projects.hideArchived" }),
+    ).toBeInTheDocument();
   });
 });

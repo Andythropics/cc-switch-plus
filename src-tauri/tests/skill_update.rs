@@ -1419,3 +1419,190 @@ fn deletion_removes_safe_links_but_blocks_on_drifted_targets() {
         .expect("final Library removal activity");
     assert_eq!(final_row.outcome, ActivityOutcome::Blocked);
 }
+
+#[test]
+fn legacy_baseline_remains_unmodified_until_actual_content_changes() {
+    use sha2::{Digest, Sha256};
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let repository = tempfile::tempdir().unwrap();
+    let source = repository.path().join("update-check");
+    write_skill(&source, "old baseline");
+    let state = create_test_state().unwrap();
+    let mut skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source,
+        git_source(),
+        Some("update-check"),
+    )
+    .unwrap();
+    let mut hash = Sha256::new();
+    hash.update(b"SKILL.md\0file\0");
+    hash.update(fs::read(source.join("SKILL.md")).unwrap());
+    hash.update(b"\0");
+    skill.content_hash = format!("{:x}", hash.finalize());
+    state.db.update_library_skill_snapshot(&skill).unwrap();
+    let check = LibrarySkillUpdateService::check_from_repository_snapshot(
+        &state.db,
+        &skill.id,
+        repository.path(),
+    )
+    .unwrap();
+    assert_eq!(check.outcome, LibrarySkillUpdateCheckOutcome::UpToDate);
+    assert!(!check.local_modified);
+    write_skill(
+        &home.join(".cc-switch/skills/update-check"),
+        "edited locally",
+    );
+    let check = LibrarySkillUpdateService::check_from_repository_snapshot(
+        &state.db,
+        &skill.id,
+        repository.path(),
+    )
+    .unwrap();
+    assert!(check.local_modified);
+}
+
+#[test]
+fn repeated_checks_bound_stages_without_removing_recovery_evidence() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let repository = tempfile::tempdir().unwrap();
+    let source = repository.path().join("update-check");
+    write_skill(&source, "original");
+    let state = create_test_state().unwrap();
+    let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &source,
+        git_source(),
+        Some("update-check"),
+    )
+    .unwrap();
+    write_skill(&source, "upstream changed");
+    let stage_root = home.join(".cc-switch/skill-update-stages");
+    let recovery = stage_root.join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir_all(&recovery).unwrap();
+    fs::write(recovery.join("recovery-required"), b"").unwrap();
+    fs::write(recovery.join("old-snapshot"), b"irreplaceable").unwrap();
+    for _ in 0..23 {
+        let check = LibrarySkillUpdateService::stage_from_repository_snapshot(
+            &state.db,
+            &skill.id,
+            repository.path(),
+        )
+        .unwrap();
+        assert!(check.stage_token.is_some());
+    }
+    assert_eq!(
+        fs::read(recovery.join("old-snapshot")).unwrap(),
+        b"irreplaceable"
+    );
+    assert_eq!(fs::read_dir(stage_root).unwrap().count(), 2);
+}
+
+#[test]
+fn check_all_preserves_more_than_twenty_distinct_skill_stages() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let repository = tempfile::tempdir().unwrap();
+    let state = create_test_state().unwrap();
+    let mut tokens = Vec::new();
+    for index in 0..21 {
+        let directory = format!("skill-{index}");
+        let source = repository.path().join(&directory);
+        write_skill(&source, &format!("original {index}"));
+        let mut origin = git_source();
+        origin.skill_path = Some(directory.clone());
+        let skill = LibrarySkillAcquisitionService::acquire_from_directory(
+            &state.db,
+            &source,
+            origin,
+            Some(&directory),
+        )
+        .unwrap();
+        write_skill(&source, &format!("upstream {index}"));
+        let check = LibrarySkillUpdateService::stage_from_repository_snapshot(
+            &state.db,
+            &skill.id,
+            repository.path(),
+        )
+        .unwrap();
+        tokens.push(check.stage_token.unwrap());
+    }
+    for token in tokens {
+        assert!(home
+            .join(".cc-switch/skill-update-stages")
+            .join(token)
+            .join("skill/SKILL.md")
+            .is_file());
+    }
+}
+
+#[test]
+fn update_blocks_actual_duplicate_with_legacy_baseline_but_not_drifted_content() {
+    use sha2::{Digest, Sha256};
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let fixture = tempfile::tempdir().unwrap();
+    let original = fixture.path().join("original");
+    let upstream = fixture.path().join("upstream/update-check");
+    write_skill(&original, "snapshot A");
+    write_skill(&upstream, "snapshot B");
+    let state = create_test_state().unwrap();
+    let a = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &original,
+        git_source(),
+        Some("skill-a"),
+    )
+    .unwrap();
+    let mut b = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        &upstream,
+        git_source(),
+        Some("skill-b"),
+    )
+    .unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(b"SKILL.md\0file\0");
+    legacy.update(fs::read(upstream.join("SKILL.md")).unwrap());
+    legacy.update(b"\0");
+    b.content_hash = format!("{:x}", legacy.finalize());
+    state.db.update_library_skill_snapshot(&b).unwrap();
+    let check = LibrarySkillUpdateService::stage_from_repository_snapshot(
+        &state.db,
+        &a.id,
+        &fixture.path().join("upstream"),
+    )
+    .unwrap();
+    let intent = LibrarySkillUpdateApplyIntent {
+        library_skill_id: a.id.clone(),
+        stage_token: check.stage_token.unwrap(),
+        observation_token: check.observation_token,
+        confirm_local_modifications: false,
+    };
+    let blocked = LibrarySkillUpdateService::apply(&state.db, intent.clone()).unwrap();
+    assert_eq!(blocked.outcome, LibrarySkillUpdateApplyOutcome::Blocked);
+    assert_eq!(
+        blocked.reason,
+        Some(LibrarySkillUpdateReason::DuplicateContent)
+    );
+    assert_eq!(
+        fs::read(home.join(".cc-switch/skills/skill-a/SKILL.md")).unwrap(),
+        fs::read(original.join("SKILL.md")).unwrap()
+    );
+    assert!(blocked.backup_path.is_none());
+    // A matching historical digest only selects candidates; it cannot prove
+    // that their current snapshots still contain B.
+    write_skill(&home.join(".cc-switch/skills/skill-b"), "snapshot C");
+    let updated = LibrarySkillUpdateService::apply(&state.db, intent).unwrap();
+    assert_eq!(updated.outcome, LibrarySkillUpdateApplyOutcome::Updated);
+    assert_eq!(
+        fs::read(home.join(".cc-switch/skills/skill-a/SKILL.md")).unwrap(),
+        fs::read(upstream.join("SKILL.md")).unwrap()
+    );
+}

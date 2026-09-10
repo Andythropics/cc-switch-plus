@@ -1096,20 +1096,6 @@ pub fn get_effective_current_provider(
     db.get_current_provider(app_type.as_str())
 }
 
-// ===== Skill 同步方式管理函数 =====
-
-/// 获取 Skill 同步方式配置
-#[cfg(not(target_os = "macos"))]
-pub fn get_skill_sync_method() -> SyncMethod {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .skill_sync_method
-}
-
 // ===== Skill 存储位置管理函数 =====
 
 /// 获取 Skill 存储位置配置
@@ -1121,14 +1107,6 @@ pub fn get_skill_storage_location() -> SkillStorageLocation {
             e.into_inner()
         })
         .skill_storage_location
-}
-
-/// 设置 Skill 存储位置
-#[cfg(not(target_os = "macos"))]
-pub fn set_skill_storage_location(location: SkillStorageLocation) -> Result<(), AppError> {
-    mutate_settings(|s| {
-        s.skill_storage_location = location;
-    })
 }
 
 // ===== 备份策略管理函数 =====

@@ -95,8 +95,7 @@ export function SkillsMigrationGate({
   );
   const writable =
     !enabled ||
-    (!preflight.isFetching &&
-      !preflight.isError &&
+    (!preflight.isError &&
       preflight.data?.status === "not_required" &&
       preflight.data.pageMode === "writable" &&
       !deferred &&

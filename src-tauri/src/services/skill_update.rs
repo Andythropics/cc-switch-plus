@@ -255,13 +255,19 @@ impl LibrarySkillUpdateService {
         } else if upstream_hash.is_none() {
             LibrarySkillUpdateCheckOutcome::NotUpdatable
         } else if upstream_hash.as_deref() == current_hash.as_deref()
-            && upstream_hash.as_deref() == Some(skill.content_hash.as_str())
+            && LibrarySkillAcquisitionService::hash_matches_baseline(
+                &current_path,
+                &skill.content_hash,
+            )?
         {
             LibrarySkillUpdateCheckOutcome::UpToDate
         } else {
             LibrarySkillUpdateCheckOutcome::UpdateAvailable
         };
-        let local_modified = current_hash.as_deref() != Some(skill.content_hash.as_str());
+        let local_modified = !LibrarySkillAcquisitionService::hash_matches_baseline(
+            &current_path,
+            &skill.content_hash,
+        )?;
         Ok(LibrarySkillUpdateCheck {
             library_skill_id: skill.id,
             outcome,
@@ -301,7 +307,10 @@ impl LibrarySkillUpdateService {
         let impacts = Self::deployment_impacts(db, &skill, None)?;
         let observation_token =
             Self::observation_token(&skill, live_content_hash.as_deref(), None, &impacts);
-        let local_modified = live_content_hash.as_deref() != Some(skill.content_hash.as_str());
+        let local_modified = !LibrarySkillAcquisitionService::hash_matches_baseline(
+            &Self::library_path(&skill)?,
+            &skill.content_hash,
+        )?;
         Ok(LibrarySkillUpdateCheck {
             library_skill_id: skill.id,
             outcome: LibrarySkillUpdateCheckOutcome::NotUpdatable,
@@ -324,6 +333,8 @@ impl LibrarySkillUpdateService {
         library_skill_id: &str,
         repository_root: &Path,
     ) -> Result<LibrarySkillUpdateCheck> {
+        let _guard = LibrarySkillAcquisitionService::lock_for_composite()?;
+        Self::prune_stages(&Self::stage_root()?, library_skill_id)?;
         let mut inspection =
             Self::inspect_from_repository_snapshot(db, library_skill_id, repository_root)?;
         if matches!(
@@ -456,7 +467,10 @@ impl LibrarySkillUpdateService {
             recorded_content_hash: skill.content_hash.clone(),
             live_content_hash: Some(live.clone()),
             staged_content_hash: Some(metadata.content_hash),
-            local_modified: live != skill.content_hash,
+            local_modified: !LibrarySkillAcquisitionService::hash_matches_baseline(
+                &Self::library_path(skill)?,
+                &skill.content_hash,
+            )?,
             compatibility: Some(metadata.compatibility),
             affected_deployments: impacts,
             message: None,
@@ -673,7 +687,10 @@ impl LibrarySkillUpdateService {
             ));
         }
         if live_hash.as_deref() == Some(manifest.upstream_hash.as_str())
-            && live_hash.as_deref() == Some(skill.content_hash.as_str())
+            && LibrarySkillAcquisitionService::hash_matches_baseline(
+                &Self::library_path(&skill)?,
+                &skill.content_hash,
+            )?
             && manifest
                 .source
                 .as_ref()
@@ -695,8 +712,10 @@ impl LibrarySkillUpdateService {
                 None,
             ));
         }
-        if live_hash.as_deref() != Some(skill.content_hash.as_str())
-            && !intent.confirm_local_modifications
+        if !LibrarySkillAcquisitionService::hash_matches_baseline(
+            &Self::library_path(&skill)?,
+            &skill.content_hash,
+        )? && !intent.confirm_local_modifications
         {
             return Ok(Self::update_result(
                 LibrarySkillUpdateApplyOutcome::Blocked,
@@ -727,10 +746,24 @@ impl LibrarySkillUpdateService {
                 None,
             ));
         }
-        if db
-            .get_library_skill_by_content_hash(&manifest.upstream_hash)?
-            .is_some_and(|other| other.id != skill.id)
-        {
+        // A scoped update must not hash unrelated Library snapshots. Only
+        // revalidate rows whose recorded digest already matches the candidate.
+        let library = db.list_library_skills()?;
+        let legacy_candidate_hash = library
+            .iter()
+            .any(|other| other.id != skill.id && !other.content_hash.starts_with("v2:"))
+            .then(|| LibrarySkillAcquisitionService::compute_legacy_library_hash(&stage))
+            .transpose()?;
+        let duplicate = library.into_iter().any(|other| {
+            other.id != skill.id
+                && (other.content_hash == manifest.upstream_hash
+                    || legacy_candidate_hash.as_deref() == Some(other.content_hash.as_str()))
+                && Self::library_path(&other).ok().is_some_and(|path| {
+                    LibrarySkillAcquisitionService::inspect_source_directory(&path)
+                        .is_ok_and(|current| current.content_hash == manifest.upstream_hash)
+                })
+        });
+        if duplicate {
             return Ok(Self::update_result(
                 LibrarySkillUpdateApplyOutcome::Blocked,
                 &skill.id,
@@ -806,6 +839,10 @@ impl LibrarySkillUpdateService {
                 None,
             ));
         }
+        // A crash or failed compensation can leave this stage holding the old
+        // live tree. Generic stage expiry must never collect such evidence.
+        fs::write(stage_root.join("recovery-required"), b"")?;
+        fs::write(backup_root.join("recovery-required"), b"")?;
         if let Err(error) = Self::atomic_swap_dirs(&destination, &stage) {
             let cleanup = fs::remove_dir_all(&stage_root).err();
             let _ = fs::remove_dir_all(&backup_root);
@@ -847,6 +884,7 @@ impl LibrarySkillUpdateService {
         let db_result = db.update_library_skill_snapshot(&replacement);
         match db_result {
             Ok(Some(_)) => {
+                let _ = fs::remove_file(backup_root.join("recovery-required"));
                 let cleanup = fs::remove_dir_all(&stage_root).err();
                 if let Some(cleanup) = cleanup {
                     return Ok(Self::update_result(
@@ -1731,7 +1769,7 @@ impl LibrarySkillUpdateService {
     }
 
     #[cfg(target_os = "macos")]
-    fn atomic_swap_dirs(left: &Path, right: &Path) -> std::io::Result<()> {
+    pub(crate) fn atomic_swap_dirs(left: &Path, right: &Path) -> std::io::Result<()> {
         #[cfg(debug_assertions)]
         if FORCE_ATOMIC_SWAP_FAILURE.swap(false, Ordering::SeqCst) {
             return Err(std::io::Error::other(
@@ -1749,6 +1787,14 @@ impl LibrarySkillUpdateService {
         } else {
             Err(std::io::Error::last_os_error())
         }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn atomic_swap_dirs(_left: &Path, _right: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "atomic Skill replacement requires macOS",
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1844,6 +1890,33 @@ impl LibrarySkillUpdateService {
             return Err(anyhow!("upstream Skill source must be a real directory"));
         }
         Ok(candidate)
+    }
+
+    /// Replace abandoned checks for this Skill only. A Check All batch may
+    /// legitimately hold hundreds of distinct candidates until the user applies.
+    fn prune_stages(root: &Path, library_skill_id: &str) -> Result<()> {
+        for entry in fs::read_dir(root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir()
+                || entry.path().join("recovery-required").exists()
+                || Self::validate_stage_token(&entry.file_name().to_string_lossy()).is_none()
+            {
+                continue;
+            }
+            let expired = entry
+                .metadata()?
+                .modified()?
+                .elapsed()
+                .is_ok_and(|age| age.as_secs() > 86_400);
+            let superseded = fs::read(entry.path().join("manifest.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<StageManifest>(&bytes).ok())
+                .is_some_and(|manifest| manifest.library_skill_id == library_skill_id);
+            if expired || superseded {
+                fs::remove_dir_all(entry.path())?;
+            }
+        }
+        Ok(())
     }
 
     fn stage_root() -> Result<PathBuf> {

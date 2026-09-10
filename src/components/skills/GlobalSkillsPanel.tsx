@@ -218,7 +218,6 @@ export const GlobalSkillsPanel = forwardRef<
     try {
       const result = await apply.mutateAsync(batch);
       await Promise.all([
-        refreshDeployments(),
         refetchLibrary(),
         refetchProjects(),
         globalImportsQuery.refetch(),

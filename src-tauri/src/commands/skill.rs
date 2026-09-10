@@ -100,24 +100,32 @@ pub fn listSkillActivity(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectDeploymentRecovery(
+pub async fn inspectDeploymentRecovery(
     query: Option<DeploymentRecoveryQuery>,
     app_state: State<'_, AppState>,
 ) -> Result<DeploymentRecoveryInspectionResult, String> {
-    DeploymentRecoveryService::new(app_state.db.clone())
-        .inspect(query.unwrap_or_default())
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        DeploymentRecoveryService::new(db.clone())
+            .inspect(query.unwrap_or_default())
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectSkillsMigrationPreflight(
+pub async fn inspectSkillsMigrationPreflight(
     app_state: State<'_, AppState>,
 ) -> Result<SkillsMigrationPreflight, String> {
-    SkillsMigrationPreviewService::new(app_state.db.clone())
-        .inspect()
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillsMigrationPreviewService::new(db.clone())
+            .inspect()
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
@@ -145,13 +153,17 @@ pub(crate) async fn inspect_latest_skills_migration_report(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn acknowledgeSkillsMigrationReport(
+pub async fn acknowledgeSkillsMigrationReport(
     runId: String,
     app_state: State<'_, AppState>,
 ) -> Result<SkillsMigrationReport, String> {
-    SkillsMigrationExecutionService::new(app_state.db.clone())
-        .acknowledge_report(SkillsMigrationReportAckIntent { run_id: runId })
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillsMigrationExecutionService::new(db.clone())
+            .acknowledge_report(SkillsMigrationReportAckIntent { run_id: runId })
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
@@ -194,109 +206,145 @@ pub fn revealSkillsMigrationPlanItem(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn applySkillsMigration(
+pub async fn applySkillsMigration(
     intent: SkillsMigrationIntent,
     app_state: State<'_, AppState>,
 ) -> Result<SkillsMigrationExecutionResult, String> {
-    SkillsMigrationExecutionService::new(app_state.db.clone())
-        .start(intent)
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillsMigrationExecutionService::new(db.clone())
+            .start(intent)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn resumeSkillsMigration(
+pub async fn resumeSkillsMigration(
     app_state: State<'_, AppState>,
 ) -> Result<SkillsMigrationExecutionResult, String> {
-    SkillsMigrationExecutionService::new(app_state.db.clone())
-        .resume()
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillsMigrationExecutionService::new(db.clone())
+            .resume()
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn restoreSkillsMigrationBackup(
+pub async fn restoreSkillsMigrationBackup(
     backupId: String,
     app_state: State<'_, AppState>,
 ) -> Result<SkillsMigrationExecutionResult, String> {
-    SkillsMigrationExecutionService::new(app_state.db.clone())
-        .restore(SkillsMigrationRestoreIntent {
-            backup_id: backupId,
-        })
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillsMigrationExecutionService::new(db.clone())
+            .restore(SkillsMigrationRestoreIntent {
+                backup_id: backupId,
+            })
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectSkillDeployments(
+pub async fn inspectSkillDeployments(
     query: Option<DeploymentQuery>,
     app_state: State<'_, AppState>,
 ) -> Result<DeploymentInspectionResult, String> {
-    SkillDeploymentService::new(app_state.db.clone())
-        .inspect(query.unwrap_or_default())
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillDeploymentService::new(db.clone())
+            .inspect(query.unwrap_or_default())
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn applySkillDeployments(
+pub async fn applySkillDeployments(
     batch: DeploymentBatch,
     app_state: State<'_, AppState>,
 ) -> Result<DeploymentBatchResult, String> {
-    SkillDeploymentService::new(app_state.db.clone())
-        .apply(batch)
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        SkillDeploymentService::new(db.clone())
+            .apply(batch)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectProjectSkillImports(
+pub async fn inspectProjectSkillImports(
     workspaceId: String,
     app_state: State<'_, AppState>,
 ) -> Result<ProjectSkillImportInspection, String> {
-    ProjectSkillImportService::new(app_state.db.clone())
-        .inspect(&workspaceId)
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        ProjectSkillImportService::new(db.clone())
+            .inspect(&workspaceId)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn applyProjectSkillImport(
+pub async fn applyProjectSkillImport(
     intent: ProjectSkillImportIntent,
     app_state: State<'_, AppState>,
 ) -> Result<ProjectSkillImportResult, String> {
-    ProjectSkillImportService::new(app_state.db.clone())
-        .apply(intent)
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        ProjectSkillImportService::new(db.clone())
+            .apply(intent)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectGlobalSkillImports(
+pub async fn inspectGlobalSkillImports(
     app_state: State<'_, AppState>,
 ) -> Result<GlobalSkillImportInspection, String> {
-    GlobalSkillImportService::new(app_state.db.clone())
-        .inspect()
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        GlobalSkillImportService::new(db.clone())
+            .inspect()
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn applyGlobalSkillImport(
+pub async fn applyGlobalSkillImport(
     intent: GlobalSkillImportIntent,
     app_state: State<'_, AppState>,
 ) -> Result<GlobalSkillImportResult, String> {
-    GlobalSkillImportService::new(app_state.db.clone())
-        .apply(intent)
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        GlobalSkillImportService::new(db.clone())
+            .apply(intent)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
@@ -321,17 +369,21 @@ pub async fn acquireLibrarySkill(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn acquireLibrarySkillsFromZip(
+pub async fn acquireLibrarySkillsFromZip(
     file_path: String,
     directory_names: HashMap<String, String>,
     app_state: State<'_, AppState>,
 ) -> Result<Vec<LibrarySkill>, String> {
-    LibrarySkillAcquisitionService::acquire_from_zip(
-        &app_state.db,
-        std::path::Path::new(&file_path),
-        &directory_names,
-    )
-    .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        LibrarySkillAcquisitionService::acquire_from_zip(
+            &db,
+            std::path::Path::new(&file_path),
+            &directory_names,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
@@ -400,32 +452,44 @@ pub async fn checkLibrarySkillUpdate(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn applyLibrarySkillUpdate(
+pub async fn applyLibrarySkillUpdate(
     intent: LibrarySkillUpdateApplyIntent,
     app_state: State<'_, AppState>,
 ) -> Result<LibrarySkillUpdateResult, String> {
-    LibrarySkillUpdateService::apply(&app_state.db, intent).map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        LibrarySkillUpdateService::apply(&db, intent).map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn inspectLibrarySkillDeletion(
+pub async fn inspectLibrarySkillDeletion(
     librarySkillId: String,
     app_state: State<'_, AppState>,
 ) -> Result<LibrarySkillDeletionInspection, String> {
-    LibrarySkillUpdateService::inspect_deletion(&app_state.db, &librarySkillId)
-        .map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        LibrarySkillUpdateService::inspect_deletion(&db, &librarySkillId)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn deleteLibrarySkill(
+pub async fn deleteLibrarySkill(
     intent: LibrarySkillDeletionIntent,
     app_state: State<'_, AppState>,
 ) -> Result<LibrarySkillDeletionResult, String> {
-    LibrarySkillUpdateService::delete(&app_state.db, intent).map_err(|error| error.to_string())
+    let db = app_state.db.clone();
+    run_skills_blocking(move || {
+        LibrarySkillUpdateService::delete(&db, intent).map_err(|error| error.to_string())
+    })
+    .await
 }
 
 // ========== 发现功能命令 ==========
@@ -551,4 +615,14 @@ pub async fn linkLibrarySkillSource(
     crate::services::external_skills::ExternalSkillService::link_source(&app_state.db, intent)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Keep filesystem traversal, copying and synchronous database work off the UI thread.
+#[cfg(target_os = "macos")]
+pub(crate) async fn run_skills_blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("Skills task failed: {error}"))?
 }

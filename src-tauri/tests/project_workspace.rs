@@ -225,11 +225,24 @@ fn project_deployment_lazily_creates_absolute_links_and_precise_git_excludes() {
             .is_dir()
     );
     let exclude = repository.path().join(".git/info/exclude");
-    let marker = "/.claude/skills/review-skill # cc-switch managed";
+    let marker = "/.claude/skills/review-skill";
     let content = fs::read_to_string(&exclude).expect("read local Git exclude");
     assert_eq!(content.lines().filter(|line| *line == marker).count(), 1);
     assert!(!repository.path().join(".gitignore").exists());
+    let ignored = Command::new("git")
+        .args(["check-ignore", "--no-index", ".claude/skills/review-skill"])
+        .current_dir(repository.path())
+        .status()
+        .expect("check actual exclude behavior");
+    assert!(ignored.success());
 
+    // Upgrade the exact malformed rule written by older releases, even when
+    // the deployment link itself is already healthy.
+    fs::write(
+        &exclude,
+        "# user rule\nkeep-me\n/.claude/skills/review-skill # cc-switch managed\n",
+    )
+    .unwrap();
     let repeated = deployment
         .apply(DeploymentBatch::single(DeploymentIntent::Deploy {
             library_skill_id: skill.id.clone(),
@@ -241,6 +254,14 @@ fn project_deployment_lazily_creates_absolute_links_and_precise_git_excludes() {
         DeploymentMutationOutcome::AlreadyInSync
     );
     let content = fs::read_to_string(&exclude).expect("read repeated Git exclude");
+    assert!(content.contains("# user rule\nkeep-me\n"));
+    assert!(!content.contains("review-skill # cc-switch managed"));
+    assert!(Command::new("git")
+        .args(["check-ignore", "--no-index", ".claude/skills/review-skill"])
+        .current_dir(repository.path())
+        .status()
+        .unwrap()
+        .success());
     assert_eq!(content.lines().filter(|line| *line == marker).count(), 1);
 
     let removed = deployment
@@ -891,4 +912,87 @@ fn init_git_with_commit(directory: &std::path::Path, content: &str) {
     fs::write(directory.join("README.md"), content).expect("write repository content");
     run_git(directory, &["add", "README.md"]);
     run_git(directory, &["commit", "--quiet", "-m", "initial"]);
+}
+
+#[test]
+fn git_history_changes_do_not_change_workspace_identity() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let repository = tempfile::tempdir().unwrap();
+    run_git(repository.path(), &["init", "--quiet"]);
+    let state = create_test_state().unwrap();
+    let service = ProjectWorkspaceService::new(state.db.clone());
+    let original = service.register(repository.path(), None).unwrap().workspace;
+    run_git(
+        repository.path(),
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "first",
+        ],
+    );
+    assert_eq!(
+        service.get(&original.id).unwrap().unwrap().lifecycle,
+        WorkspaceLifecycle::Active
+    );
+    run_git(
+        repository.path(),
+        &["checkout", "--orphan", "independent-history"],
+    );
+    run_git(
+        repository.path(),
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "orphan",
+        ],
+    );
+    let current = service.get(&original.id).unwrap().unwrap();
+    assert_eq!(current.lifecycle, WorkspaceLifecycle::Active);
+    assert_eq!(
+        current.registration_fingerprint,
+        original.registration_fingerprint
+    );
+}
+
+#[test]
+fn workspace_recovers_when_the_same_directory_returns() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("project");
+    let away = parent.path().join("away");
+    fs::create_dir(&root).unwrap();
+    let state = create_test_state().unwrap();
+    let service = ProjectWorkspaceService::new(state.db.clone());
+    let original = service.register(&root, None).unwrap().workspace;
+    fs::rename(&root, &away).unwrap();
+    assert_eq!(
+        service.get(&original.id).unwrap().unwrap().lifecycle,
+        WorkspaceLifecycle::Unavailable
+    );
+    fs::rename(&away, &root).unwrap();
+    assert_eq!(
+        service.get(&original.id).unwrap().unwrap().lifecycle,
+        WorkspaceLifecycle::Active
+    );
+    assert_eq!(
+        state
+            .db
+            .get_project_workspace(&original.id)
+            .unwrap()
+            .unwrap()
+            .lifecycle,
+        WorkspaceLifecycle::Active
+    );
 }

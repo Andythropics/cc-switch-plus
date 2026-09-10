@@ -420,6 +420,7 @@ impl std::error::Error for RecoverableAdmissionError {}
 fn recoverable_admission_error(message: impl Into<String>, backup_root: &Path) -> anyhow::Error {
     let message = message.into();
     if backup_root.is_dir() {
+        let _ = fs::write(backup_root.join("recovery-required"), b"");
         anyhow::Error::new(RecoverableAdmissionError {
             message,
             backup_path: backup_root.to_path_buf(),
@@ -430,6 +431,13 @@ fn recoverable_admission_error(message: impl Into<String>, backup_root: &Path) -
 }
 
 impl ImportAdmission {
+    fn matches_content(&self, expected: &str) -> bool {
+        LibrarySkillAcquisitionService::inspect_source_directory(
+            &LibrarySkillAcquisitionService::library_directory_path().join(&self.skill().directory),
+        )
+        .is_ok_and(|current| current.content_hash == expected)
+    }
+
     fn skill(&self) -> &crate::services::skill::LibrarySkill {
         match self {
             Self::Existing(skill) | Self::Created(skill) | Self::Replaced { skill, .. } => skill,
@@ -474,6 +482,9 @@ impl ImportAdmission {
         // Replaced snapshots keep their old contents under the managed
         // backup root so a future recovery can restore the previous version.
         // The rolling retention pass removes old roots before a new backup.
+        if let Self::Replaced { backup_root, .. } = self {
+            let _ = fs::remove_file(backup_root.join("recovery-required"));
+        }
     }
 
     fn backup_path(&self) -> Option<String> {
@@ -483,6 +494,10 @@ impl ImportAdmission {
         }
     }
 }
+
+#[cfg(debug_assertions)]
+static FORCE_IMPORT_RESTORE_FAILURE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub struct ProjectSkillImportService {
     db: Arc<Database>,
@@ -502,6 +517,12 @@ impl ImportAdmissionService {
 }
 
 impl ProjectSkillImportService {
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn fail_next_snapshot_restore_for_test() {
+        FORCE_IMPORT_RESTORE_FAILURE.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     pub fn new(db: Arc<Database>) -> Self {
         Self { db }
     }
@@ -672,7 +693,7 @@ impl ProjectSkillImportService {
         };
         let source_changed = match (record.content_hash.as_deref(), fresh_source) {
             (Some(expected), Ok(actual)) => {
-                actual.content_hash != expected || admission.skill().content_hash != expected
+                actual.content_hash != expected || !admission.matches_content(expected)
             }
             _ => true,
         };
@@ -833,7 +854,12 @@ impl ImportAdmissionService {
                 let Some(hash) = record.content_hash() else {
                     return Err(anyhow!("source content is not valid"));
                 };
-                if existing.content_hash != hash {
+                if !LibrarySkillAcquisitionService::inspect_source_directory(
+                    &LibrarySkillAcquisitionService::library_directory_path()
+                        .join(&existing.directory),
+                )
+                .is_ok_and(|current| current.content_hash == hash)
+                {
                     return Err(anyhow!(
                         "reuse requires an identical Library Skill content hash"
                     ));
@@ -845,10 +871,10 @@ impl ImportAdmissionService {
                 display_name,
             } => {
                 let directory = validate_import_directory(directory)?;
-                if let Some(existing) = self
-                    .db
-                    .get_library_skill_by_content_hash(record.content_hash().unwrap_or(""))?
-                {
+                if let Some(existing) = LibrarySkillAcquisitionService::find_identical_skill(
+                    &self.db,
+                    record.content_hash().unwrap_or(""),
+                )? {
                     return Ok(ImportAdmission::Existing(existing));
                 }
                 if self
@@ -1011,56 +1037,36 @@ impl ImportAdmissionService {
                 ));
             }
         }
-        if let Err(error) = fs::rename(&destination, &old_staging) {
-            let cleanup = fs::remove_dir_all(&staging).err();
-            let backup_cleanup = fs::remove_dir_all(&backup_root).err();
-            return match (cleanup, backup_cleanup) {
-                (Some(cleanup), Some(backup)) => Err(anyhow!(
-                    "Library snapshot swap failed ({error}); staging cleanup failed ({cleanup}); backup cleanup failed ({backup})"
-                )),
-                (Some(cleanup), None) => Err(anyhow!(
-                    "Library snapshot swap failed ({error}); staging cleanup failed ({cleanup})"
-                )),
-                (None, Some(backup)) => Err(anyhow!(
-                    "Library snapshot swap failed ({error}); backup cleanup failed ({backup})"
-                )),
-                (None, None) => Err(error.into()),
-            };
+        // Preserve a recovery snapshot before the atomic exchange. Deployed links
+        // always see either complete tree, including if the process exits.
+        let old_hash = LibrarySkillAcquisitionService::compute_library_hash(&destination)?;
+        let swap = (|| -> Result<()> {
+            LibrarySkillAcquisitionService::copy_tree_preserving_links(&destination, &old_staging)?;
+            if LibrarySkillAcquisitionService::compute_library_hash(&old_staging)? != old_hash
+                || LibrarySkillAcquisitionService::compute_library_hash(&destination)? != old_hash
+            {
+                return Err(anyhow!("Library changed while backing up replacement"));
+            }
+            fs::write(backup_root.join("recovery-required"), b"")?;
+            crate::services::skill_update::LibrarySkillUpdateService::atomic_swap_dirs(
+                &destination,
+                &staging,
+            )?;
+            Ok(())
+        })();
+        if let Err(error) = swap {
+            let cleanup = cleanup_paths(&[&staging, &backup_root]);
+            return Err(anyhow!(
+                "Library snapshot swap failed ({error}); cleanup: {}",
+                cleanup.join("; ")
+            ));
         }
-        if let Err(error) = fs::rename(&staging, &destination) {
-            let restore = fs::rename(&old_staging, &destination).err();
-            let cleanup = fs::remove_dir_all(&staging).err();
-            let backup_cleanup = if restore.is_none() {
-                fs::remove_dir_all(&backup_root).err()
-            } else {
-                None
-            };
-            return match (restore, cleanup, backup_cleanup) {
-                (Some(restore), Some(cleanup), _) => Err(
-                    recoverable_admission_error(
-                        format!(
-                            "Library snapshot swap failed ({error}); restore failed ({restore}); staging cleanup failed ({cleanup})"
-                        ),
-                        &backup_root,
-                    )
-                ),
-                (Some(restore), None, _) => Err(
-                    recoverable_admission_error(
-                        format!("Library snapshot swap failed ({error}); restore failed ({restore})"),
-                        &backup_root,
-                    )
-                ),
-                (None, Some(cleanup), Some(backup)) => Err(anyhow!(
-                    "Library snapshot swap failed ({error}); staging cleanup failed ({cleanup}); backup cleanup failed ({backup})"
-                )),
-                (None, Some(cleanup), None) => Err(anyhow!(
-                    "Library snapshot swap failed ({error}); staging cleanup failed ({cleanup})"
-                )),
-                (None, None, Some(backup)) => Err(anyhow!(
-                    "Library snapshot swap failed ({error}); backup cleanup failed ({backup})"
-                )),
-                (None, None, None) => Err(error.into()),
-            };
+        // staging now contains the old tree; the independent backup remains.
+        if let Err(error) = fs::remove_dir_all(&staging) {
+            log::warn!(
+                "old Library staging cleanup failed at {}: {error}",
+                staging.display()
+            );
         }
         let mut replacement = existing.clone();
         replacement.display_name = metadata.display_name;
@@ -1074,7 +1080,11 @@ impl ImportAdmissionService {
             Ok(None) => {
                 let restore =
                     restore_library_snapshot(&destination, &old_staging, &rollback_staging);
-                let cleanup = fs::remove_dir_all(&backup_root).err();
+                let cleanup = if restore.is_ok() {
+                    fs::remove_dir_all(&backup_root).err()
+                } else {
+                    None
+                };
                 return match (restore, cleanup) {
                     (Err(restore), _) => Err(
                         recoverable_admission_error(
@@ -1098,7 +1108,11 @@ impl ImportAdmissionService {
             Err(error) => {
                 let restore =
                     restore_library_snapshot(&destination, &old_staging, &rollback_staging);
-                let cleanup = fs::remove_dir_all(&backup_root).err();
+                let cleanup = if restore.is_ok() {
+                    fs::remove_dir_all(&backup_root).err()
+                } else {
+                    None
+                };
                 return match (restore, cleanup) {
                     (Err(restore), _) => Err(
                         recoverable_admission_error(
@@ -1202,7 +1216,7 @@ impl ImportAdmissionService {
                 destination,
                 old_staging,
                 rollback_staging,
-                backup_root: _,
+                backup_root,
                 ..
             } => {
                 // Keep the newly admitted snapshot in rollback_staging until
@@ -1222,6 +1236,7 @@ impl ImportAdmissionService {
                                 "Library snapshot rollback persisted but backup cleanup failed ({error}); old snapshot remains active"
                             ));
                         }
+                        let _ = fs::remove_file(backup_root.join("recovery-required"));
                         Ok(())
                     }
                     Ok(None) => {
@@ -1460,7 +1475,7 @@ impl ProjectSkillImportService {
         }
         let source = LibrarySkillAcquisitionService::inspect_source_directory(&record.source)?;
         if record.content_hash.as_deref() != Some(source.content_hash.as_str())
-            || admission.skill().content_hash != source.content_hash
+            || !admission.matches_content(&source.content_hash)
         {
             return Err(anyhow!("project Skill content hash changed"));
         }
@@ -1618,7 +1633,9 @@ impl ProjectSkillImportService {
         directory: &str,
     ) -> Result<ProjectSkillImportLibraryMatch> {
         if let Some(hash) = content_hash {
-            if let Some(skill) = self.db.get_library_skill_by_content_hash(hash)? {
+            if let Some(skill) =
+                LibrarySkillAcquisitionService::find_identical_skill(&self.db, hash)?
+            {
                 return Ok(ProjectSkillImportLibraryMatch::Identical {
                     library_skill_id: skill.id,
                     display_name: Some(skill.display_name),
@@ -1863,7 +1880,38 @@ impl GlobalSkillImportService {
                     }
                 };
                 let admission = ProjectSkillImportService::new(self.db.clone());
-                let library_match = admission.library_match(content_hash.as_deref(), &directory)?;
+                let library_match = if scope.is_some() {
+                    // Scoped CLI review already binds one Library identity.
+                    // Revalidation must not rebuild the global matching matrix.
+                    match self.db.get_library_skill_by_directory(&directory)? {
+                        Some(skill) => {
+                            let identical =
+                                LibrarySkillAcquisitionService::inspect_source_directory(
+                                    &LibrarySkillAcquisitionService::library_directory_path()
+                                        .join(&skill.directory),
+                                )
+                                .is_ok_and(|current| {
+                                    content_hash.as_deref() == Some(current.content_hash.as_str())
+                                });
+                            if identical {
+                                ProjectSkillImportLibraryMatch::Identical {
+                                    library_skill_id: skill.id,
+                                    display_name: Some(skill.display_name),
+                                    directory: Some(skill.directory),
+                                }
+                            } else {
+                                ProjectSkillImportLibraryMatch::Different {
+                                    library_skill_id: skill.id,
+                                    display_name: Some(skill.display_name),
+                                    directory: Some(skill.directory),
+                                }
+                            }
+                        }
+                        None => ProjectSkillImportLibraryMatch::None,
+                    }
+                } else {
+                    admission.library_match(content_hash.as_deref(), &directory)?
+                };
                 let directory_collision = admission.directory_collision(&directory)?;
                 let mut reason = None;
                 if validation.status != ProjectSkillImportValidationStatus::Valid
@@ -2025,7 +2073,7 @@ impl GlobalSkillImportService {
             });
         let source_changed = match (record.content_hash.as_deref(), fresh_source) {
             (Some(expected), Some(actual)) => {
-                actual.content_hash != expected || admission.skill().content_hash != expected
+                actual.content_hash != expected || !admission.matches_content(expected)
             }
             _ => true,
         };
@@ -2299,7 +2347,7 @@ impl GlobalSkillImportService {
         }
         let source = LibrarySkillAcquisitionService::inspect_source_directory(&record.source)?;
         if record.content_hash.as_deref() != Some(source.content_hash.as_str())
-            || admission.skill().content_hash != source.content_hash
+            || !admission.matches_content(&source.content_hash)
         {
             return Err(anyhow!("Global Skill content hash changed"));
         }
@@ -2421,6 +2469,9 @@ impl ProjectSkillImportResult {
         message: impl Into<String>,
         backup: Option<String>,
     ) -> Self {
+        if let Some(path) = &backup {
+            let _ = fs::write(Path::new(path).join("recovery-required"), b"");
+        }
         Self {
             finding_id: finding_id.to_string(),
             outcome: ProjectSkillImportOutcome::RecoveryRequired,
@@ -2462,6 +2513,10 @@ impl ProjectSkillImportResult {
         backup: Option<String>,
         admission: &ImportAdmission,
     ) -> Self {
+        let backup = backup.or_else(|| admission.backup_path());
+        if let Some(path) = &backup {
+            let _ = fs::write(Path::new(path).join("recovery-required"), b"");
+        }
         Self {
             finding_id: finding_id.to_string(),
             outcome: ProjectSkillImportOutcome::RecoveryRequired,
@@ -2469,7 +2524,7 @@ impl ProjectSkillImportResult {
             directory: Some(admission.skill().directory.clone()),
             reason: None,
             message: Some(message.into()),
-            backup_path: backup.or_else(|| admission.backup_path()),
+            backup_path: backup,
         }
     }
 }
@@ -2571,8 +2626,7 @@ pub(crate) fn prune_backup_roots(parent: &Path) -> Result<()> {
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| {
             let metadata = entry.metadata().ok()?;
-            metadata
-                .is_dir()
+            (metadata.is_dir() && !entry.path().join("recovery-required").exists())
                 .then_some((metadata.modified().ok(), entry.path()))
         })
         .collect::<Vec<_>>();
@@ -2589,17 +2643,22 @@ fn restore_library_snapshot(
     old_staging: &Path,
     rollback_staging: &Path,
 ) -> Result<()> {
-    if destination.exists() || destination.symlink_metadata().is_ok() {
-        fs::rename(destination, rollback_staging)?;
+    #[cfg(debug_assertions)]
+    if FORCE_IMPORT_RESTORE_FAILURE.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        return Err(anyhow!("injected Library restore failure"));
     }
-    if let Err(error) = fs::rename(old_staging, destination) {
-        let restore = fs::rename(rollback_staging, destination).err();
-        return Err(match restore {
-            Some(restore) => anyhow!(
-                "Library snapshot restore failed ({error}); new snapshot restore failed ({restore})"
-            ),
-            None => error.into(),
-        });
+    crate::services::skill_update::LibrarySkillUpdateService::atomic_swap_dirs(
+        destination,
+        old_staging,
+    )?;
+    if let Err(error) = fs::rename(old_staging, rollback_staging) {
+        let restore = crate::services::skill_update::LibrarySkillUpdateService::atomic_swap_dirs(
+            destination,
+            old_staging,
+        );
+        return Err(anyhow!(
+            "stage restored snapshot failed ({error}); reverse exchange: {restore:?}"
+        ));
     }
     Ok(())
 }
@@ -2613,16 +2672,11 @@ fn restore_new_snapshot(
     rollback_staging: &Path,
     old_staging: &Path,
 ) -> Result<()> {
-    fs::rename(destination, old_staging)?;
-    if let Err(error) = fs::rename(rollback_staging, destination) {
-        let restore = fs::rename(old_staging, destination).err();
-        return Err(match restore {
-            Some(restore) => anyhow!(
-                "new Library snapshot restore failed ({error}); old snapshot restore failed ({restore})"
-            ),
-            None => error.into(),
-        });
-    }
+    crate::services::skill_update::LibrarySkillUpdateService::atomic_swap_dirs(
+        destination,
+        rollback_staging,
+    )?;
+    fs::rename(rollback_staging, old_staging)?;
     Ok(())
 }
 

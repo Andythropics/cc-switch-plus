@@ -695,7 +695,7 @@ fn add_legacy_evidence(
                 }
             };
             let (action, reason, to_location) = match library {
-                Some(library) if library.content_hash == observed.content_hash => (
+                Some(library) if crate::services::skill::LibrarySkillAcquisitionService::inspect_source_directory(&get_app_config_dir().join("skills").join(&library.directory)).is_ok_and(|live| live.content_hash == observed.content_hash) => (
                     SkillsMigrationAction::ReuseLibrary,
                     SkillsMigrationReason::AlreadyInLibrary,
                     Some(display_path(
@@ -1317,7 +1317,7 @@ fn classify_library_path(skill: &LibrarySkill, path: &Path) -> SkillsMigrationIn
             match crate::services::skill::LibrarySkillAcquisitionService::inspect_source_directory(
                 path,
             ) {
-                Ok(observed) if observed.content_hash == skill.content_hash => {
+                Ok(_) if crate::services::skill::LibrarySkillAcquisitionService::hash_matches_baseline(path, &skill.content_hash).unwrap_or(false) => {
                     SkillsMigrationInventoryState::Present
                 }
                 Ok(_) => SkillsMigrationInventoryState::Invalid,

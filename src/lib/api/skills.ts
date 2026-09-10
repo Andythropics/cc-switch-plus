@@ -98,19 +98,6 @@ export interface SkillActivityTarget {
   workspaceKind?: WorkspaceKind;
 }
 
-/** Skill 应用启用状态 */
-export interface SkillApps {
-  claude: boolean;
-  "claude-desktop"?: boolean;
-  codex: boolean;
-  gemini: boolean;
-  grokbuild?: boolean;
-  opencode: boolean;
-  openclaw: boolean;
-  hermes: boolean;
-  pi: boolean;
-}
-
 export interface SkillActivityBatch {
   batchId: string;
   itemIndex: number;

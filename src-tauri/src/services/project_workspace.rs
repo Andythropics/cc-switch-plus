@@ -156,6 +156,8 @@ impl ProjectWorkspaceService {
         selected_path: &Path,
         display_name: Option<String>,
     ) -> Result<WorkspaceRegistration> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         let result = (|| {
             Self::ensure_supported_platform()?;
             let scan = Self::scan_path(selected_path)?;
@@ -226,6 +228,8 @@ impl ProjectWorkspaceService {
     /// response is returned, so the API and future mutations observe the same
     /// lifecycle state.
     pub fn list(&self, include_archived: bool) -> Result<Vec<ProjectWorkspace>> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         Self::ensure_supported_platform()?;
         let workspaces = self.refresh_unavailable(self.db.list_project_workspaces()?)?;
         Ok(workspaces
@@ -237,6 +241,12 @@ impl ProjectWorkspaceService {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<ProjectWorkspace>> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
+        self.get_unlocked(id)
+    }
+
+    fn get_unlocked(&self, id: &str) -> Result<Option<ProjectWorkspace>> {
         Self::ensure_supported_platform()?;
         Ok(self
             .db
@@ -249,10 +259,12 @@ impl ProjectWorkspaceService {
     /// Rename a Workspace display label without changing its physical
     /// identity or any project content.
     pub fn rename(&self, id: &str, display_name: String) -> Result<ProjectWorkspace> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         let result = (|| {
             Self::ensure_supported_platform()?;
             let mut workspace = self
-                .get(id)?
+                .get_unlocked(id)?
                 .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
             let display_name = display_name.trim();
             if display_name.is_empty() {
@@ -271,10 +283,12 @@ impl ProjectWorkspaceService {
     /// metadata-only: links, project files, and local Git excludes are left
     /// exactly as they are.
     pub fn archive(&self, id: &str) -> Result<ProjectWorkspace> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         let result = (|| {
             Self::ensure_supported_platform()?;
             let mut workspace = self
-                .get(id)?
+                .get_unlocked(id)?
                 .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
             match workspace.lifecycle {
                 WorkspaceLifecycle::Active | WorkspaceLifecycle::Unavailable => {
@@ -299,10 +313,12 @@ impl ProjectWorkspaceService {
     /// returns Active; if the project remains away, the identity is restored
     /// as Unavailable and can later be relocated.
     pub fn restore(&self, id: &str) -> Result<ProjectWorkspace> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         let result = (|| {
             Self::ensure_supported_platform()?;
             let mut workspace = self
-                .get(id)?
+                .get_unlocked(id)?
                 .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
             if workspace.lifecycle != WorkspaceLifecycle::Archived {
                 return Err(workspace_blocked(
@@ -331,6 +347,8 @@ impl ProjectWorkspaceService {
     /// register the candidate as a distinct Workspace. A reappeared old root
     /// always follows the structured distinct-registration outcome.
     pub fn relocate(&self, id: &str, new_path: &Path) -> Result<WorkspaceRelocation> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         let result = self.relocate_inner(id, new_path);
         self.record_workspace_result(ActivityReason::Relocate, Some(id.to_string()), &result);
         result
@@ -339,7 +357,7 @@ impl ProjectWorkspaceService {
     fn relocate_inner(&self, id: &str, new_path: &Path) -> Result<WorkspaceRelocation> {
         Self::ensure_supported_platform()?;
         let workspace = self
-            .get(id)?
+            .get_unlocked(id)?
             .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
         if workspace.lifecycle != WorkspaceLifecycle::Unavailable {
             return Err(workspace_blocked(
@@ -377,9 +395,11 @@ impl ProjectWorkspaceService {
                 ActivityDetailCode::ValidationFailure,
             ));
         }
-        if workspace.registration_fingerprint.is_empty()
-            || candidate_fingerprint != workspace.registration_fingerprint
-        {
+        if !fingerprint_matches(
+            &workspace.registration_fingerprint,
+            &scan.canonical_root,
+            scan.root_kind,
+        )? {
             return Err(workspace_blocked(
                 "Project Workspace replacement does not match the registered repository identity",
                 ActivityDetailCode::ValidationFailure,
@@ -404,10 +424,12 @@ impl ProjectWorkspaceService {
     /// performed, so project content and any surviving unmanaged/managed links
     /// remain untouched for explicit Deployment actions.
     pub fn forget(&self, id: &str) -> Result<bool> {
+        let _guard =
+            crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()?;
         let result = (|| {
             Self::ensure_supported_platform()?;
             let workspace = self
-                .get(id)?
+                .get_unlocked(id)?
                 .ok_or_else(|| anyhow!("Project Workspace not found: {id}"))?;
             if workspace.lifecycle != WorkspaceLifecycle::Archived {
                 return Err(workspace_blocked(
@@ -456,10 +478,18 @@ impl ProjectWorkspaceService {
     ) -> Result<Vec<ProjectWorkspace>> {
         let mut refreshed = Vec::with_capacity(workspaces.len());
         for mut workspace in workspaces {
-            if workspace.lifecycle == WorkspaceLifecycle::Active
-                && !workspace_root_matches_identity(&workspace)?
+            let lifecycle = observed_workspace_lifecycle(&workspace)?;
+            let old_fingerprint = workspace.registration_fingerprint.clone();
+            if lifecycle != WorkspaceLifecycle::Unavailable
+                && workspace_root_matches_identity(&workspace)?
             {
-                workspace.lifecycle = WorkspaceLifecycle::Unavailable;
+                workspace.registration_fingerprint =
+                    registration_fingerprint_for_root(&workspace.root_path, workspace.root_kind)?;
+            }
+            if workspace.lifecycle != lifecycle
+                || old_fingerprint != workspace.registration_fingerprint
+            {
+                workspace.lifecycle = lifecycle;
                 workspace.updated_at = Utc::now().timestamp();
                 self.db.update_project_workspace(&workspace)?;
                 self.record_workspace_activity(
@@ -601,13 +631,31 @@ fn path_node_exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
-/// Derive a stable identity marker for a canonical project root. The
-/// device/inode pair protects against treating a clone or copied directory as
-/// the same Workspace, while Git roots additionally use immutable repository
-/// history and the linked-worktree admin path (relative to the shared Git
-/// directory). A rename or `git worktree move` preserves the filesystem object
-/// identity, while ordinary commits do not change the root-commit set.
+/// Physical root and Git administration directories identify a Workspace;
+/// commits and refs are mutable content, not identity.
 pub(crate) fn registration_fingerprint_for_root(
+    root: &Path,
+    root_kind: WorkspaceRootKind,
+) -> Result<String> {
+    let metadata = fs::metadata(root)?;
+    if root_kind == WorkspaceRootKind::NonGit {
+        return Ok(format!("non_git:v2:{}:{}", metadata.dev(), metadata.ino()));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(metadata.dev().to_le_bytes());
+    hasher.update(metadata.ino().to_le_bytes());
+    for flag in ["--git-common-dir", "--git-dir"] {
+        let directory = canonical_git_path(root, &git_output(root, &["rev-parse", flag])?)?;
+        let metadata = fs::metadata(directory)?;
+        hasher.update(metadata.dev().to_le_bytes());
+        hasher.update(metadata.ino().to_le_bytes());
+    }
+    Ok(format!("git:v3:{:x}", hasher.finalize()))
+}
+
+// Used only to verify and upgrade persisted v2 identities. Never mint a new
+// history-dependent identity. Failed verification remains fail-closed.
+fn legacy_registration_fingerprint_for_root(
     root: &Path,
     root_kind: WorkspaceRootKind,
 ) -> Result<String> {
@@ -695,7 +743,7 @@ pub(crate) fn project_target_root(
     let workspace = db
         .get_project_workspace(workspace_id)?
         .ok_or_else(|| anyhow!("Project Workspace not found: {workspace_id}"))?;
-    if workspace.lifecycle != WorkspaceLifecycle::Active {
+    if observed_workspace_lifecycle(&workspace)? != WorkspaceLifecycle::Active {
         return Err(anyhow!("Project Workspace is not active"));
     }
     if !workspace_root_matches_identity(&workspace)? {
@@ -718,10 +766,10 @@ pub(crate) fn project_removal_target_root(
     let workspace = db
         .get_project_workspace(workspace_id)?
         .ok_or_else(|| anyhow!("Project Workspace not found: {workspace_id}"))?;
-    if workspace.lifecycle == WorkspaceLifecycle::Unavailable {
+    if observed_workspace_lifecycle(&workspace)? == WorkspaceLifecycle::Unavailable {
         return Err(anyhow!("Project Workspace is unavailable"));
     }
-    if workspace.lifecycle != WorkspaceLifecycle::Active
+    if observed_workspace_lifecycle(&workspace)? != WorkspaceLifecycle::Active
         && workspace.lifecycle != WorkspaceLifecycle::Archived
     {
         return Err(anyhow!("Project Workspace cannot remove Deployments"));
@@ -756,15 +804,31 @@ pub(crate) fn project_workspace_lifecycle(
     db: &Database,
     workspace_id: &str,
 ) -> Result<WorkspaceLifecycle> {
-    let Some(mut workspace) = db.get_project_workspace(workspace_id)? else {
+    let Some(workspace) = db.get_project_workspace(workspace_id)? else {
         return Err(anyhow!("Project Workspace not found: {workspace_id}"));
     };
-    if workspace.lifecycle == WorkspaceLifecycle::Active
-        && !workspace_root_matches_identity(&workspace)?
-    {
-        workspace.lifecycle = WorkspaceLifecycle::Unavailable;
+    observed_workspace_lifecycle(&workspace)
+}
+
+fn observed_workspace_lifecycle(workspace: &ProjectWorkspace) -> Result<WorkspaceLifecycle> {
+    if workspace.lifecycle == WorkspaceLifecycle::Archived {
+        return Ok(WorkspaceLifecycle::Archived);
     }
-    Ok(workspace.lifecycle)
+    Ok(if workspace_root_matches_identity(workspace)? {
+        WorkspaceLifecycle::Active
+    } else {
+        WorkspaceLifecycle::Unavailable
+    })
+}
+
+fn fingerprint_matches(recorded: &str, root: &Path, kind: WorkspaceRootKind) -> Result<bool> {
+    if recorded.is_empty() {
+        return Ok(false);
+    }
+    if recorded.starts_with("git:v2:") {
+        return Ok(legacy_registration_fingerprint_for_root(root, kind)? == recorded);
+    }
+    Ok(registration_fingerprint_for_root(root, kind)? == recorded)
 }
 
 pub(crate) fn workspace_root_matches_identity(workspace: &ProjectWorkspace) -> Result<bool> {
@@ -781,10 +845,10 @@ pub(crate) fn workspace_root_matches_identity(workspace: &ProjectWorkspace) -> R
     if workspace.registration_fingerprint.is_empty() {
         return Ok(false);
     }
-    let Ok(candidate) = registration_fingerprint_for_root(&root, resolved_kind) else {
-        return Ok(false);
-    };
-    Ok(candidate == workspace.registration_fingerprint)
+    Ok(
+        fingerprint_matches(&workspace.registration_fingerprint, &root, resolved_kind)
+            .unwrap_or(false),
+    )
 }
 
 pub(crate) fn project_git_exclude_path(root: &Path) -> Option<PathBuf> {
@@ -825,8 +889,18 @@ pub(crate) fn add_git_exclude(
         return Ok(None);
     };
     let entry = git_exclude_entry(consumer, directory);
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    if existing.lines().any(|line| line == entry) {
+    let existing = read_git_exclude(&path)?;
+    let legacy = format!(
+        "/{}/skills/{} # cc-switch managed",
+        consumer_directory(consumer),
+        directory
+    );
+    let existing = existing
+        .lines()
+        .filter(|line| *line != legacy)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if existing.contains(&entry) {
         return Ok(Some(path));
     }
     let mut updated = existing;
@@ -848,29 +922,53 @@ pub(crate) fn remove_git_exclude(
     consumer: DeploymentConsumer,
     directory: &str,
 ) -> Result<()> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
+    let existing = read_git_exclude(path)?;
     let entry = git_exclude_entry(consumer, directory);
-    let lines = existing
+    let legacy = format!(
+        "/{}/skills/{} # cc-switch managed",
+        consumer_directory(consumer),
+        directory
+    );
+    let updated = existing.replace(&format!("{entry}\n"), "");
+    let mut output = updated
         .lines()
-        .filter(|line| *line != entry)
-        .collect::<Vec<_>>();
-    if lines.len() == existing.lines().count() {
-        return Ok(());
-    }
-    let mut output = lines.join("\n");
+        .filter(|line| *line != legacy)
+        .collect::<Vec<_>>()
+        .join("\n");
     if existing.ends_with('\n') && !output.is_empty() {
         output.push('\n');
     }
-    fs::write(path, output)?;
+    if output != existing {
+        fs::write(path, output)?;
+    }
     Ok(())
 }
 
+fn read_git_exclude(path: &Path) -> Result<String> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn git_exclude_entry(consumer: DeploymentConsumer, directory: &str) -> String {
+    let escaped: String = directory
+        .chars()
+        .flat_map(|ch| {
+            if matches!(ch, '*' | '?' | '[' | ']' | '\\' | ' ' | '#' | '!') {
+                vec!['\\', ch]
+            } else {
+                vec![ch]
+            }
+        })
+        .collect();
     format!(
-        "/{}/{}/{} # cc-switch managed",
+        "# cc-switch managed: {}/skills/{}\n/{}/skills/{}",
         consumer_directory(consumer),
-        "skills",
-        directory
+        escaped,
+        consumer_directory(consumer),
+        escaped
     )
 }
 
@@ -1004,5 +1102,69 @@ mod activity_tests {
             page.entries[0].detail_code,
             ActivityDetailCode::AlreadyAbsent
         );
+    }
+}
+
+#[cfg(test)]
+mod identity_upgrade_tests {
+    use super::*;
+
+    #[test]
+    fn verifies_and_upgrades_old_git_identity_before_history_changes() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(root.path())
+            .status()
+            .unwrap()
+            .success());
+        let root = fs::canonicalize(root.path()).unwrap();
+        let old = legacy_registration_fingerprint_for_root(&root, WorkspaceRootKind::GitRepository)
+            .unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let workspace = ProjectWorkspace {
+            id: "old".into(),
+            display_name: "old".into(),
+            root_path: root,
+            root_kind: WorkspaceRootKind::GitRepository,
+            registration_fingerprint: old,
+            lifecycle: WorkspaceLifecycle::Active,
+            created_at: 1,
+            updated_at: 1,
+        };
+        db.save_project_workspace(&workspace).unwrap();
+        let upgraded = ProjectWorkspaceService::new(db.clone())
+            .get("old")
+            .unwrap()
+            .unwrap();
+        assert_eq!(upgraded.lifecycle, WorkspaceLifecycle::Active);
+        assert!(upgraded.registration_fingerprint.starts_with("git:v3:"));
+        assert_eq!(
+            db.get_project_workspace("old")
+                .unwrap()
+                .unwrap()
+                .registration_fingerprint,
+            upgraded.registration_fingerprint
+        );
+    }
+    #[test]
+    fn lifecycle_refresh_waits_for_an_in_flight_deployment_transaction() {
+        let db = Arc::new(Database::memory().unwrap());
+        let guard = crate::services::skill_deployment::SkillDeploymentService::lock_for_composite()
+            .unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = ProjectWorkspaceService::new(db).list(true);
+            sender.send(result).unwrap();
+        });
+        assert!(receiver
+            .recv_timeout(std::time::Duration::from_millis(30))
+            .is_err());
+        drop(guard);
+        assert!(receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
+        worker.join().unwrap();
     }
 }

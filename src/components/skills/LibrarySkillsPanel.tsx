@@ -98,7 +98,6 @@ function hasLinkedSource(skill: LibrarySkill) {
 }
 
 interface LibrarySkillsPanelProps {
-  onOpenDiscovery: () => void;
   onOpenProjects?: () => void;
   /** Stable Library identity supplied by Activity deep links. */
   focusLibrarySkillId?: string | null;
@@ -106,7 +105,6 @@ interface LibrarySkillsPanelProps {
 }
 
 export interface LibrarySkillsPanelHandle {
-  openDiscovery: () => void;
   openAcquireFromZip: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -171,12 +169,7 @@ export const LibrarySkillsPanel = forwardRef<
   LibrarySkillsPanelProps
 >(
   (
-    {
-      onOpenDiscovery,
-      onOpenProjects,
-      focusLibrarySkillId,
-      onInteractionBlockedChange,
-    },
+    { onOpenProjects, focusLibrarySkillId, onInteractionBlockedChange },
     ref,
   ) => {
     const { t } = useTranslation();
@@ -264,6 +257,7 @@ export const LibrarySkillsPanel = forwardRef<
     const [zipCollision, setZipCollision] = useState<{
       filePath: string;
       directory: string;
+      directoryNames: Record<string, string>;
     } | null>(null);
     const [uniqueDirectory, setUniqueDirectory] = useState("");
     const [updateChecks, setUpdateChecks] = useState<
@@ -402,7 +396,11 @@ export const LibrarySkillsPanel = forwardRef<
           /LIBRARY_DIRECTORY_CONFLICT: '([^']+)'/,
         );
         if (collision) {
-          setZipCollision({ filePath, directory: collision[1] });
+          setZipCollision({
+            filePath,
+            directory: collision[1],
+            directoryNames,
+          });
           setUniqueDirectory(`${collision[1]}-2`);
         } else {
           showSkillErrorToast(t, "skills.library.acquireFailed", error);
@@ -696,11 +694,7 @@ export const LibrarySkillsPanel = forwardRef<
 
     const applyBatch = async (batch: DeploymentBatch) => {
       const result = await applyDeployments.mutateAsync(batch);
-      await Promise.all([
-        refreshDeployments(),
-        refetchLibrary(),
-        refetchProjects(),
-      ]);
+      await Promise.all([refetchLibrary(), refetchProjects()]);
       return result;
     };
 
@@ -816,7 +810,6 @@ export const LibrarySkillsPanel = forwardRef<
     };
 
     useImperativeHandle(ref, () => ({
-      openDiscovery: onOpenDiscovery,
       openAcquireFromZip,
       refresh: refreshAll,
     }));
@@ -850,7 +843,6 @@ export const LibrarySkillsPanel = forwardRef<
       if (focusedSkillRequest.current === focusLibrarySkillId) return;
       const target = skills.find((skill) => skill.id === focusLibrarySkillId);
       if (!target) {
-        focusedSkillRequest.current = focusLibrarySkillId;
         setFocusedSkillId(null);
         return;
       }
@@ -1948,8 +1940,14 @@ export const LibrarySkillsPanel = forwardRef<
                   if (!zipCollision) return;
                   const pending = zipCollision;
                   setZipCollision(null);
+                  const sourceKey =
+                    Object.keys(pending.directoryNames).find(
+                      (key) =>
+                        pending.directoryNames[key] === pending.directory,
+                    ) ?? pending.directory;
                   await acquireZipFile(pending.filePath, {
-                    [pending.directory]: uniqueDirectory.trim(),
+                    ...pending.directoryNames,
+                    [sourceKey]: uniqueDirectory.trim(),
                   });
                 }}
               >

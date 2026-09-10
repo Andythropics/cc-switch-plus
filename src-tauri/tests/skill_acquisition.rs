@@ -516,6 +516,15 @@ fn zip_acquisition_preserves_links_and_requires_an_explicit_unique_identity() {
     .file_type()
     .is_symlink());
 
+    let repeated = LibrarySkillAcquisitionService::acquire_from_zip(
+        &state.db,
+        &zip_path,
+        &std::collections::HashMap::new(),
+    )
+    .expect("same ZIP must reuse before checking occupied directory");
+    assert_eq!(repeated[0].id, acquired[0].id);
+    assert_eq!(state.db.list_library_skills().unwrap().len(), 1);
+
     write_skill_zip(&zip_path, "assets/checklist.md", b"- changed\n");
 
     let conflict = LibrarySkillAcquisitionService::acquire_from_zip(
@@ -771,4 +780,51 @@ fn late_zip_failure_records_ordered_rollback_failure_and_unattempted_batch_items
         .entries
         .iter()
         .any(|entry| entry.outcome == ActivityOutcome::Success));
+}
+
+#[test]
+fn historical_baseline_cannot_reuse_modified_or_missing_library_content() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source = tempfile::tempdir().unwrap();
+    write_skill(source.path());
+    let state = create_test_state().unwrap();
+    let existing = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        source.path(),
+        zip_source(),
+        Some("original"),
+    )
+    .unwrap();
+    let live = home.join(".cc-switch/skills/original");
+    fs::write(
+        live.join("SKILL.md"),
+        "---\nname: changed\ndescription: Changed\n---\nChanged",
+    )
+    .unwrap();
+    let second = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        source.path(),
+        zip_source(),
+        Some("second"),
+    )
+    .expect("historical baseline cannot prevent a distinct current snapshot");
+    assert_ne!(second.id, existing.id);
+    assert_eq!(
+        fs::read(home.join(".cc-switch/skills/second/SKILL.md")).unwrap(),
+        fs::read(source.path().join("SKILL.md")).unwrap()
+    );
+    fs::remove_dir_all(&live).unwrap();
+    fs::remove_dir_all(home.join(".cc-switch/skills/second")).unwrap();
+    let third = LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        source.path(),
+        zip_source(),
+        Some("third"),
+    )
+    .expect("missing snapshots must not count as identical");
+    assert_ne!(third.id, existing.id);
+    assert_ne!(third.id, second.id);
+    assert_eq!(state.db.list_library_skills().unwrap().len(), 3);
 }

@@ -1047,3 +1047,80 @@ fn zip_existing_identical_item_is_not_removed_when_a_later_item_fails() {
         manifest
     );
 }
+
+#[test]
+fn replacement_db_and_restore_failure_preserves_old_backup() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let old_source = tempfile::tempdir().expect("old Library source");
+    let old_manifest = "---\nname: swap-back\ndescription: Old\n---\n\nOld bytes.\n";
+    fs::write(old_source.path().join("SKILL.md"), old_manifest).expect("write old manifest");
+    let state = create_test_state().expect("create test state");
+    let existing = cc_switch_lib::LibrarySkillAcquisitionService::acquire_from_directory(
+        &state.db,
+        old_source.path(),
+        cc_switch_lib::LibrarySkillSource {
+            kind: cc_switch_lib::LibrarySourceKind::Git,
+            url: Some("https://example.invalid/swap-back".to_string()),
+            repo_owner: None,
+            repo_name: None,
+            repo_branch: None,
+            skill_path: None,
+            marketplace: None,
+        },
+        Some("swap-back"),
+    )
+    .expect("acquire old Library");
+    let project = tempfile::tempdir().expect("project root");
+    let source = project.path().join(".claude/skills/swap-back");
+    fs::create_dir_all(&source).expect("create project Skill");
+    fs::write(
+        source.join("SKILL.md"),
+        "---\nname: swap-back\ndescription: New\n---\n\nNew bytes.\n",
+    )
+    .expect("write new manifest");
+    let workspace = cc_switch_lib::ProjectWorkspaceService::new(state.db.clone())
+        .register(project.path(), None)
+        .expect("register project")
+        .workspace;
+    let service = ProjectSkillImportService::new(state.db.clone());
+    let inspection = service.inspect(&workspace.id).expect("inspect imports");
+    let finding = inspection
+        .findings
+        .iter()
+        .find(|finding| finding.directory == "swap-back")
+        .expect("finding");
+    state
+        .db
+        .fail_library_skill_updates_for_test()
+        .expect("inject replacement update failure");
+    ProjectSkillImportService::fail_next_snapshot_restore_for_test();
+    let result = service
+        .apply(cc_switch_lib::ProjectSkillImportIntent {
+            workspace_id: workspace.id,
+            finding_id: finding.id.clone(),
+            observation_token: inspection.observation_token,
+            mode: cc_switch_lib::ProjectSkillImportMode::ImportOnly,
+            resolution: cc_switch_lib::ProjectSkillImportResolution::ReplaceLibrary {
+                library_skill_id: existing.id.clone(),
+                confirmed: true,
+            },
+        })
+        .expect("structured replacement failure");
+    assert_eq!(
+        result.outcome,
+        cc_switch_lib::ProjectSkillImportOutcome::RecoveryRequired
+    );
+    let library = state
+        .db
+        .get_library_skill_by_id(&existing.id)
+        .expect("read old row")
+        .expect("old row");
+    assert_eq!(library.content_hash, existing.content_hash);
+    let backup = std::path::PathBuf::from(result.backup_path.expect("recoverable backup path"));
+    assert_eq!(
+        fs::read_to_string(backup.join("library-old/SKILL.md")).unwrap(),
+        old_manifest
+    );
+    assert!(backup.join("recovery-required").exists());
+}

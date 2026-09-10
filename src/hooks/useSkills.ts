@@ -38,7 +38,6 @@ import {
   projectWorkspacesApi,
   type ProjectWorkspace,
   type WorkspaceRegistration,
-  type WorkspaceRegistrationScan,
   type ProjectSkillImportInspection,
   type ProjectSkillImportIntent,
   type ProjectSkillImportResult,
@@ -453,12 +452,6 @@ export function useApplyGlobalSkillImport() {
   });
 }
 
-export function useInspectProjectWorkspace() {
-  return useMutation<WorkspaceRegistrationScan, Error, string>({
-    mutationFn: (path) => projectWorkspacesApi.inspect(path),
-  });
-}
-
 export function useRegisterProjectWorkspace() {
   const queryClient = useQueryClient();
   return useMutation<
@@ -610,16 +603,9 @@ export function useUpdateLibrarySkillMetadata() {
 
 /** Check and stage a remote Library snapshot without touching live content. */
 export function useCheckLibrarySkillUpdate() {
-  const queryClient = useQueryClient();
   return useMutation<LibrarySkillUpdateCheckResult, Error, string>({
     mutationFn: (librarySkillId) =>
       skillsApi.checkLibrarySkillUpdate(librarySkillId),
-    onSuccess: (result) => {
-      queryClient.setQueryData(
-        ["skills", "libraryUpdate", result.librarySkillId],
-        result,
-      );
-    },
   });
 }
 
@@ -629,14 +615,11 @@ export function useApplyLibrarySkillUpdate() {
   return useMutation<LibrarySkillUpdateResult, Error, LibrarySkillUpdateIntent>(
     {
       mutationFn: (intent) => skillsApi.applyLibrarySkillUpdate(intent),
-      onSettled: (_result, _error, intent) =>
+      onSettled: () =>
         Promise.all([
           queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
           queryClient.invalidateQueries({
             queryKey: ["skills", "deployments"],
-          }),
-          queryClient.invalidateQueries({
-            queryKey: ["skills", "libraryUpdate", intent.librarySkillId],
           }),
           queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
         ]),
@@ -661,13 +644,10 @@ export function useDeleteLibrarySkill() {
     LibrarySkillDeletionIntent
   >({
     mutationFn: (intent) => skillsApi.deleteLibrarySkill(intent),
-    onSettled: (_result, _error, intent) =>
+    onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ["skills", "library"] }),
         queryClient.invalidateQueries({ queryKey: ["skills", "deployments"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["skills", "libraryUpdate", intent.librarySkillId],
-        }),
         queryClient.invalidateQueries({ queryKey: ["skills", "activity"] }),
       ]),
   });

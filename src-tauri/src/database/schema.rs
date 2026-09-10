@@ -704,6 +704,11 @@ impl Database {
                         Self::migrate_v26_to_v27(conn)?;
                         Self::set_user_version(conn, 27)?;
                     }
+                    #[cfg(target_os = "macos")]
+                    27 => {
+                        Self::migrate_v27_to_v28(conn)?;
+                        Self::set_user_version(conn, 28)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1411,7 +1416,7 @@ impl Database {
                 description TEXT,
                 source_json TEXT NOT NULL,
                 compatibility_json TEXT NOT NULL,
-                content_hash TEXT NOT NULL UNIQUE,
+                content_hash TEXT NOT NULL,
                 acquired_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             )",
@@ -1419,11 +1424,32 @@ impl Database {
         )
         .map_err(|error| AppError::Database(format!("创建 library_skills 表失败: {error}")))?;
         conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_library_skills_content_hash
+            "CREATE INDEX IF NOT EXISTS idx_library_skills_content_hash
              ON library_skills(content_hash)",
             [],
         )
         .map_err(|error| AppError::Database(format!("创建 Library 内容索引失败: {error}")))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn migrate_v27_to_v28(conn: &Connection) -> Result<(), AppError> {
+        // A content hash is a historical baseline, not an identity. Two live
+        // snapshots may diverge while retaining the same upstream baseline.
+        // v26 already removed deployment FKs to Library metadata.
+        conn.execute_batch("CREATE TABLE library_skills_v28 (
+            id TEXT PRIMARY KEY,
+            directory TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            display_name TEXT NOT NULL, description TEXT,
+            source_json TEXT NOT NULL, compatibility_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL, acquired_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        INSERT INTO library_skills_v28 SELECT id, directory, display_name, description,
+            source_json, compatibility_json, content_hash, acquired_at, updated_at FROM library_skills;
+        DROP TABLE library_skills;
+        ALTER TABLE library_skills_v28 RENAME TO library_skills;
+        CREATE INDEX idx_library_skills_content_hash ON library_skills(content_hash);")
+        .map_err(|error| AppError::Database(format!("migrate Library baselines: {error}")))?;
         Ok(())
     }
 
@@ -4490,7 +4516,7 @@ mod tests {
             [],
             |row| row.get(0),
         )?;
-        assert!(reachable_fingerprint.starts_with("git:v2:"));
+        assert!(reachable_fingerprint.starts_with("git:v3:"));
         assert!(!reachable_fingerprint.ends_with(":empty"));
         let unavailable_fingerprint: String = conn.query_row(
             "SELECT registration_fingerprint FROM project_workspaces WHERE id = 'unavailable'",
@@ -4875,6 +4901,37 @@ mod tests {
         )?;
         assert_eq!(byte_offset, None, "存量行的字节游标必须为 NULL");
         assert_eq!(fingerprint, None, "存量行的尾部指纹必须为 NULL");
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn v28_preserves_library_rows_and_allows_shared_historical_baselines() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute_batch(
+            "DROP TABLE library_skills;
+            CREATE TABLE library_skills (
+                id TEXT PRIMARY KEY, directory TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                display_name TEXT NOT NULL, description TEXT, source_json TEXT NOT NULL,
+                compatibility_json TEXT NOT NULL, content_hash TEXT NOT NULL UNIQUE,
+                acquired_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+            CREATE UNIQUE INDEX idx_library_skills_content_hash ON library_skills(content_hash);
+            INSERT INTO library_skills VALUES ('one','one','One',NULL,'{}','{}','baseline',1,1);",
+        )?;
+        Database::set_user_version(&conn, 27)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        conn.execute(
+            "INSERT INTO library_skills VALUES ('two','two','Two',NULL,'{}','{}','baseline',2,2)",
+            [],
+        )?;
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM library_skills", [], |row| row
+                .get::<_, i64>(0))?,
+            2
+        );
+        assert!(conn.execute("INSERT INTO library_skills VALUES ('three','ONE','Three',NULL,'{}','{}','different',3,3)", []).is_err());
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
         Ok(())
     }
 }

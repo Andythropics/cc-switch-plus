@@ -14,7 +14,6 @@ export function useExternalSkillUpdates() {
     retry: false,
   });
   const invalidate = async (families: string[]) => {
-    // Migration preflight temporarily unmounts the Library while fetching.
     // Reconciliation only changes these data families, not migration state.
     await Promise.all(
       families.map((family) =>
@@ -22,12 +21,7 @@ export function useExternalSkillUpdates() {
       ),
     );
   };
-  const linkedFamilies = [
-    "library",
-    "libraryUpdate",
-    "externalUpdates",
-    "activity",
-  ];
+  const linkedFamilies = ["library", "externalUpdates", "activity"];
   const completeCandidate = (candidateId: string) => {
     client.setQueryData<ExternalSkillInspection>(
       ["skills", "externalUpdates"],

@@ -437,6 +437,10 @@ struct DeploymentRecoveryRequired {
     message: String,
 }
 
+pub(crate) fn is_deployment_recovery_required(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DeploymentRecoveryRequired>().is_some()
+}
+
 fn recovery_required(message: String) -> anyhow::Error {
     DeploymentRecoveryRequired { message }.into()
 }
@@ -878,8 +882,7 @@ impl SkillDeploymentService {
                     items.push(item);
                 }
                 Err(error) => {
-                    let recovery_required =
-                        error.downcast_ref::<DeploymentRecoveryRequired>().is_some();
+                    let recovery_required = is_deployment_recovery_required(&error);
                     #[cfg(target_os = "macos")]
                     let detail = Self::activity_detail_for_error(&error, recovery_required);
                     let inspection = self
@@ -1114,8 +1117,7 @@ impl SkillDeploymentService {
                 );
             }
             Err(error) => {
-                let recovery_required =
-                    error.downcast_ref::<DeploymentRecoveryRequired>().is_some();
+                let recovery_required = is_deployment_recovery_required(&error);
                 self.record_deployment_activity(
                     intent,
                     if recovery_required {
@@ -1190,6 +1192,7 @@ impl SkillDeploymentService {
         match observed.state {
             ObservedDeploymentState::CorrectLink => {
                 if desired.is_some() {
+                    self.ensure_project_exclude(&skill, target)?;
                     return Ok(self.result(
                         &skill,
                         target,
@@ -1234,39 +1237,7 @@ impl SkillDeploymentService {
         }
 
         let target_path = self.target_path(target, &skill.directory)?;
-        self.ensure_target_root(&target_path)?;
-        let source_path = self.library_path(&skill.directory)?;
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&source_path, &target_path).with_context(|| {
-            format!(
-                "failed to create Deployment link {} -> {}",
-                target_path.display(),
-                source_path.display()
-            )
-        })?;
-        #[cfg(not(unix))]
-        return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
-
-        #[cfg(target_os = "macos")]
-        let git_exclude_path = if target.workspace == WorkspaceKind::Project {
-            let project_root = target_path
-                .parent()
-                .and_then(Path::parent)
-                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
-            match add_git_exclude(project_root, target.consumer, &skill.directory) {
-                Ok(path) => path,
-                Err(error) => {
-                    return match Self::compensate_remove_file(&target_path) {
-                        Ok(()) => Err(error),
-                        Err(compensation_error) => Err(recovery_required(format!(
-                            "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
-                        ))),
-                    };
-                }
-            }
-        } else {
-            None
-        };
+        let _git_exclude_path = self.create_deployment_link(&skill, target, &target_path)?;
 
         if desired.is_none() {
             let now = Utc::now().timestamp();
@@ -1280,7 +1251,7 @@ impl SkillDeploymentService {
             };
             if let Err(error) = self.db.save_skill_deployment(&row) {
                 #[cfg(target_os = "macos")]
-                let exclude_rollback = git_exclude_path
+                let exclude_rollback = _git_exclude_path
                     .as_ref()
                     .map(|path| remove_git_exclude(path, target.consumer, &skill.directory));
                 let rollback = Self::compensate_remove_file(&target_path);
@@ -1299,6 +1270,53 @@ impl SkillDeploymentService {
             }
         }
         Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
+    }
+
+    fn ensure_project_exclude(
+        &self,
+        skill: &LibrarySkill,
+        target: &DeploymentTarget,
+    ) -> Result<Option<PathBuf>> {
+        #[cfg(target_os = "macos")]
+        if target.workspace == WorkspaceKind::Project {
+            let target_path = self.target_path(target, &skill.directory)?;
+            let root = target_path
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
+            return add_git_exclude(root, target.consumer, &skill.directory);
+        }
+        Ok(None)
+    }
+
+    fn create_deployment_link(
+        &self,
+        skill: &LibrarySkill,
+        target: &DeploymentTarget,
+        target_path: &Path,
+    ) -> Result<Option<PathBuf>> {
+        self.ensure_target_root(target_path)?;
+        let source_path = self.library_path(&skill.directory)?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&source_path, target_path).with_context(|| {
+            format!(
+                "failed to create Deployment link {} -> {}",
+                target_path.display(),
+                source_path.display()
+            )
+        })?;
+        #[cfg(not(unix))]
+        return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
+
+        match self.ensure_project_exclude(skill, target) {
+            Ok(path) => Ok(path),
+            Err(error) => match Self::compensate_remove_file(target_path) {
+                Ok(()) => Err(error),
+                Err(compensation_error) => Err(recovery_required(format!(
+                    "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
+                ))),
+            },
+        }
     }
 
     fn repair(
@@ -1337,6 +1355,7 @@ impl SkillDeploymentService {
         match fresh.observed.state {
             ObservedDeploymentState::Missing => {}
             ObservedDeploymentState::CorrectLink => {
+                self.ensure_project_exclude(&skill, target)?;
                 return Ok(self.result(
                     &skill,
                     target,
@@ -1373,34 +1392,7 @@ impl SkillDeploymentService {
         }
 
         let target_path = self.target_path(target, &skill.directory)?;
-        self.ensure_target_root(&target_path)?;
-        let source_path = self.library_path(&skill.directory)?;
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&source_path, &target_path).with_context(|| {
-            format!(
-                "failed to create Deployment repair link {} -> {}",
-                target_path.display(),
-                source_path.display()
-            )
-        })?;
-        #[cfg(not(unix))]
-        return Err(anyhow!("symbolic-link deployment requires a Unix platform"));
-
-        #[cfg(target_os = "macos")]
-        if target.workspace == WorkspaceKind::Project {
-            let project_root = target_path
-                .parent()
-                .and_then(Path::parent)
-                .ok_or_else(|| anyhow!("project Deployment target has no Workspace root"))?;
-            if let Err(error) = add_git_exclude(project_root, target.consumer, &skill.directory) {
-                return match Self::compensate_remove_file(&target_path) {
-                    Ok(()) => Err(error),
-                    Err(compensation_error) => Err(recovery_required(format!(
-                        "Git exclude update failed ({error}); filesystem compensation failed ({compensation_error})"
-                    ))),
-                };
-            }
-        }
+        self.create_deployment_link(&skill, target, &target_path)?;
         Ok(self.result(&skill, target, DeploymentMutationOutcome::Applied, None))
     }
 

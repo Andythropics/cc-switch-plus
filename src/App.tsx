@@ -1109,7 +1109,6 @@ function App() {
           return isMac() ? (
             <LibrarySkillsPanel
               ref={librarySkillsPanelRef}
-              onOpenDiscovery={handleOpenSkillsDiscovery}
               onOpenProjects={() => handleOpenSkillsProjects()}
               focusLibrarySkillId={skillsLibraryFocusId}
               onInteractionBlockedChange={setSkillsManagementBusy}

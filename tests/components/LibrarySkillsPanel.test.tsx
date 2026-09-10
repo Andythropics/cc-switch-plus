@@ -175,7 +175,7 @@ vi.mock("sonner", () => ({
 describe("LibrarySkillsPanel", () => {
   it("keeps manual linking on unlinked cards beside their update action", () => {
     libraryRows.data = [{ ...librarySkill, source: { kind: "local_import" } }];
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     const card = screen.getByTestId(`library-skill-summary-${librarySkill.id}`);
     expect(
       within(card).getAllByRole("button", {
@@ -192,7 +192,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("reveals the exact Library Skill from the card icon with a hover label", async () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     const card = screen.getByTestId(`library-skill-${librarySkill.id}`);
     const reveal = within(card).getByRole("button", {
       name: "skills.library.reveal",
@@ -205,7 +205,7 @@ describe("LibrarySkillsPanel", () => {
     expect(revealLibraryMock).toHaveBeenCalledWith(librarySkill.id);
   });
   it("hides manual association for linked Skills and removes the refresh button", () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     expect(
       screen.queryByRole("button", { name: "skills.external.manual" }),
     ).not.toBeInTheDocument();
@@ -230,7 +230,7 @@ describe("LibrarySkillsPanel", () => {
         outcome: "up_to_date",
         affectedDeployments: [],
       });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     fireEvent.change(screen.getByPlaceholderText("skills.searchPlaceholder"), {
       target: { value: "Careful" },
     });
@@ -251,7 +251,7 @@ describe("LibrarySkillsPanel", () => {
       outcome: "up_to_date",
       affectedDeployments: [],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     fireEvent.click(
       screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     );
@@ -270,7 +270,7 @@ describe("LibrarySkillsPanel", () => {
       stageToken: "stage",
       affectedDeployments: [],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     fireEvent.click(
       screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     );
@@ -287,7 +287,7 @@ describe("LibrarySkillsPanel", () => {
   });
   it("does not claim up to date after a failed check", async () => {
     checkLibraryUpdateMock.mockRejectedValue(new Error("network"));
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     fireEvent.click(
       screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     );
@@ -300,13 +300,13 @@ describe("LibrarySkillsPanel", () => {
   });
   it("disables all-Skill checks when no source is linked", () => {
     libraryRows.data = [{ ...librarySkill, source: { kind: "zip" } }];
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     expect(
       screen.getByRole("button", { name: "skills.library.update.checkAll" }),
     ).toBeDisabled();
   });
   it("leaves the Library view title to the shared Skills header", () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     expect(
       screen.queryByRole("heading", { name: "skills.library.title" }),
@@ -314,7 +314,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("groups search and Library actions in one responsive toolbar", () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const toolbar = screen.getByRole("toolbar");
 
@@ -333,7 +333,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("truncates long card content without changing the card size", () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const card = screen.getByTestId("library-skill-library-1");
     expect(card).toHaveClass("h-80", "glass-card");
@@ -401,7 +401,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("shows immutable identity, source, compatibility, and edits display metadata", async () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     expect(screen.getByText("Careful review")).toBeInTheDocument();
     expect(screen.getByText("review-skill")).toBeInTheDocument();
@@ -437,7 +437,7 @@ describe("LibrarySkillsPanel", () => {
 
   it("blocks implicit dismissal of dirty metadata but allows explicit cancel", async () => {
     const user = userEvent.setup();
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     await user.click(
       screen.getByRole("button", { name: "skills.library.edit" }),
@@ -462,7 +462,7 @@ describe("LibrarySkillsPanel", () => {
 
   it("labels local imports without implying a live source origin", () => {
     librarySkill.source = { kind: "local_import" };
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     expect(
       screen.getByText("skills.library.sourceLocalImport"),
@@ -475,7 +475,7 @@ describe("LibrarySkillsPanel", () => {
 
   it("acquires a ZIP through the Library-only imperative action", async () => {
     const ref = createRef<LibrarySkillsPanelHandle>();
-    render(<LibrarySkillsPanel ref={ref} onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel ref={ref} />);
 
     await act(async () => {
       await ref.current?.openAcquireFromZip();
@@ -488,7 +488,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("deploys an acquired Library Skill to Claude Global through the apply seam", async () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -517,7 +517,7 @@ describe("LibrarySkillsPanel", () => {
             resolve({ outcome: "up_to_date", affectedDeployments: [] });
         }),
     );
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -543,7 +543,7 @@ describe("LibrarySkillsPanel", () => {
 
   it("keeps background reconciliation from shifting the Library", () => {
     refreshState.isFetching = true;
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     const refreshButton = screen.getByRole("button", {
@@ -558,9 +558,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("leaves Skills navigation to the shared header", () => {
-    render(
-      <LibrarySkillsPanel onOpenDiscovery={vi.fn()} onOpenProjects={vi.fn()} />,
-    );
+    render(<LibrarySkillsPanel onOpenProjects={vi.fn()} />);
 
     expect(
       screen.queryByRole("button", { name: "skills.discover" }),
@@ -581,7 +579,7 @@ describe("LibrarySkillsPanel", () => {
 
   it("surfaces Project Workspace query failures alongside Library state", () => {
     queryErrorState.project = true;
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     expect(screen.getByRole("alert")).toHaveTextContent(
       "skills.global.loadError",
@@ -675,7 +673,7 @@ describe("LibrarySkillsPanel", () => {
         },
       ],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -769,7 +767,7 @@ describe("LibrarySkillsPanel", () => {
         },
       ],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -835,7 +833,7 @@ describe("LibrarySkillsPanel", () => {
         },
       ],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     await userEvent.setup().click(
       screen.getByRole("button", {
@@ -863,7 +861,7 @@ describe("LibrarySkillsPanel", () => {
       updatedAt: 1,
     };
     projectRows.push(project);
-    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const view = render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "skills.batch.open" }));
@@ -897,7 +895,7 @@ describe("LibrarySkillsPanel", () => {
     // Simulate the target inspection resolving after the user has already
     // switched the dialog to undeploy. The desired row must be selected
     // without resetting the target or wiping the decision point.
-    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    view.rerender(<LibrarySkillsPanel />);
 
     expect(
       await screen.findAllByText(
@@ -912,7 +910,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("toggles an acquired Library Skill in Codex Global through the apply seam", async () => {
-    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const view = render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -939,7 +937,7 @@ describe("LibrarySkillsPanel", () => {
         observationToken: "observation-1",
       },
     ];
-    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    view.rerender(<LibrarySkillsPanel />);
 
     expect(
       screen.getByRole("button", { name: "skills.library.deployedCodex" }),
@@ -977,7 +975,7 @@ describe("LibrarySkillsPanel", () => {
         observationToken: "observation-1",
       },
     ];
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
     const user = userEvent.setup();
 
     await user.click(
@@ -1002,7 +1000,7 @@ describe("LibrarySkillsPanel", () => {
   });
 
   it("renders one card content section above the deployment footer", () => {
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const card = screen.getByTestId("library-skill-library-1");
     expect(card.parentElement).toHaveClass("grid-cols-1", "lg:grid-cols-2");
@@ -1051,7 +1049,7 @@ describe("LibrarySkillsPanel", () => {
       compatible: false,
       issues: ["Codex does not support this skill"],
     };
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     expect(
       screen.getByRole("button", { name: "skills.library.deployCodex" }),
@@ -1078,14 +1076,14 @@ describe("LibrarySkillsPanel", () => {
           resolveCheck = resolve;
         }),
     );
-    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const view = render(<LibrarySkillsPanel />);
     const user = userEvent.setup();
 
     await user.click(
       screen.getByRole("button", { name: "skills.library.update.check" }),
     );
     readPendingState.checkUpdate = true;
-    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    view.rerender(<LibrarySkillsPanel />);
 
     const checkButton = screen.getByRole("button", {
       name: "skills.library.update.check",
@@ -1127,14 +1125,14 @@ describe("LibrarySkillsPanel", () => {
           resolveInspection = resolve;
         }),
     );
-    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const view = render(<LibrarySkillsPanel />);
     const user = userEvent.setup();
 
     await user.click(
       screen.getByRole("button", { name: "skills.library.delete.action" }),
     );
     readPendingState.inspect = true;
-    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    view.rerender(<LibrarySkillsPanel />);
 
     const deleteButton = screen.getByRole("button", {
       name: "skills.library.delete.action",
@@ -1174,7 +1172,7 @@ describe("LibrarySkillsPanel", () => {
           resolveInspection = resolve;
         }),
     );
-    const view = render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    const view = render(<LibrarySkillsPanel />);
     const user = userEvent.setup();
     const deployedProjectsButton = screen.getByRole("button", {
       name: "skills.library.deployedProjects.action",
@@ -1188,7 +1186,7 @@ describe("LibrarySkillsPanel", () => {
 
     await user.click(deployedProjectsButton);
     readPendingState.inspect = true;
-    view.rerender(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    view.rerender(<LibrarySkillsPanel />);
 
     expect(deployedProjectsButton).toHaveAttribute("aria-busy", "true");
     expect(deployedProjectsButton).toBeDisabled();
@@ -1225,7 +1223,7 @@ describe("LibrarySkillsPanel", () => {
       message: "Library changed while confirmation was open",
       affectedDeployments: [],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -1325,7 +1323,7 @@ describe("LibrarySkillsPanel", () => {
         },
       ],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -1356,7 +1354,7 @@ describe("LibrarySkillsPanel", () => {
       outcome: "updated",
       affectedDeployments: [],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -1397,7 +1395,7 @@ describe("LibrarySkillsPanel", () => {
       affectedDeployments: [],
       message: "local import has no upstream source",
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -1468,7 +1466,7 @@ describe("LibrarySkillsPanel", () => {
         },
       ],
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -1520,7 +1518,7 @@ describe("LibrarySkillsPanel", () => {
         },
       })),
     });
-    render(<LibrarySkillsPanel onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel />);
 
     const user = userEvent.setup();
     await user.click(
@@ -1557,7 +1555,7 @@ describe("LibrarySkillsPanel", () => {
       )
       .mockResolvedValueOnce([librarySkill]);
     const ref = createRef<LibrarySkillsPanelHandle>();
-    render(<LibrarySkillsPanel ref={ref} onOpenDiscovery={vi.fn()} />);
+    render(<LibrarySkillsPanel ref={ref} />);
 
     await act(async () => {
       await ref.current?.openAcquireFromZip();
@@ -1577,5 +1575,79 @@ describe("LibrarySkillsPanel", () => {
         directoryNames: { "review-skill": "review-skill-copy" },
       }),
     );
+  });
+  it("retains earlier ZIP renames when resolving another collision", async () => {
+    acquireZipMock
+      .mockRejectedValueOnce(
+        new Error("LIBRARY_DIRECTORY_CONFLICT: 'a' is already in use"),
+      )
+      .mockRejectedValueOnce(
+        new Error("LIBRARY_DIRECTORY_CONFLICT: 'b' is already in use"),
+      )
+      .mockResolvedValueOnce([librarySkill]);
+    const ref = createRef<LibrarySkillsPanelHandle>();
+    render(<LibrarySkillsPanel ref={ref} />);
+    await act(async () => {
+      await ref.current?.openAcquireFromZip();
+    });
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.acquire" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("skills.library.directory")).toHaveValue(
+        "b-2",
+      ),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.acquire" }),
+    );
+    expect(acquireZipMock).toHaveBeenLastCalledWith({
+      filePath: "/tmp/skill.zip",
+      directoryNames: { a: "a-2", b: "b-2" },
+    });
+  });
+
+  it("focuses an Activity target after the Library finishes loading", () => {
+    libraryRows.data = [];
+    const view = render(
+      <LibrarySkillsPanel focusLibrarySkillId={librarySkill.id} />,
+    );
+    libraryRows.data = [librarySkill];
+    view.rerender(<LibrarySkillsPanel focusLibrarySkillId={librarySkill.id} />);
+    expect(
+      screen.getByRole("textbox", { name: "skills.searchPlaceholder" }),
+    ).toHaveValue(librarySkill.displayName);
+  });
+
+  it("updates the original ZIP mapping when a chosen rename also collides", async () => {
+    acquireZipMock
+      .mockRejectedValueOnce(
+        new Error("LIBRARY_DIRECTORY_CONFLICT: 'a' is already in use"),
+      )
+      .mockRejectedValueOnce(
+        new Error("LIBRARY_DIRECTORY_CONFLICT: 'a-2' is already in use"),
+      )
+      .mockResolvedValueOnce([librarySkill]);
+    const ref = createRef<LibrarySkillsPanelHandle>();
+    render(<LibrarySkillsPanel ref={ref} />);
+    await act(async () => {
+      await ref.current?.openAcquireFromZip();
+    });
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.acquire" }),
+    );
+    const input = await screen.findByLabelText("skills.library.directory");
+    await waitFor(() => expect(input).toHaveValue("a-2-2"));
+    await user.clear(input);
+    await user.type(input, "a-3");
+    await user.click(
+      screen.getByRole("button", { name: "skills.library.acquire" }),
+    );
+    expect(acquireZipMock).toHaveBeenLastCalledWith({
+      filePath: "/tmp/skill.zip",
+      directoryNames: { a: "a-3" },
+    });
   });
 });

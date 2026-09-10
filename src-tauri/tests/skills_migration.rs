@@ -1886,3 +1886,39 @@ fn unresolved_managed_conflict_never_creates_or_finalizes_a_run() {
     );
     assert!(home.join(".claude/skills/review").is_dir());
 }
+
+#[test]
+fn deployment_compensation_failure_requires_migration_recovery() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().unwrap();
+    state
+        .db
+        .save_skill(&installed_skill("recovery-review", true, false))
+        .unwrap();
+    write_skill(
+        &home.join(".cc-switch/skills/recovery-review"),
+        "recovery-review",
+    );
+    let preview = SkillsMigrationPreviewService::new(state.db.clone())
+        .inspect()
+        .unwrap();
+    state.db.fail_skill_deployment_inserts_for_test().unwrap();
+    SkillDeploymentService::force_compensation_failure_for_test(true);
+    let result =
+        SkillsMigrationExecutionService::new(state.db.clone()).start(SkillsMigrationIntent {
+            observation_token: preview.observation_token,
+            preserve_unsupported_consumer_files: false,
+        });
+    SkillDeploymentService::force_compensation_failure_for_test(false);
+    let result = result.unwrap();
+    assert_eq!(
+        result.outcome,
+        SkillsMigrationExecutionOutcome::RecoveryRequired
+    );
+    assert!(result
+        .items
+        .iter()
+        .any(|item| item.outcome == SkillsMigrationItemOutcome::RecoveryRequired));
+}

@@ -363,7 +363,6 @@ impl SkillsMigrationExecutionService {
         let run = SkillsMigrationRunRecord {
             id: run_id.clone(),
             accepted_observation_token: preflight.observation_token.clone(),
-            resume_token: uuid::Uuid::new_v4().to_string(),
             state: "prepared".to_string(),
             database_backup_filename: None,
             content_backup_root: None,
@@ -794,10 +793,6 @@ impl SkillsMigrationExecutionService {
                     return Ok(false);
                 }
                 let path = LibrarySkillAcquisitionService::library_directory_path().join(directory);
-                let hash = match LibrarySkillAcquisitionService::compute_library_hash(&path) {
-                    Ok(hash) => hash,
-                    Err(_) => return Ok(false),
-                };
                 let source_retired =
                     item.source_location
                         .as_deref()
@@ -814,12 +809,12 @@ impl SkillsMigrationExecutionService {
                                     Err(error) if error.kind() == std::io::ErrorKind::NotFound
                                 ))
                         });
-                Ok(hash == skill.content_hash
-                    && item
-                        .expected_fingerprint
-                        .as_deref()
-                        .and_then(content_hash_from_fingerprint)
-                        == Some(hash.as_str())
+                Ok(LibrarySkillAcquisitionService::hash_matches_baseline(
+                    &path,
+                    &skill.content_hash,
+                )
+                .unwrap_or(false)
+                    && expected_content_matches(&path, item.expected_fingerprint.as_deref())
                     && source_retired)
             }
             "create_global_deployment" => {
@@ -933,14 +928,7 @@ impl SkillsMigrationExecutionService {
             .map_err(|_| ItemFailure::Blocked("database_failure"))?
         {
             let path = LibrarySkillAcquisitionService::library_directory_path().join(directory);
-            let hash = LibrarySkillAcquisitionService::compute_library_hash(&path)
-                .map_err(|_| ItemFailure::Blocked("validation_failure"))?;
-            if item
-                .expected_fingerprint
-                .as_deref()
-                .and_then(content_hash_from_fingerprint)
-                == Some(hash.as_str())
-            {
+            if expected_content_matches(&path, item.expected_fingerprint.as_deref()) {
                 let source = item.source_location.as_deref().map(Path::new);
                 if item.action == "move_to_library" || source.is_some_and(|source| source != path) {
                     self.retire_legacy_source(item, &path)?;
@@ -1010,9 +998,7 @@ impl SkillsMigrationExecutionService {
         item: &SkillsMigrationItemRecord,
         source: &Path,
     ) -> std::result::Result<(), ItemFailure> {
-        let current =
-            path_fingerprint(source).map_err(|_| ItemFailure::Blocked("validation_failure"))?;
-        if item.expected_fingerprint.as_deref() != Some(current.as_str()) {
+        if !expected_path_matches(source, item.expected_fingerprint.as_deref()) {
             return Err(ItemFailure::Blocked("target_conflict"));
         }
         Ok(())
@@ -1056,11 +1042,7 @@ impl SkillsMigrationExecutionService {
         let library_hash = LibrarySkillAcquisitionService::compute_library_hash(library_path)
             .map_err(|_| ItemFailure::Blocked("missing_library"))?;
         if source_hash != library_hash
-            || item
-                .expected_fingerprint
-                .as_deref()
-                .and_then(content_hash_from_fingerprint)
-                != Some(source_hash.as_str())
+            || !expected_content_matches(source, item.expected_fingerprint.as_deref())
         {
             return Err(ItemFailure::Blocked("target_conflict"));
         }
@@ -1107,7 +1089,7 @@ impl SkillsMigrationExecutionService {
                 target: target.clone(),
             })
             .map_err(|error| {
-                if error.to_string().contains("recovery required") {
+                if crate::services::skill_deployment::is_deployment_recovery_required(&error) {
                     ItemFailure::RecoveryRequired("compensation_failure")
                 } else {
                     ItemFailure::Blocked("filesystem_failure")
@@ -1242,7 +1224,7 @@ impl SkillsMigrationExecutionService {
                     )
                 })?;
                 let before = path_fingerprint(source)?;
-                if item.expected_fingerprint.as_deref() != Some(before.as_str()) {
+                if !expected_path_matches(source, item.expected_fingerprint.as_deref()) {
                     return Err(anyhow!("migration backup source observation changed"));
                 }
                 let destination = content_backup_source_path(&root, item.ordinal);
@@ -2456,6 +2438,27 @@ fn path_fingerprint(path: &Path) -> Result<String> {
     ))
 }
 
+fn expected_content_matches(path: &Path, fingerprint: Option<&str>) -> bool {
+    fingerprint
+        .and_then(content_hash_from_fingerprint)
+        .is_some_and(|hash| {
+            LibrarySkillAcquisitionService::hash_matches_baseline(path, hash).unwrap_or(false)
+        })
+}
+
+fn expected_path_matches(path: &Path, fingerprint: Option<&str>) -> bool {
+    let Some(fingerprint) = fingerprint else {
+        return false;
+    };
+    if fingerprint.starts_with("dir:") {
+        return fs::symlink_metadata(path)
+            .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            && physical_identity_matches(path, fingerprint)
+            && expected_content_matches(path, Some(fingerprint));
+    }
+    path_fingerprint(path).is_ok_and(|actual| actual == fingerprint)
+}
+
 fn content_hash_from_fingerprint(fingerprint: &str) -> Option<&str> {
     fingerprint
         .strip_prefix("dir:")?
@@ -2581,9 +2584,30 @@ fn migration_backup_is_verified(
     let Some(manifest) = manifest else {
         return false;
     };
-    build_backup_manifest(run, items, database, root)
-        .ok()
-        .is_some_and(|actual| actual == manifest)
+    let Ok(actual) = build_backup_manifest(run, items, database, root) else {
+        return false;
+    };
+    actual.version == manifest.version
+        && actual.plan_hash == manifest.plan_hash
+        && actual.database_sha256 == manifest.database_sha256
+        && actual.content.len() == manifest.content.len()
+        && actual
+            .content
+            .iter()
+            .zip(&manifest.content)
+            .all(|(actual, recorded)| {
+                actual.ordinal == recorded.ordinal
+                    && if let Some(hash) = recorded.fingerprint.strip_prefix("directory:") {
+                        actual.fingerprint.starts_with("directory:")
+                            && LibrarySkillAcquisitionService::hash_matches_baseline(
+                                &content_backup_source_path(root, recorded.ordinal),
+                                hash,
+                            )
+                            .unwrap_or(false)
+                    } else {
+                        actual.fingerprint == recorded.fingerprint
+                    }
+            })
 }
 
 fn build_backup_manifest(
@@ -2864,9 +2888,11 @@ fn validate_restore_safety(
                     let Some(skill) = db.get_library_skill_by_directory(directory)? else {
                         return Err(anyhow!("restore Library row disappeared"));
                     };
-                    let hash = LibrarySkillAcquisitionService::compute_library_hash(target)?;
                     if skill.id != item.library_skill_id.as_deref().unwrap_or(&skill.id)
-                        || hash != skill.content_hash
+                        || !LibrarySkillAcquisitionService::hash_matches_baseline(
+                            target,
+                            &skill.content_hash,
+                        )?
                     {
                         return Err(anyhow!("restore Library target drifted"));
                     }
@@ -2967,8 +2993,10 @@ fn restore_remove_migration_outputs(
                     let skill = db
                         .get_library_skill_by_directory(directory)?
                         .ok_or_else(|| anyhow!("migration Library row disappeared"))?;
-                    let hash = LibrarySkillAcquisitionService::compute_library_hash(target)?;
-                    if hash != skill.content_hash {
+                    if !LibrarySkillAcquisitionService::hash_matches_baseline(
+                        target,
+                        &skill.content_hash,
+                    )? {
                         return Err(anyhow!("restore Library target drifted"));
                     }
                     fs::remove_dir_all(target)?
@@ -3141,4 +3169,108 @@ fn should_interrupt_after_source_retire() -> bool {
         .lock()
         .map(|mut enabled| std::mem::take(&mut *enabled))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod hash_upgrade_tests {
+    use super::*;
+
+    fn legacy_hash(content: &[u8]) -> String {
+        let mut hash = Sha256::new();
+        hash.update(b"SKILL.md\0file\0");
+        hash.update(content);
+        hash.update(b"\0");
+        format!("{:x}", hash.finalize())
+    }
+
+    #[test]
+    fn legacy_directory_observations_preserve_content_and_physical_identity_checks() {
+        let root = tempfile::tempdir().unwrap();
+        let content = b"---\nname: upgrade\ndescription: Upgrade test\n---\n";
+        fs::write(root.path().join("SKILL.md"), content).unwrap();
+        let metadata = fs::metadata(root.path()).unwrap();
+        let fingerprint = format!(
+            "dir:{}:{}:{}",
+            legacy_hash(content),
+            metadata.dev(),
+            metadata.ino()
+        );
+        assert!(expected_path_matches(root.path(), Some(&fingerprint)));
+        let other = tempfile::tempdir().unwrap();
+        fs::write(other.path().join("SKILL.md"), content).unwrap();
+        assert!(!expected_path_matches(other.path(), Some(&fingerprint)));
+        fs::write(root.path().join("SKILL.md"), b"modified").unwrap();
+        assert!(!expected_path_matches(root.path(), Some(&fingerprint)));
+    }
+
+    #[test]
+    fn legacy_backup_manifest_verifies_without_rewriting_and_rejects_tampering() {
+        let root = tempfile::tempdir().unwrap();
+        let database = root.path().join("database.db");
+        fs::write(&database, b"immutable database snapshot").unwrap();
+        let backup = content_backup_source_path(root.path(), 0);
+        fs::create_dir_all(&backup).unwrap();
+        let content = b"---\nname: upgrade\ndescription: Upgrade test\n---\n";
+        fs::write(backup.join("SKILL.md"), content).unwrap();
+        let run = SkillsMigrationRunRecord {
+            id: "old-run".into(),
+            accepted_observation_token: "approved".into(),
+            state: "completed".into(),
+            database_backup_filename: Some(database.to_string_lossy().into()),
+            content_backup_root: Some(root.path().to_string_lossy().into()),
+            plan_hash: "plan".into(),
+            created_at: 1,
+            updated_at: 1,
+            completed_at: Some(1),
+        };
+        let item = SkillsMigrationItemRecord {
+            run_id: run.id.clone(),
+            ordinal: 0,
+            item_key: "item".into(),
+            action: "move_to_library".into(),
+            directory: Some("upgrade".into()),
+            consumer: None,
+            source_location: None,
+            target_location: None,
+            expected_fingerprint: None,
+            state: "completed".into(),
+            library_skill_id: None,
+            detail_code: None,
+            started_at: Some(1),
+            completed_at: Some(1),
+        };
+        let mut manifest =
+            build_backup_manifest(&run, std::slice::from_ref(&item), &database, root.path())
+                .unwrap();
+        manifest.content[0].fingerprint = format!("directory:{}", legacy_hash(content));
+        let bytes = serde_json::to_vec(&manifest).unwrap();
+        fs::write(verified_backup_marker(root.path()), &bytes).unwrap();
+        assert!(migration_backup_is_verified(
+            &run,
+            std::slice::from_ref(&item)
+        ));
+        assert_eq!(
+            fs::read(verified_backup_marker(root.path())).unwrap(),
+            bytes
+        );
+        manifest.content[0].ordinal = 1;
+        fs::write(
+            verified_backup_marker(root.path()),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(!migration_backup_is_verified(
+            &run,
+            std::slice::from_ref(&item)
+        ));
+        fs::write(verified_backup_marker(root.path()), &bytes).unwrap();
+        fs::write(&database, b"tampered database").unwrap();
+        assert!(!migration_backup_is_verified(
+            &run,
+            std::slice::from_ref(&item)
+        ));
+        fs::write(&database, b"immutable database snapshot").unwrap();
+        fs::write(backup.join("SKILL.md"), b"tampered content").unwrap();
+        assert!(!migration_backup_is_verified(&run, &[item]));
+    }
 }

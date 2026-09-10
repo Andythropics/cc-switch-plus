@@ -136,6 +136,7 @@ impl ExternalSkillService {
         let library_root = Acquisition::library_directory_path();
         // Caches belong to this observation only; mutation commands inspect afresh.
         let mut live_hashes = BTreeMap::new();
+        let mut baseline_matches = BTreeMap::new();
         let mut library_paths = BTreeMap::new();
         let mut source_inspections = BTreeMap::new();
         let mut candidates = Vec::new();
@@ -155,6 +156,16 @@ impl ExternalSkillService {
             let hash = live_hashes
                 .entry(canonical.clone().unwrap_or(path))
                 .or_insert_with_key(|path| Acquisition::compute_library_hash(path).ok());
+            let unchanged = if skill.content_hash.starts_with("v2:") {
+                hash.as_deref() == Some(skill.content_hash.as_str())
+            } else {
+                Acquisition::hash_matches_baseline(
+                    &library_root.join(&skill.directory),
+                    &skill.content_hash,
+                )
+                .unwrap_or(false)
+            };
+            baseline_matches.insert(skill.id.clone(), unchanged);
             library_paths.insert(skill.id.clone(), canonical);
             hasher.update(serde_json::to_vec(&hash)?);
         }
@@ -250,6 +261,14 @@ impl ExternalSkillService {
                     .unwrap_or_else(|| library_root.join(&s.directory));
                 live_hashes.get(&path).and_then(Option::as_deref)
             });
+            let source_matches_baseline = matched.is_some_and(|skill| {
+                if skill.content_hash.starts_with("v2:") {
+                    skill.content_hash == metadata.content_hash
+                } else {
+                    Acquisition::hash_matches_baseline(&actual, &skill.content_hash)
+                        .unwrap_or(false)
+                }
+            });
             let replaced = !fs::symlink_metadata(&path)?.file_type().is_symlink()
                 && deployments.iter().any(|d| {
                     d.library_directory == directory
@@ -316,7 +335,7 @@ impl ExternalSkillService {
                 let target = DeploymentTarget::global(DeploymentConsumer::Codex);
                 skill.directory == directory
                     && skill.source.repo_branch == source.repo_branch
-                    && skill.content_hash == metadata.content_hash
+                    && source_matches_baseline
                     && live_hash == Some(metadata.content_hash.as_str())
                     && metadata.compatibility.codex.compatible
                     && fs::read_link(&path).is_ok()
@@ -340,13 +359,13 @@ impl ExternalSkillService {
                 library_skill_id: matched.map(|s| s.id.clone()),
                 suggested_library_skill_ids: suggested,
                 changed: matched
-                    .map(|s| {
-                        s.content_hash != metadata.content_hash
+                    .map(|_| {
+                        !source_matches_baseline
                             || live_hash != Some(metadata.content_hash.as_str())
                     })
                     .unwrap_or(true),
                 local_modified: matched
-                    .map(|s| live_hash != Some(s.content_hash.as_str()))
+                    .map(|s| !baseline_matches.get(&s.id).copied().unwrap_or(false))
                     .unwrap_or(false),
                 deployment_replaced: replaced,
                 fully_synced,

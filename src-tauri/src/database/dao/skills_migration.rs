@@ -8,7 +8,6 @@ use rusqlite::{params, OptionalExtension, Row};
 pub(crate) struct SkillsMigrationRunRecord {
     pub id: String,
     pub accepted_observation_token: String,
-    pub resume_token: String,
     pub state: String,
     pub database_backup_filename: Option<String>,
     pub content_backup_root: Option<String>,
@@ -98,7 +97,6 @@ fn decode_run(row: &Row<'_>) -> rusqlite::Result<SkillsMigrationRunRecord> {
     Ok(SkillsMigrationRunRecord {
         id: row.get(0)?,
         accepted_observation_token: row.get(1)?,
-        resume_token: row.get(2)?,
         state: row.get(3)?,
         database_backup_filename: row.get(4)?,
         content_backup_root: row.get(5)?,
@@ -128,6 +126,8 @@ fn decode_item(row: &Row<'_>) -> rusqlite::Result<SkillsMigrationItemRecord> {
     })
 }
 
+// resume_token remains a compatibility column for older database snapshots;
+// new rows use their run ID and no business code reads or generates tokens.
 const SELECT_RUN: &str = "SELECT id, accepted_observation_token, resume_token, state,
     database_backup_filename, content_backup_root, plan_hash, created_at, updated_at, completed_at
     FROM skills_migration_runs";
@@ -214,7 +214,7 @@ impl Database {
                 params![
                     run.id,
                     run.accepted_observation_token,
-                    run.resume_token,
+                    run.id,
                     run.state,
                     run.database_backup_filename,
                     run.content_backup_root,
@@ -280,7 +280,7 @@ impl Database {
             .execute(
                 "UPDATE skills_migration_runs
                  SET accepted_observation_token = ?1,
-                     resume_token = ?2,
+                     resume_token = COALESCE(resume_token, ?2),
                      state = ?3,
                      database_backup_filename = ?4,
                      content_backup_root = ?5,
@@ -291,7 +291,7 @@ impl Database {
                  WHERE id = ?10",
                 params![
                     run.accepted_observation_token,
-                    run.resume_token,
+                    run.id,
                     run.state,
                     run.database_backup_filename,
                     run.content_backup_root,
@@ -314,7 +314,7 @@ impl Database {
                     params![
                         run.id,
                         run.accepted_observation_token,
-                        run.resume_token,
+                        run.id,
                         run.state,
                         run.database_backup_filename,
                         run.content_backup_root,
@@ -778,7 +778,6 @@ mod tests {
         SkillsMigrationRunRecord {
             id: id.to_string(),
             accepted_observation_token: format!("observation-{id}"),
-            resume_token: format!("resume-{id}"),
             state: "completed".to_string(),
             database_backup_filename: None,
             content_backup_root: None,

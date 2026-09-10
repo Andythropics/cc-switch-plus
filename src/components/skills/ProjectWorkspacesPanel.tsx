@@ -52,7 +52,6 @@ import {
   useRelocateProjectWorkspace,
   useRenameProjectWorkspace,
   useRestoreProjectWorkspace,
-  useRefreshSkillDeployments,
   useSkillDeployments,
 } from "@/hooks/useSkills";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
@@ -136,7 +135,6 @@ function ProjectWorkspaceDeployments({
     inspectionSessionId,
   );
   const apply = useApplySkillDeployments();
-  const refreshDeployments = useRefreshSkillDeployments();
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [batchAction, setBatchAction] = useState<"deploy" | "undeploy">(
     "deploy",
@@ -210,7 +208,7 @@ function ProjectWorkspaceDeployments({
     setBatchPending(true);
     try {
       const result = await apply.mutateAsync(batch);
-      await Promise.all([refreshDeployments(), refetchLibrary()]);
+      await refetchLibrary();
       return result;
     } finally {
       setBatchPending(false);
@@ -451,8 +449,8 @@ export const ProjectWorkspacesPanel = forwardRef<
     const target = workspaces.find(
       (workspace) => workspace.id === focusWorkspaceId,
     );
-    focusedWorkspaceRequest.current = focusWorkspaceId;
     if (!target) return;
+    focusedWorkspaceRequest.current = focusWorkspaceId;
     setSelectedId(target.id);
     if (target.lifecycle === "archived") setShowArchived(true);
   }, [focusWorkspaceId, workspaces]);

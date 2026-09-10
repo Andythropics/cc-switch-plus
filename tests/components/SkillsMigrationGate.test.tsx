@@ -512,7 +512,7 @@ describe("SkillsMigrationGate", () => {
     );
   });
 
-  it("keeps stale writable data read-only while a refetch is pending", () => {
+  it("preserves an editing draft while a background preflight is pending", async () => {
     preflightState.data = {
       status: "not_required",
       observationToken: "no-migration",
@@ -526,23 +526,45 @@ describe("SkillsMigrationGate", () => {
         contentPaths: [],
       },
     };
+    function Draft() {
+      const [value, setValue] = useState("");
+      return (
+        <input
+          aria-label="draft"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      );
+    }
     const onReadOnlyChange = vi.fn();
-    const view = render(
+    const page = (
       <SkillsMigrationGate enabled onReadOnlyChange={onReadOnlyChange}>
-        <button type="button">mutable-skills-action</button>
-      </SkillsMigrationGate>,
+        <Draft />
+      </SkillsMigrationGate>
     );
-
+    const view = render(page);
+    await userEvent
+      .setup()
+      .type(screen.getByRole("textbox", { name: "draft" }), "pending edit");
     preflightState.isFetching = true;
     view.rerender(
       <SkillsMigrationGate enabled onReadOnlyChange={onReadOnlyChange}>
-        <button type="button">mutable-skills-action</button>
+        <Draft />
       </SkillsMigrationGate>,
     );
-
-    expect(screen.queryByText("mutable-skills-action")).not.toBeInTheDocument();
-    expect(screen.getByText("skills.migration.title")).toBeInTheDocument();
-    expect(onReadOnlyChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole("textbox", { name: "draft" })).toHaveValue(
+      "pending edit",
+    );
+    expect(onReadOnlyChange).toHaveBeenLastCalledWith(false);
+    preflightState.isFetching = false;
+    view.rerender(
+      <SkillsMigrationGate enabled onReadOnlyChange={onReadOnlyChange}>
+        <Draft />
+      </SkillsMigrationGate>,
+    );
+    expect(screen.getByRole("textbox", { name: "draft" })).toHaveValue(
+      "pending edit",
+    );
   });
 
   it("fails closed when a refetch errors after cached writable data", () => {
