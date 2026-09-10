@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CC Switch Plus",
-  "version": "3.20.1-plus.1",
+  "version": "3.20.1-plus.2",
   "identifier": "com.ccswitch.plus.desktop",
   "build": {
     "frontendDist": "../dist",

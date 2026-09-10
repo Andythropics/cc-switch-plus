@@ -1,6 +1,6 @@
 [package]
 name = "cc-switch"
-version = "3.20.1-plus.1"
+version = "3.20.1-plus.2"
 description = "CC Switch Plus — manage Claude Code, Codex, Gemini CLI, and more"
 authors = ["Jason Young", "Andythropics"]
 license = "MIT"

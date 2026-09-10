@@ -16,11 +16,13 @@
 
 [English](README.md) · 简体中文
 
-[下载安装](https://github.com/Andythropics/cc-switch-plus/releases) · [快速上手](#快速上手) · [Skills 使用指南](docs/user-manual/zh/3-extensions/3.3-skills.md) · [讨论区](https://github.com/Andythropics/cc-switch-plus/discussions) · [参与贡献](CONTRIBUTING.md)
+[本地构建（推荐）](#从源码运行) · [下载安装](https://github.com/Andythropics/cc-switch-plus/releases) · [快速上手](#快速上手) · [Skills 使用指南](docs/user-manual/zh/3-extensions/3.3-skills.md) · [讨论区](https://github.com/Andythropics/cc-switch-plus/discussions) · [参与贡献](CONTRIBUTING.md)
 
 </div>
 
 > **独立维护的 MIT 开源分支，当前处于预览阶段。** 由 [Andythropics](https://github.com/Andythropics) 基于 Jason Young 与 CC Switch 社区的工作继续开发。新版 Skill 管理目前支持 **macOS + Claude Code / Codex**。Plus 的发布、反馈和维护以本仓库为准。
+
+> **推荐在本地从源码构建并使用。** 当前仍处于预览阶段，建议按[本地构建步骤](#从源码运行)生成适合自己 Mac 的应用。Release 安装包作为便捷试用选项提供，尚未使用 Apple 开发者证书签名或公证。
 
 ## 为什么做 Plus？
 
@@ -39,9 +41,21 @@ CC Switch Plus 为每份受管理的 Skill 保留一个统一来源。全局部�
 
 ## 看看实际界面
 
-![使用虚构演示数据渲染的真实技能库界面](assets/screenshots/plus-library-zh.png)
+![私有技能库：集中管理来源、检查更新并选择部署位置。](assets/screenshots/plus-private-skill-library.png)
 
-_截图使用实际技能库组件与虚构示例 Skills 生成；示例内容不随应用附带。_
+_私有技能库：集中管理来源、检查更新并选择部署位置。_
+
+![全局 Skills：查看 Claude Code 和 Codex 的部署状态。](assets/screenshots/plus-global-skills.png)
+
+_全局 Skills：查看 Claude Code 和 Codex 的部署状态。_
+
+![部署问题修复：检查缺失链接并选择修复方式。](assets/screenshots/plus-resolve-deployment-issues.png)
+
+_部署问题修复：检查缺失链接并选择修复方式。_
+
+![项目工作区：管理各项目的 Skills，并定位不可用的项目。](assets/screenshots/plus-project-workspaces.png)
+
+_项目工作区：管理各项目的 Skills，并定位不可用的项目。_
 
 ```mermaid
 flowchart LR
@@ -64,7 +78,9 @@ Plus 保留了上游的供应商配置与切换、MCP 管理、提示词、配�
 
 ### 1. 安装应用
 
-前往 [Releases](https://github.com/Andythropics/cc-switch-plus/releases) 下载 macOS 构建：Apple Silicon 选 `aarch64`，Intel 选 `x86_64`。打开 DMG，将 **CC Switch Plus** 拖入「应用程序」；也可解压 ZIP 后移动应用。
+**推荐本地构建：** 按[源码构建说明](#从源码运行)准备环境并运行 `pnpm build`，然后打开生成的 DMG，将应用拖入「应用程序」。
+
+也可前往 [Releases](https://github.com/Andythropics/cc-switch-plus/releases) 下载 macOS 构建：Apple Silicon 选 `aarch64`，Intel 选 `x86_64`。打开 DMG，将 **CC Switch Plus** 拖入「应用程序」；也可解压 ZIP 后移动应用。
 
 预览构建尚未使用 Apple 开发者证书签名或公证。如果 macOS 拦截了已核验的下载，可在「**系统设置 → 隐私与安全性 → 仍要打开**」中处理。打开前请核对发布页提供的 `SHA256SUMS`，详见[安装与迁移指南](docs/INSTALL.md)。
 

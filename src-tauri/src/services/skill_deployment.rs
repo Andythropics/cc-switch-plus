@@ -1117,7 +1117,7 @@ impl SkillDeploymentService {
                 );
             }
             Err(error) => {
-                let recovery_required = is_deployment_recovery_required(&error);
+                let recovery_required = is_deployment_recovery_required(error);
                 self.record_deployment_activity(
                     intent,
                     if recovery_required {

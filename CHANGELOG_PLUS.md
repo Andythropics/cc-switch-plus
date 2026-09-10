@@ -2,6 +2,20 @@
 
 The inherited upstream history remains in [CHANGELOG.md](CHANGELOG.md).
 
+## 3.20.1-plus.2 — Skills workflow update / Skills 工作流更新
+
+Based on CC Switch 3.20.1, including upstream work through `5a040348`.
+
+- Adds external Skill source association and CLI installation synchronization.
+- Presents available Skill updates in a review dialog.
+- Unifies global and project Skill cards, clarifies deployment recovery actions, and highlights unavailable projects.
+- Refactors application internals and fixes a Rust lint failure in deployment recovery.
+- Replaces the README demo image with four app screenshots and recommends building locally from source in both languages.
+
+新增外部 Skill 来源关联与 CLI 安装同步，集中审查可用更新；统一全局与项目技能卡片，明确部署修复操作并突出显示不可用项目。重构内部实现并修复 Rust 检查问题。中英文 README 更新为四张应用截图，并明确推荐本地源码构建使用。
+
+**Preview:** macOS Apple Silicon and Intel; packages are not Apple Developer signed or notarized. Back up `~/.cc-switch/` and quit other CC Switch instances before upgrading.
+
 ## 3.20.1-plus.1 — Initial public preview / 首个公开预览版
 
 Based on CC Switch 3.20.1, including upstream work through `5a040348`.

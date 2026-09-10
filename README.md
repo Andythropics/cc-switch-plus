@@ -16,11 +16,13 @@ The Skill management edition of [CC Switch](https://github.com/farion1231/cc-swi
 
 English · [简体中文](README_ZH.md)
 
-[Download](https://github.com/Andythropics/cc-switch-plus/releases) · [Quick start](#quick-start) · [Skills guide](docs/user-manual/en/3-extensions/3.3-skills.md) · [Discussions](https://github.com/Andythropics/cc-switch-plus/discussions) · [Contributing](CONTRIBUTING.md)
+[Build locally (recommended)](#build-from-source) · [Download](https://github.com/Andythropics/cc-switch-plus/releases) · [Quick start](#quick-start) · [Skills guide](docs/user-manual/en/3-extensions/3.3-skills.md) · [Discussions](https://github.com/Andythropics/cc-switch-plus/discussions) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 > **Independent MIT fork, currently in preview.** Maintained by [Andythropics](https://github.com/Andythropics), built on the work of Jason Young and the CC Switch contributors. The redesigned Skills system currently supports **macOS + Claude Code / Codex**. This repository is the home of Plus releases and support.
+
+> **Recommended: build and use the app locally from source.** During preview, follow the [local build instructions](#build-from-source) to package the app for your Mac. Release binaries are available as a convenient preview option and are not Apple Developer signed or notarized.
 
 ## Why Plus?
 
@@ -39,9 +41,21 @@ CC Switch Plus gives every managed Skill one home. Global and project deployment
 
 ## A closer look
 
-![The real Skill Library interface rendered with fictional demonstration data](assets/screenshots/plus-library-en.png)
+![Private Skill Library: manage sources, check updates, and choose deployments.](assets/screenshots/plus-private-skill-library.png)
 
-_The actual Library component, rendered with fictional sample Skills. Sample content is not bundled with the app._
+_Private Skill Library: manage sources, check updates, and choose deployments._
+
+![Global Skills: inspect Claude Code and Codex deployment status.](assets/screenshots/plus-global-skills.png)
+
+_Global Skills: inspect Claude Code and Codex deployment status._
+
+![Resolve Issues: inspect missing deployment links and choose a recovery action.](assets/screenshots/plus-resolve-deployment-issues.png)
+
+_Resolve Issues: inspect missing deployment links and choose a recovery action._
+
+![Project Workspaces: manage project Skills and locate unavailable projects.](assets/screenshots/plus-project-workspaces.png)
+
+_Project Workspaces: manage project Skills and locate unavailable projects._
 
 ```mermaid
 flowchart LR
@@ -64,7 +78,9 @@ Plus retains the upstream foundation: provider configuration and switching, MCP 
 
 ### 1. Install
 
-Download a macOS build from [Releases](https://github.com/Andythropics/cc-switch-plus/releases). Choose `aarch64` for Apple Silicon or `x86_64` for Intel. Open the DMG and drag **CC Switch Plus** into Applications, or extract the ZIP and move the app there.
+**Recommended — build locally:** follow [Build from source](#build-from-source), run `pnpm build`, then open the generated DMG and drag the app into Applications.
+
+Alternatively, download a macOS build from [Releases](https://github.com/Andythropics/cc-switch-plus/releases). Choose `aarch64` for Apple Silicon or `x86_64` for Intel. Open the DMG and drag **CC Switch Plus** into Applications, or extract the ZIP and move the app there.
 
 Preview builds are not signed with an Apple Developer certificate or notarized. If macOS blocks a verified download, use **System Settings → Privacy & Security → Open Anyway**. Check the published `SHA256SUMS` before opening; see the [installation and migration guide](docs/INSTALL.md).
 

@@ -1,6 +1,6 @@
 {
   "name": "cc-switch-plus",
-  "version": "3.20.1-plus.1",
+  "version": "3.20.1-plus.2",
   "description": "A shared Skill Library for Claude Code, Codex, and every project. Built on CC Switch.",
   "type": "module",
   "scripts": {
