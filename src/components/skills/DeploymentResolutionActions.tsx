@@ -331,7 +331,7 @@ export function DeploymentResolutionActions({
 
       {!toggleOnly && canForget && (
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           disabled={actionsDisabled || isUnsupported}
           title={t("skills.library.forgetDescription")}

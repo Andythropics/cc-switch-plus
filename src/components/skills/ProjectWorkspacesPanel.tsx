@@ -265,7 +265,7 @@ function ProjectWorkspaceDeployments({
             {t("skills.projects.addSkills")}
           </Button>
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             disabled={
               !["active", "archived"].includes(workspace.lifecycle) ||
