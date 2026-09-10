@@ -979,10 +979,9 @@ export const LibrarySkillsPanel = forwardRef<
                 <Card
                   key={skill.id}
                   role="article"
-                  className={`glass-card group relative flex h-80 min-w-0 flex-col overflow-hidden transition-all duration-300 hover:shadow-lg${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
+                  className={`glass-card skill-surface-card group relative flex h-80 min-w-0 flex-col overflow-hidden${focusedSkillId === skill.id ? " ring-2 ring-primary" : ""}`}
                   data-testid={`library-skill-${skill.id}`}
                 >
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
                   <CardContent className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto p-4 pt-4">
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">

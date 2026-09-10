@@ -6,11 +6,12 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Search } from "lucide-react";
+import { Globe2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { SkillCardDescription } from "@/components/skills/SkillCardDescription";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { ManagementListSearch } from "@/components/common/ManagementListSearch";
 import {
   Select,
   SelectContent,
@@ -255,19 +256,18 @@ export const GlobalSkillsPanel = forwardRef<
     return (
       <div
         key={consumer}
-        className="flex min-w-[15rem] flex-1 flex-wrap items-center gap-2"
+        className="flex min-w-0 flex-wrap items-center gap-2"
         data-testid={`global-deployment-${skill.id}-${consumer}`}
       >
-        <span className="text-xs font-medium">
-          {consumer === "claude"
-            ? t("skills.library.consumerClaude")
-            : t("skills.library.consumerCodex")}
-        </span>
-        <DeploymentStatusBadge
-          status={deployment?.status ?? "not_deployed"}
-          observed={deployment?.observed}
-        />
+        {deployment &&
+          !["in_sync", "not_deployed"].includes(deployment.status) && (
+            <DeploymentStatusBadge
+              status={deployment.status}
+              observed={deployment.observed}
+            />
+          )}
         <DeploymentResolutionActions
+          iconToggle
           skill={skill}
           target={{ consumer, workspace: "global" }}
           deployment={deployment}
@@ -310,24 +310,18 @@ export const GlobalSkillsPanel = forwardRef<
         </p>
       )}
 
-      <div className="px-5 pt-3">
-        <GlobalSkillImportPanel
-          inspection={globalImportsQuery.data}
-          isLoading={globalImportsQuery.isLoading}
-          isFetching={globalImportsQuery.isFetching}
-          onRefetch={globalImportsQuery.refetch}
-          onBusyChange={setGlobalImportBusy}
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-3 px-5 py-3">
-        <div className="relative min-w-[16rem] flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
+      <div
+        className="flex flex-wrap items-center gap-3 px-5 py-3"
+        role="toolbar"
+      >
+        <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+          <ManagementListSearch
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onValueChange={setQuery}
             placeholder={t("skills.searchPlaceholder")}
-            className="pl-9"
+            ariaLabel={t("skills.searchPlaceholder")}
+            clearLabel={t("common.clear")}
+            className="mb-0"
           />
         </div>
         <Select
@@ -337,7 +331,7 @@ export const GlobalSkillsPanel = forwardRef<
           }
         >
           <SelectTrigger
-            className="w-52"
+            className="w-full sm:w-52"
             aria-label={t("skills.global.statusFilter")}
           >
             <SelectValue />
@@ -355,83 +349,75 @@ export const GlobalSkillsPanel = forwardRef<
         </Select>
       </div>
 
+      <div className="px-5 pb-3">
+        <GlobalSkillImportPanel
+          inspection={globalImportsQuery.data}
+          isLoading={globalImportsQuery.isLoading}
+          isFetching={globalImportsQuery.isFetching}
+          onRefetch={globalImportsQuery.refetch}
+          onBusyChange={setGlobalImportBusy}
+        />
+      </div>
+
       <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
         {isLoading || deploymentLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
+          <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+            <Globe2 className="h-10 w-10 opacity-50" />
             <p className="font-medium">{t("skills.global.empty")}</p>
-            <p className="mt-1 text-sm">
+            <p className="max-w-sm text-sm">
               {t("skills.global.emptyDescription")}
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] items-start gap-3">
             {progressiveSkills.visibleItems.map((skill) => (
-              <article key={skill.id} className="rounded-xl border bg-card p-4">
-                <div className="flex flex-wrap items-start gap-3">
+              <article
+                key={skill.id}
+                className="glass-card skill-surface-card flex h-48 min-w-0 flex-col overflow-hidden rounded-xl border p-4"
+              >
+                <div className="flex max-h-[50%] shrink-0 flex-wrap items-start gap-3 overflow-y-auto">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="min-w-0 break-words font-semibold">
+                      <h3 className="min-w-0 break-words text-sm font-semibold">
                         {skill.displayName}
                       </h3>
                       <Badge
                         variant="outline"
-                        className="max-w-full whitespace-normal break-all text-left font-mono text-xs"
+                        className="min-h-5 max-w-full whitespace-normal break-all border-border-default px-2 py-0 text-left font-mono text-[11px]"
                       >
                         {skill.directory}
                       </Badge>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <span className="min-w-0 break-all">
-                        {t("skills.global.libraryId", { id: skill.id })}
-                      </span>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       {sourceSummary(skill) && (
                         <span className="min-w-0 break-all">
                           {sourceSummary(skill)}
                         </span>
                       )}
-                      <Badge
-                        variant={
-                          skill.compatibility.claude.compatible
-                            ? "secondary"
-                            : "destructive"
-                        }
-                      >
-                        {t("skills.library.consumerClaude")}:{" "}
-                        {skill.compatibility.claude.compatible
-                          ? t("skills.batch.compatible")
-                          : t("skills.batch.incompatible")}
-                      </Badge>
-                      <Badge
-                        variant={
-                          skill.compatibility.codex.compatible
-                            ? "secondary"
-                            : "destructive"
-                        }
-                      >
-                        {t("skills.library.consumerCodex")}:{" "}
-                        {skill.compatibility.codex.compatible
-                          ? t("skills.batch.compatible")
-                          : t("skills.batch.incompatible")}
-                      </Badge>
                     </div>
                   </div>
+                  <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
+                    {renderConsumer(skill, "claude")}
+                    {renderConsumer(skill, "codex")}
+                  </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
-                  {renderConsumer(skill, "claude")}
-                  {renderConsumer(skill, "codex")}
-                </div>
+                {skill.description && (
+                  <SkillCardDescription text={skill.description} />
+                )}
               </article>
             ))}
-            <ProgressiveSkillListFooter
-              visibleCount={progressiveSkills.visibleCount}
-              totalCount={progressiveSkills.totalCount}
-              hasMore={progressiveSkills.hasMore}
-              onShowMore={progressiveSkills.showMore}
-            />
+            <div className="col-span-full">
+              <ProgressiveSkillListFooter
+                visibleCount={progressiveSkills.visibleCount}
+                totalCount={progressiveSkills.totalCount}
+                hasMore={progressiveSkills.hasMore}
+                onShowMore={progressiveSkills.showMore}
+              />
+            </div>
           </div>
         )}
       </div>

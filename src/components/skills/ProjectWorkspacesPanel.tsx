@@ -13,7 +13,9 @@ import {
   Loader2,
   MapPin,
   Pencil,
-  Search,
+  FolderOpen,
+  Layers,
+  Unlink,
   Trash2,
   Wrench,
 } from "lucide-react";
@@ -29,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SkillsDialogContent } from "@/components/skills/SkillsDialogContent";
+import { ManagementListSearch } from "@/components/common/ManagementListSearch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -230,8 +233,8 @@ function ProjectWorkspaceDeployments({
       skill.compatibility[consumer].issues.join("; ") ||
       t("skills.library.incompatibleConsumer", { consumer: label });
     return (
-      <div key={consumer} className="flex flex-wrap items-center gap-1.5">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+      <div key={consumer} className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">
             {label}
           </span>
@@ -265,12 +268,12 @@ function ProjectWorkspaceDeployments({
   };
 
   return (
-    <div className="space-y-2 border-t pt-3">
+    <div className="space-y-3 border-t border-border/50 pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">
           {t("skills.projects.deployments")}
         </h3>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -280,6 +283,7 @@ function ProjectWorkspaceDeployments({
               setBatchDialogOpen(true);
             }}
           >
+            <Layers className="h-4 w-4" />
             {t("skills.projects.addSkills")}
           </Button>
           <Button
@@ -294,6 +298,7 @@ function ProjectWorkspaceDeployments({
               setBatchDialogOpen(true);
             }}
           >
+            <Unlink className="h-4 w-4" />
             {t("skills.batch.undeploy")}
           </Button>
         </div>
@@ -316,16 +321,19 @@ function ProjectWorkspaceDeployments({
         </p>
       ) : (
         progressiveSkills.visibleItems.map((skill) => (
-          <div key={skill.id} className="rounded-lg border p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="min-w-0 break-words font-medium">
+          <div
+            key={skill.id}
+            className="skill-surface-card overflow-hidden rounded-lg border border-border/50 bg-card"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 p-4">
+              <span className="min-w-0 break-words text-sm font-semibold">
                 {skill.displayName}
               </span>
               <span className="min-w-0 break-all font-mono text-xs text-muted-foreground">
                 {skill.directory}
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 gap-2 border-t border-border/50 bg-muted/20 p-3 sm:grid-cols-2">
               {renderControl(skill, "claude")}
               {renderControl(skill, "codex")}
             </div>
@@ -602,11 +610,11 @@ export const ProjectWorkspacesPanel = forwardRef<
     return (
       <article
         key={workspace.id}
-        className={`rounded-xl border p-4 ${selectedWorkspace ? "border-primary ring-2 ring-primary/40" : ""}`}
+        className={`glass-card skill-surface-card space-y-4 rounded-xl border p-4 ${selectedWorkspace ? "border-primary ring-2 ring-primary/40" : ""}`}
         data-testid={`project-workspace-${workspace.lifecycle}`}
         data-workspace-id={workspace.id}
       >
-        <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <button
             className="min-w-0 flex-1 text-left"
             disabled={managementBusy}
@@ -627,11 +635,11 @@ export const ProjectWorkspacesPanel = forwardRef<
                 {t(`skills.projects.lifecycle.${workspace.lifecycle}`)}
               </Badge>
             </div>
-            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+            <p className="mt-1.5 break-all font-mono text-xs text-muted-foreground">
               {workspace.rootPath}
             </p>
           </button>
-          <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
             {actionableRecoveryWorkspaceIds.has(workspace.id) && (
               <TooltipProvider delayDuration={250}>
                 <Tooltip>
@@ -672,7 +680,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                 disabled={managementBusy}
                 onClick={() => setArchiveTarget(workspace)}
               >
-                <Archive className="mr-1 h-3.5 w-3.5" />
+                <Archive className="h-4 w-4" />
                 {t("skills.projects.archive")}
               </Button>
             )}
@@ -684,7 +692,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                   disabled={managementBusy}
                   onClick={() => void restoreWorkspace(workspace)}
                 >
-                  <ArchiveRestore className="mr-1 h-3.5 w-3.5" />
+                  <ArchiveRestore className="h-4 w-4" />
                   {t("skills.projects.restore")}
                 </Button>
                 <Button
@@ -693,7 +701,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                   disabled={managementBusy}
                   onClick={() => setForgetTarget(workspace)}
                 >
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  <Trash2 className="h-4 w-4" />
                   {t("skills.projects.forget")}
                 </Button>
               </>
@@ -705,7 +713,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                 disabled={managementBusy}
                 onClick={() => void openRelocate(workspace)}
               >
-                <MapPin className="mr-1 h-3.5 w-3.5" />
+                <MapPin className="h-4 w-4" />
                 {t("skills.projects.relocate")}
               </Button>
             )}
@@ -743,31 +751,33 @@ export const ProjectWorkspacesPanel = forwardRef<
           {t("skills.projects.loadError")}
         </p>
       )}
-      <div className="px-5 py-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t("skills.searchPlaceholder")}
-            aria-label={t("skills.searchPlaceholder")}
-            className="pl-9"
-          />
-        </div>
+      <div
+        className="flex flex-wrap items-center gap-3 px-5 py-3"
+        role="toolbar"
+      >
+        <ManagementListSearch
+          value={query}
+          onValueChange={setQuery}
+          placeholder={t("skills.searchPlaceholder")}
+          ariaLabel={t("skills.searchPlaceholder")}
+          clearLabel={t("common.clear")}
+          className="mb-0 min-w-0 flex-1"
+        />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+      <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
         {isLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : filteredWorkspaces.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
+          <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+            <FolderOpen className="h-10 w-10 opacity-50" />
             <p className="font-medium">
               {workspaces.length === 0
                 ? t("skills.projects.empty")
                 : t("skills.noResults")}
             </p>
-            <p className="mt-1 text-sm">
+            <p className="max-w-sm text-sm">
               {workspaces.length === 0
                 ? t("skills.projects.emptyDescription")
                 : t("skills.projects.searchNoResults")}
@@ -793,7 +803,7 @@ export const ProjectWorkspacesPanel = forwardRef<
                   size="sm"
                   onClick={() => setShowArchived((visible) => !visible)}
                 >
-                  <Archive className="mr-1.5 h-4 w-4" />
+                  <Archive className="h-4 w-4" />
                   {t(
                     showArchived
                       ? "skills.projects.hideArchived"

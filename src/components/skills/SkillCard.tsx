@@ -50,8 +50,7 @@ export function SkillCard({ skill, onAcquire, installs }: SkillCardProps) {
     skill.directory.trim().toLowerCase() !== skill.name.trim().toLowerCase();
 
   return (
-    <Card className="glass-card group relative flex h-80 min-w-0 flex-col overflow-hidden transition-all duration-300 hover:shadow-lg">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+    <Card className="glass-card skill-surface-card group relative flex h-80 min-w-0 flex-col overflow-hidden">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">

@@ -120,4 +120,92 @@ describe("DeploymentResolutionActions", () => {
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+  it("toggles a compact icon from Deploy to Undeploy after inspection changes", async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    const props = {
+      skill,
+      target: deployed.target,
+      compatible: true,
+      iconToggle: true,
+      deployLabel: "Deploy to Codex",
+      undeployLabel: "Undeploy from Codex",
+      onApply,
+    };
+    const { rerender, container } = render(
+      <DeploymentResolutionActions {...props} />,
+    );
+    const deploy = screen.getByRole("button", { name: "Deploy to Codex" });
+    expect(deploy).toHaveAttribute("aria-pressed", "false");
+    await user.hover(deploy);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Deploy to Codex",
+    );
+    expect(container).not.toContainElement(screen.getByRole("tooltip"));
+    await user.click(deploy);
+    expect(onApply).toHaveBeenLastCalledWith({
+      action: "deploy",
+      librarySkillId: skill.id,
+      target: deployed.target,
+    });
+    rerender(<DeploymentResolutionActions {...props} deployment={deployed} />);
+    const undeploy = screen.getByRole("button", {
+      name: "Undeploy from Codex",
+    });
+    expect(undeploy).toHaveAttribute("aria-pressed", "true");
+    await user.click(undeploy);
+    expect(onApply).toHaveBeenLastCalledWith({
+      action: "undeploy",
+      librarySkillId: skill.id,
+      target: deployed.target,
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("retains confirmation for an abnormal compact deployment", async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DeploymentResolutionActions
+        iconToggle
+        skill={skill}
+        target={deployed.target}
+        deployment={{ ...deployed, status: "conflict" }}
+        compatible
+        deployLabel="Deploy"
+        undeployLabel="Undeploy"
+        onApply={onApply}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Undeploy" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("disables compact deployment for incompatibility or pending work", () => {
+    const onApply = vi.fn();
+    const props = {
+      iconToggle: true,
+      skill,
+      target: deployed.target,
+      compatible: false,
+      deployLabel: "Deploy",
+      undeployLabel: "Undeploy",
+      onApply,
+    };
+    const { rerender } = render(<DeploymentResolutionActions {...props} />);
+    expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
+    rerender(
+      <DeploymentResolutionActions
+        {...props}
+        compatible
+        isPending
+        deployment={deployed}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Undeploy" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Undeploy" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+  });
 });

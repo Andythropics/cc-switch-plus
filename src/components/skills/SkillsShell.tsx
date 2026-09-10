@@ -142,7 +142,8 @@ export function SkillsShell({
                 onClick={() => onViewChange(itemView)}
                 className={cn(
                   "gap-2",
-                  active && "bg-primary/10 text-primary hover:bg-primary/15",
+                  active &&
+                    "bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-100",
                 )}
               >
                 <Icon className="h-4 w-4" />

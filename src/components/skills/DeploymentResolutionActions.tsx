@@ -1,7 +1,15 @@
 import { useState } from "react";
+import { Portal as TooltipPortal } from "@radix-ui/react-tooltip";
 import { useTranslation } from "react-i18next";
-import { Database, Link2, Unlink, Wrench } from "lucide-react";
+import { Database, Link2, Loader2, Unlink, Wrench } from "lucide-react";
 
+import { ClaudeIcon, CodexIcon } from "@/components/BrandIcons";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +29,7 @@ import type {
 import type { WorkspaceLifecycle } from "@/lib/api/projectWorkspaces";
 
 interface DeploymentResolutionActionsProps {
+  iconToggle?: boolean;
   skill: LibrarySkill;
   target: DeploymentTarget;
   deployment?: DeploymentInspection;
@@ -50,6 +59,7 @@ const lifecycleBlockedStatuses = new Set([
  * performs a non-destructive safety check before changing the filesystem.
  */
 export function DeploymentResolutionActions({
+  iconToggle = false,
   skill,
   target,
   deployment,
@@ -122,7 +132,62 @@ export function DeploymentResolutionActions({
 
   return (
     <>
-      {canDeploy && (
+      {iconToggle && (
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={`h-9 w-9 ${status === "in_sync" ? "border-primary/40 bg-primary/10 hover:bg-primary/20" : ""}`}
+                  aria-label={canUndeploy ? undeployLabel : deployLabel}
+                  aria-pressed={hasDesired}
+                  aria-busy={isPending}
+                  disabled={
+                    actionsDisabled ||
+                    (canUndeploy
+                      ? filesystemUnavailable || isUnsupported
+                      : !canDeploy ||
+                        !compatible ||
+                        lifecyclePreventsFilesystem ||
+                        isUnsupported)
+                  }
+                  onClick={() => {
+                    if (canUndeploy && status !== "in_sync") {
+                      setUndeployDialogOpen(true);
+                    } else {
+                      apply({
+                        action: canUndeploy ? "undeploy" : "deploy",
+                        librarySkillId: skill.id,
+                        target,
+                      });
+                    }
+                  }}
+                >
+                  {isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : target.consumer === "claude" ? (
+                    <ClaudeIcon size={18} />
+                  ) : (
+                    <CodexIcon size={18} />
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipPortal>
+              <TooltipContent>
+                <p>{canUndeploy ? undeployLabel : deployLabel}</p>
+                {!compatible && <p>{t("skills.batch.incompatible")}</p>}
+                {status !== "in_sync" && status !== "not_deployed" && (
+                  <p>{t(`skills.library.deploymentStatus.${status}`)}</p>
+                )}
+              </TooltipContent>
+            </TooltipPortal>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+      {!iconToggle && canDeploy && (
         <Button
           variant="outline"
           size="sm"
@@ -140,12 +205,12 @@ export function DeploymentResolutionActions({
             })
           }
         >
-          <Link2 className="mr-1.5 h-3.5 w-3.5" />
+          <Link2 className="h-4 w-4" />
           {deployLabel}
         </Button>
       )}
 
-      {canUndeploy && (
+      {!iconToggle && canUndeploy && (
         <Button
           variant="outline"
           size="sm"
@@ -157,7 +222,7 @@ export function DeploymentResolutionActions({
           }
           onClick={() => setUndeployDialogOpen(true)}
         >
-          <Unlink className="mr-1.5 h-3.5 w-3.5" />
+          <Unlink className="h-4 w-4" />
           {undeployLabel}
         </Button>
       )}
@@ -236,7 +301,7 @@ export function DeploymentResolutionActions({
             })
           }
         >
-          <Wrench className="mr-1.5 h-3.5 w-3.5" />
+          <Wrench className="h-4 w-4" />
           {t("skills.library.repair")}
         </Button>
       )}
@@ -253,7 +318,7 @@ export function DeploymentResolutionActions({
           }
           onClick={() => setReplaceDialogOpen(true)}
         >
-          <Wrench className="mr-1.5 h-3.5 w-3.5" />
+          <Wrench className="h-4 w-4" />
           {t("skills.library.replaceForeignLink")}
         </Button>
       )}
@@ -266,7 +331,7 @@ export function DeploymentResolutionActions({
           title={t("skills.library.forgetDescription")}
           onClick={() => setForgetDialogOpen(true)}
         >
-          <Database className="mr-1.5 h-3.5 w-3.5" />
+          <Database className="h-4 w-4" />
           {t("skills.library.forget")}
         </Button>
       )}

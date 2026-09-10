@@ -260,7 +260,7 @@ export function GlobalSkillImportPanel({
                         variant={mode === "import_only" ? "default" : "outline"}
                         onClick={() => setMode("import_only")}
                       >
-                        <Upload className="mr-1.5 h-3.5 w-3.5" />
+                        <Upload className="h-4 w-4" />
                         {t("skills.global.import.modeImportOnly")}
                       </Button>
                       <Button
@@ -271,7 +271,7 @@ export function GlobalSkillImportPanel({
                         disabled={!canReplace}
                         onClick={() => setMode("import_and_replace")}
                       >
-                        <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                        <Link2 className="h-4 w-4" />
                         {t("skills.global.import.modeImportAndReplace")}
                       </Button>
                     </div>

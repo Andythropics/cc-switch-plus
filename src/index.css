@@ -89,6 +89,25 @@
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
+/* Shared interaction surface for Library, Global, Project and Discover cards. */
+.skill-surface-card {
+  transition:
+    background-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.skill-surface-card:hover,
+.skill-surface-card:focus-within {
+  background: #eff6ff;
+  box-shadow: 0 8px 20px -8px rgb(15 23 42 / 0.18);
+}
+
+.dark .skill-surface-card:hover,
+.dark .skill-surface-card:focus-within {
+  background: #172438;
+  box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.4);
+}
+
 .glass-card-active {
   background: rgba(59, 130, 246, 0.08);
   border: 1px solid rgba(59, 130, 246, 0.4);
