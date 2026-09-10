@@ -3077,6 +3077,8 @@
       "restore": "Restore",
       "restoreSuccess": "Project Workspace restored",
       "relocate": "Relocate",
+      "undetectedTitle": "Project Undetected",
+      "undetectedDescription": "We can’t detect this project at its registered location. If it has moved, use Relocate to select its current folder. Otherwise, restore the folder and click Refresh.",
       "relocateTitle": "Relocate unavailable Workspace",
       "relocateDescription": "Choose the replacement project root. Relocation is allowed only while the old root is unavailable and never changes project contents or links.",
       "relocateConfirm": "Relocate Workspace",

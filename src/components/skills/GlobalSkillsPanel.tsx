@@ -9,8 +9,11 @@ import { useTranslation } from "react-i18next";
 import { Globe2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SkillCardDescription } from "@/components/skills/SkillCardDescription";
-import { Badge } from "@/components/ui/badge";
+import {
+  WorkspaceSkillCard,
+  workspaceSkillGridClassName,
+  sourceSummary,
+} from "@/components/skills/WorkspaceSkillCard";
 import { ManagementListSearch } from "@/components/common/ManagementListSearch";
 import {
   Select,
@@ -20,9 +23,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BatchDeploymentDialog } from "@/components/skills/BatchDeploymentDialog";
-import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import { GlobalSkillImportPanel } from "@/components/skills/GlobalSkillImportPanel";
 import { DeploymentStatusBadge } from "@/components/skills/DeploymentStatusBadge";
+import { DeploymentResolutionActions } from "@/components/skills/DeploymentResolutionActions";
 import {
   showSkillErrorToast,
   skillDiagnosticToastOptions,
@@ -70,13 +73,6 @@ const statuses: DeploymentStatus[] = [
   "archived",
   "unsupported",
 ];
-
-const sourceSummary = (skill: LibrarySkill) => {
-  if (skill.source.repoOwner && skill.source.repoName) {
-    return `${skill.source.repoOwner}/${skill.source.repoName}`;
-  }
-  return skill.source.url;
-};
 
 export const GlobalSkillsPanel = forwardRef<
   GlobalSkillsPanelHandle,
@@ -372,42 +368,12 @@ export const GlobalSkillsPanel = forwardRef<
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] items-start gap-3">
+          <div className={workspaceSkillGridClassName}>
             {progressiveSkills.visibleItems.map((skill) => (
-              <article
-                key={skill.id}
-                className="glass-card skill-surface-card flex h-48 min-w-0 flex-col overflow-hidden rounded-xl border p-4"
-              >
-                <div className="flex max-h-[50%] shrink-0 flex-wrap items-start gap-3 overflow-y-auto">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="min-w-0 break-words text-sm font-semibold">
-                        {skill.displayName}
-                      </h3>
-                      <Badge
-                        variant="outline"
-                        className="min-h-5 max-w-full whitespace-normal break-all border-border-default px-2 py-0 text-left font-mono text-[11px]"
-                      >
-                        {skill.directory}
-                      </Badge>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      {sourceSummary(skill) && (
-                        <span className="min-w-0 break-all">
-                          {sourceSummary(skill)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
-                    {renderConsumer(skill, "claude")}
-                    {renderConsumer(skill, "codex")}
-                  </div>
-                </div>
-                {skill.description && (
-                  <SkillCardDescription text={skill.description} />
-                )}
-              </article>
+              <WorkspaceSkillCard key={skill.id} skill={skill}>
+                {renderConsumer(skill, "claude")}
+                {renderConsumer(skill, "codex")}
+              </WorkspaceSkillCard>
             ))}
             <div className="col-span-full">
               <ProgressiveSkillListFooter

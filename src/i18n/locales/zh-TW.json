@@ -3078,6 +3078,8 @@
       "restore": "還原",
       "restoreSuccess": "專案工作區已還原",
       "relocate": "搬移位置",
+      "undetectedTitle": "未偵測到專案",
+      "undetectedDescription": "目前無法在登記位置偵測到此專案。如果專案已移動，請使用「搬移位置」選擇目前的資料夾；也可以還原原目錄後點擊「重新整理」。",
       "relocateTitle": "搬移無法使用的工作區",
       "relocateDescription": "請選擇替代專案根目錄。只有舊根目錄無法使用時才能搬移，專案內容與連結不會變更。",
       "relocateConfirm": "搬移工作區",

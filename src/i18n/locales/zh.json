@@ -3077,6 +3077,8 @@
       "restore": "恢复",
       "restoreSuccess": "项目工作区已恢复",
       "relocate": "迁移位置",
+      "undetectedTitle": "未检测到项目",
+      "undetectedDescription": "目前无法在登记位置检测到此项目。如果项目已移动，请使用“迁移位置”选择当前文件夹；也可以恢复原目录后点击“刷新”。",
       "relocateTitle": "迁移不可用工作区",
       "relocateDescription": "请选择替代项目根目录。只有旧根目录不可用时才能迁移，项目内容和链接不会被更改。",
       "relocateConfirm": "迁移工作区",

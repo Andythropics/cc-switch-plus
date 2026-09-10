@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   Loader2,
@@ -21,6 +22,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  WorkspaceSkillCard,
+  workspaceSkillGridClassName,
+} from "@/components/skills/WorkspaceSkillCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -232,16 +237,14 @@ function ProjectWorkspaceDeployments({
       t("skills.library.incompatibleConsumer", { consumer: label });
     return (
       <div key={consumer} className="flex min-w-0 flex-wrap items-center gap-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            {label}
-          </span>
+        {deployment && !["in_sync", "not_deployed"].includes(status) && (
           <DeploymentStatusBadge
             status={status}
-            observed={deployment?.observed}
+            observed={deployment.observed}
           />
-        </div>
+        )}
         <DeploymentResolutionActions
+          iconToggle
           skill={skill}
           target={{
             consumer,
@@ -252,8 +255,16 @@ function ProjectWorkspaceDeployments({
           compatible={compatible}
           workspaceLifecycle={workspace.lifecycle}
           isPending={isPending}
-          deployLabel={t("skills.projects.deploy")}
-          undeployLabel={t("skills.projects.undeploy")}
+          deployLabel={
+            consumer === "claude"
+              ? t("skills.library.deployClaude")
+              : t("skills.library.deployCodex")
+          }
+          undeployLabel={
+            consumer === "claude"
+              ? t("skills.library.undeployClaude")
+              : t("skills.library.undeployCodex")
+          }
           onApply={applyDeployment}
         />
         {!compatible && (
@@ -318,25 +329,14 @@ function ProjectWorkspaceDeployments({
           {t("skills.projects.noDeployedSkills")}
         </p>
       ) : (
-        progressiveSkills.visibleItems.map((skill) => (
-          <div
-            key={skill.id}
-            className="skill-surface-card overflow-hidden rounded-lg border border-border/50 bg-card"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 p-4">
-              <span className="min-w-0 break-words text-sm font-semibold">
-                {skill.displayName}
-              </span>
-              <span className="min-w-0 break-all font-mono text-xs text-muted-foreground">
-                {skill.directory}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-2 border-t border-border/50 bg-muted/20 p-3 sm:grid-cols-2">
+        <div className={workspaceSkillGridClassName}>
+          {progressiveSkills.visibleItems.map((skill) => (
+            <WorkspaceSkillCard key={skill.id} skill={skill}>
               {renderControl(skill, "claude")}
               {renderControl(skill, "codex")}
-            </div>
-          </div>
-        ))
+            </WorkspaceSkillCard>
+          ))}
+        </div>
       )}
       <ProgressiveSkillListFooter
         visibleCount={progressiveSkills.visibleCount}
@@ -605,13 +605,30 @@ export const ProjectWorkspacesPanel = forwardRef<
 
   const renderWorkspace = (workspace: ProjectWorkspace) => {
     const selectedWorkspace = selected?.id === workspace.id;
+    const undetected = workspace.lifecycle === "unavailable";
     return (
       <article
         key={workspace.id}
-        className={`glass-card skill-surface-card space-y-4 rounded-xl border p-4 ${selectedWorkspace ? "border-primary ring-2 ring-primary/40" : ""}`}
+        className={`glass-card skill-surface-card space-y-4 rounded-xl border p-4 ${undetected ? `border-destructive/60 ${selectedWorkspace ? "ring-2 ring-destructive/30" : ""}` : selectedWorkspace ? "border-primary ring-2 ring-primary/40" : ""}`}
         data-testid={`project-workspace-${workspace.lifecycle}`}
         data-workspace-id={workspace.id}
       >
+        {undetected && (
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+            <AlertTriangle
+              className="mt-0.5 h-5 w-5 shrink-0"
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">
+                {t("skills.projects.undetectedTitle")}
+              </p>
+              <p className="mt-1 text-sm">
+                {t("skills.projects.undetectedDescription")}
+              </p>
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-start gap-3">
           <button
             className="min-w-0 flex-1 text-left"
@@ -627,13 +644,19 @@ export const ProjectWorkspacesPanel = forwardRef<
               </Badge>
               <Badge
                 variant={
-                  workspace.lifecycle === "active" ? "secondary" : "outline"
+                  undetected
+                    ? "destructive"
+                    : workspace.lifecycle === "active"
+                      ? "secondary"
+                      : "outline"
                 }
               >
                 {t(`skills.projects.lifecycle.${workspace.lifecycle}`)}
               </Badge>
             </div>
-            <p className="mt-1.5 break-all font-mono text-xs text-muted-foreground">
+            <p
+              className={`mt-1.5 break-all font-mono text-xs ${undetected ? "text-destructive" : "text-muted-foreground"}`}
+            >
               {workspace.rootPath}
             </p>
           </button>

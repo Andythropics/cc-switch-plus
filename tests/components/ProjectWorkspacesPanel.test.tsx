@@ -275,6 +275,8 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     expect(screen.getByText("Careful review")).toBeInTheDocument();
+    expect(screen.getByText("Review changes carefully")).toBeInTheDocument();
+    expect(screen.getByText("owner/repo")).toBeInTheDocument();
     expect(screen.queryByText("Unused skill")).not.toBeInTheDocument();
   });
 
@@ -312,7 +314,7 @@ describe("ProjectWorkspacesPanel", () => {
     expect(screen.queryByText("skills.recovery.title")).not.toBeInTheDocument();
     const user = userEvent.setup();
     const deployButtons = screen.getAllByRole("button", {
-      name: "skills.projects.deploy",
+      name: /^skills\.library\.deploy(Claude|Codex)$/,
     });
 
     await user.click(deployButtons[0]);
@@ -347,6 +349,42 @@ describe("ProjectWorkspacesPanel", () => {
     });
   });
 
+  it("undeploys an in-sync skill through its consumer icon in the selected project", async () => {
+    claudeState.items = [
+      {
+        librarySkillId: "library-1",
+        status: "in_sync",
+        desired: { id: "desired-claude" },
+        observed: { state: "correct_link" },
+      },
+    ];
+    render(<ProjectWorkspacesPanel />);
+    const user = userEvent.setup();
+    const claudeToggle = screen.getByRole("button", {
+      name: "skills.library.undeployClaude",
+    });
+    expect(claudeToggle).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "skills.library.deployCodex" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    await user.click(claudeToggle);
+    await waitFor(() =>
+      expect(applyDeploymentsMock).toHaveBeenCalledWith({
+        intents: [
+          {
+            action: "undeploy",
+            librarySkillId: "library-1",
+            target: {
+              consumer: "claude",
+              workspace: "project",
+              workspaceId: "workspace-1",
+            },
+          },
+        ],
+      }),
+    );
+  });
+
   it("limits pending feedback to the clicked project deployment target", async () => {
     let resolveApply: (() => void) | undefined;
     applyDeploymentsMock.mockImplementationOnce(
@@ -365,12 +403,10 @@ describe("ProjectWorkspacesPanel", () => {
     ];
     render(<ProjectWorkspacesPanel />);
     const user = userEvent.setup();
-    const skillCard = screen
-      .getByText("Careful review")
-      .closest("div.rounded-lg");
+    const skillCard = screen.getByText("Careful review").closest("article");
     expect(skillCard).not.toBeNull();
     const clickedButton = within(skillCard as HTMLElement).getByRole("button", {
-      name: "skills.projects.deploy",
+      name: /^skills\.library\.deploy(Claude|Codex)$/,
     });
 
     await user.click(clickedButton);
@@ -378,7 +414,7 @@ describe("ProjectWorkspacesPanel", () => {
     expect(clickedButton).toBeDisabled();
     expect(
       within(skillCard as HTMLElement).getByRole("button", {
-        name: "skills.projects.undeploy",
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
       }),
     ).toBeEnabled();
     expect(
@@ -632,12 +668,14 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     const deployButtons = screen.getAllByRole("button", {
-      name: "skills.projects.deploy",
+      name: /^skills\.library\.deploy(Claude|Codex)$/,
     });
     expect(deployButtons).toHaveLength(1);
     expect(deployButtons[0]).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "skills.projects.undeploy" }),
+      screen.getByRole("button", {
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
+      }),
     ).toBeEnabled();
     expect(
       screen.getByText("Codex does not support this skill"),
@@ -828,10 +866,14 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     expect(
-      screen.getByRole("button", { name: "skills.projects.deploy" }),
+      screen.getByRole("button", {
+        name: /^skills\.library\.deploy(Claude|Codex)$/,
+      }),
     ).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "skills.projects.undeploy" }),
+      screen.getByRole("button", {
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
+      }),
     ).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: "skills.library.repair" }),
@@ -851,12 +893,12 @@ describe("ProjectWorkspacesPanel", () => {
     );
     await user.click(screen.getByText("Archived workspace"));
     const deployButtons = screen.getAllByRole("button", {
-      name: "skills.projects.deploy",
+      name: /^skills\.library\.deploy(Claude|Codex)$/,
     });
     expect(deployButtons).toHaveLength(2);
     deployButtons.forEach((button) => expect(button).toBeDisabled());
     const undeployButtons = screen.getAllByRole("button", {
-      name: "skills.projects.undeploy",
+      name: /^skills\.library\.undeploy(Claude|Codex)$/,
     });
     expect(undeployButtons).toHaveLength(2);
     expect(undeployButtons[0]).toBeDisabled();
@@ -886,7 +928,9 @@ describe("ProjectWorkspacesPanel", () => {
     await user.click(screen.getByText("Archived workspace"));
 
     expect(
-      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+      screen.getAllByRole("button", {
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
+      })[0],
     ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
@@ -908,7 +952,9 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     expect(
-      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+      screen.getAllByRole("button", {
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
+      })[0],
     ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
@@ -934,7 +980,9 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     expect(
-      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+      screen.getAllByRole("button", {
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
+      })[0],
     ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
@@ -956,7 +1004,9 @@ describe("ProjectWorkspacesPanel", () => {
     render(<ProjectWorkspacesPanel />);
 
     expect(
-      screen.getAllByRole("button", { name: "skills.projects.undeploy" })[0],
+      screen.getAllByRole("button", {
+        name: /^skills\.library\.undeploy(Claude|Codex)$/,
+      })[0],
     ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "skills.library.forget" }),
